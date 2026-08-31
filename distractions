@@ -183,17 +183,11 @@ def cycle(step: int) -> None:
 
 
 def apply_network_block() -> None:
-    try:
-        focus_block.apply_block()
-    except focus_block.BlockError:
-        pass
+    focus_block.apply_block()
 
 
 def lift_network_block() -> None:
-    try:
-        focus_block.lift_block()
-    except focus_block.BlockError:
-        pass
+    focus_block.lift_block()
 
 
 def enable_focus() -> None:
@@ -201,7 +195,10 @@ def enable_focus() -> None:
         set_focus(True)
         if on_distractions():
             hide()
-        apply_network_block()
+        try:
+            apply_network_block()
+        except focus_block.BlockError:
+            return
     notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
@@ -216,7 +213,10 @@ def disable_focus(reason: str) -> None:
         handle.write(f"{stamp}  {reason}\n")
     with focus_block.network_lock():
         set_focus(False)
-        lift_network_block()
+        try:
+            lift_network_block()
+        except focus_block.BlockError:
+            return
     notify("Focus mode off", "Super+D opens the distraction space.")
 
 
@@ -276,7 +276,10 @@ def listen() -> None:
         if is_focus() and on_distractions():
             hide()
         if is_focus():
-            apply_network_block()
+            try:
+                apply_network_block()
+            except focus_block.BlockError:
+                pass
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(str(sock_path))

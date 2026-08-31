@@ -5,9 +5,13 @@ from __future__ import annotations
 
 import argparse
 import os
+import select
+import signal
 import socket
 import sys
 from pathlib import Path
+
+SINKHOLE_MARK = 0x0F0C05
 
 SINKHOLE_A = bytes([0, 0, 0, 0])
 SINKHOLE_AAAA = bytes(16)
@@ -85,9 +89,18 @@ def upstream_servers() -> list[str]:
     return []
 
 
+def mark_socket(sock: socket.socket) -> None:
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_MARK, SINKHOLE_MARK)
+    except OSError:
+        pass
+
+
 def forward(query: bytes, servers: list[str]) -> bytes | None:
     for server in servers:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        family = socket.AF_INET6 if ":" in server else socket.AF_INET
+        sock = socket.socket(family, socket.SOCK_DGRAM)
+        mark_socket(sock)
         try:
             sock.settimeout(1.5)
             sock.sendto(query, (server, 53))
@@ -100,26 +113,46 @@ def forward(query: bytes, servers: list[str]) -> bytes | None:
     return None
 
 
-def serve(bind: str, port: int, suffixes: list[str]) -> None:
+def serve(bind: str, port: int, suffix_path: Path) -> None:
+    suffixes = {"items": load_suffixes(suffix_path)}
+
+    def reload_suffixes(_signum, _frame) -> None:
+        suffixes["items"] = load_suffixes(suffix_path)
+
+    signal.signal(signal.SIGHUP, reload_suffixes)
     servers = upstream_servers()
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((bind, port))
-    while True:
+    sockets = []
+    for family, address in ((socket.AF_INET, bind), (socket.AF_INET6, "::1")):
+        sock = socket.socket(family, socket.SOCK_DGRAM)
+        mark_socket(sock)
+        if family == socket.AF_INET6:
+            sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 1)
         try:
-            data, addr = sock.recvfrom(4096)
+            sock.bind((address, port))
         except OSError:
+            sock.close()
             continue
-        parsed = parse_qname(data)
-        if parsed is None:
-            continue
-        qname, end = parsed
-        if blocked_qname(qname, suffixes):
-            qtype = query_type(data, end)
-            sock.sendto(sinkhole_response(data, qtype), addr)
-            continue
-        reply = forward(data, servers)
-        if reply:
-            sock.sendto(reply, addr)
+        sockets.append(sock)
+    if not sockets:
+        raise SystemExit("could not bind the suffix DNS sinkhole")
+    while True:
+        readable, _w, _x = select.select(sockets, [], [], 1)
+        for sock in readable:
+            try:
+                data, addr = sock.recvfrom(4096)
+            except OSError:
+                continue
+            parsed = parse_qname(data)
+            if parsed is None:
+                continue
+            qname, end = parsed
+            if blocked_qname(qname, suffixes["items"]):
+                qtype = query_type(data, end)
+                sock.sendto(sinkhole_response(data, qtype), addr)
+                continue
+            reply = forward(data, servers)
+            if reply:
+                sock.sendto(reply, addr)
 
 
 def daemonize() -> None:
@@ -143,7 +176,7 @@ def main() -> None:
         daemonize()
     if args.pid:
         Path(args.pid).write_text(str(os.getpid()) + "\n", encoding="utf-8")
-    serve(args.bind, args.port, load_suffixes(Path(args.suffixes)))
+    serve(args.bind, args.port, Path(args.suffixes))
 
 
 if __name__ == "__main__":

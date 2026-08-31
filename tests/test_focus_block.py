@@ -90,6 +90,9 @@ class FakeBackend(focus_block.NetworkBackend):
     def reload_dns(self) -> None:
         self.reloads += 1
 
+    def read_suffixes(self) -> list[str] | None:
+        return self.sinkholes[-1] if self.sinkholes else None
+
     def start_sinkhole(self, suffixes: list[str]) -> None:
         if self.fail_on == "start_sinkhole":
             raise RuntimeError("sinkhole start failed")

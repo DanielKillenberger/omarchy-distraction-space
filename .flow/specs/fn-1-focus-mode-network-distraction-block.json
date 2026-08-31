@@ -9,7 +9,7 @@
   "depends_on_epics": [],
   "id": "fn-1-focus-mode-network-distraction-block",
   "impl_review_rounds": {
-    "fn-1-focus-mode-network-distraction-block.1": 3
+    "fn-1-focus-mode-network-distraction-block.1": 4
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -259,6 +259,95 @@
       "task": "fn-1-focus-mode-network-distraction-block.1",
       "timestamp": "2026-08-31T22:03:10.698949Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "b0b9cab543f26d83d8fb443da9c6ed30cd8b7009023138a76dfd4582306898bd",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-826119af05665198ce08b03dc4f87a65",
+            "classification": "introduced",
+            "findingId": "finding-826119af05665198ce08b03dc4f87a65",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-4481b50828284ddef775865101969c1d",
+            "classification": "introduced",
+            "findingId": "finding-4481b50828284ddef775865101969c1d",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-e7dd852d7b65e1694f482b3f80fd12dc",
+            "classification": "introduced",
+            "findingId": "finding-e7dd852d7b65e1694f482b3f80fd12dc",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-2b178e360e553aa45c34f4b31a066468",
+            "classification": "introduced",
+            "findingId": "finding-2b178e360e553aa45c34f4b31a066468",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-90abb706f8068a205a61eac2e0685e75",
+            "classification": "introduced",
+            "findingId": "finding-90abb706f8068a205a61eac2e0685e75",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-74edfdc11d234785cde31b880cfd9d24",
+            "classification": "introduced",
+            "findingId": "finding-74edfdc11d234785cde31b880cfd9d24",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-ac93e936a58cc6192c4aa27b46c06701",
+            "classification": "introduced",
+            "findingId": "finding-ac93e936a58cc6192c4aa27b46c06701",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "d389f76aa9cc634238f51bff0bb82085f45e11f9",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 86,
+      "output_sha256": "9585efb552b2e9b65776ecb7f52e4cd357e220842c12b6e9c2071739748ad9d7",
+      "reservation_id": "428635f8866549e78879766c214e0699",
+      "round_consumed": true,
+      "scope": "impl:fn-1-focus-mode-network-distraction-block.1",
+      "superseded_by": null,
+      "task": "fn-1-focus-mode-network-distraction-block.1",
+      "timestamp": "2026-08-31T22:09:15.234825Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {},
@@ -281,5 +370,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-08-31T22:03:11.070575Z"
+  "updated_at": "2026-08-31T22:09:15.588296Z"
 }

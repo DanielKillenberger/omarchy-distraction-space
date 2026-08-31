@@ -10,6 +10,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -65,6 +66,7 @@ FALLBACK_CATALOG = {
 }
 
 SINKHOLE_PORT = 53553
+SINKHOLE_MARK = 0x0F0C05
 SINKHOLE_UNIT = "omarchy-focus-dns"
 SINKHOLE_PID = Path("/run/omarchy-focus-dns.pid")
 SINKHOLE_SUFFIXES = Path("/run/omarchy-focus.suffixes")
@@ -468,8 +470,9 @@ def nft_ruleset(ipv4: list[str], ipv6: list[str], table: str = NFT_TABLE) -> str
             "  }",
             "  chain dnsnat {",
             "    type nat hook output priority -100; policy accept;",
+            f"    meta mark {SINKHOLE_MARK:#x} return",
             f"    ip daddr != 127.0.0.1 udp dport 53 dnat to 127.0.0.1:{SINKHOLE_PORT}",
-            f"    ip daddr != 127.0.0.1 tcp dport 53 dnat to 127.0.0.1:{SINKHOLE_PORT}",
+            f"    ip6 daddr != ::1 udp dport 53 dnat to [::1]:{SINKHOLE_PORT}",
             "  }",
             "}",
             "",
@@ -610,11 +613,51 @@ class NetworkBackend:
             except BlockError:
                 continue
 
+    def read_suffixes(self) -> list[str] | None:
+        if not SINKHOLE_SUFFIXES.exists():
+            return None
+        return [line.strip() for line in SINKHOLE_SUFFIXES.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def sinkhole_running(self) -> bool:
+        try:
+            privileged(["systemctl", "is-active", "--quiet", SINKHOLE_UNIT])
+            return True
+        except BlockError:
+            pass
+        if SINKHOLE_PID.exists():
+            pid = SINKHOLE_PID.read_text(encoding="utf-8").strip()
+            if pid.isdigit():
+                try:
+                    os.kill(int(pid), 0)
+                    return True
+                except OSError:
+                    return False
+        return False
+
+    def wait_sinkhole_ready(self) -> None:
+        query = b"\x00\x01\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01"
+        deadline = time.time() + 2
+        last = None
+        while time.time() < deadline:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            try:
+                sock.settimeout(0.3)
+                sock.sendto(query, ("127.0.0.1", SINKHOLE_PORT))
+                sock.recvfrom(512)
+                return
+            except OSError as exc:
+                last = exc
+            finally:
+                sock.close()
+        raise BlockError(f"suffix DNS sinkhole did not become ready: {last}")
+
     def start_sinkhole(self, suffixes: list[str]) -> None:
-        self.stop_sinkhole()
         privileged(["tee", str(SINKHOLE_SUFFIXES)], stdin="\n".join(suffixes) + "\n")
         script = str(PLUGIN_ROOT / "focus_dns.py")
-        started = False
+        if self.sinkhole_running():
+            privileged(["killall", "-HUP", "focus_dns.py"])
+            self.wait_sinkhole_ready()
+            return
         try:
             privileged(
                 [
@@ -630,7 +673,6 @@ class NetworkBackend:
                     str(SINKHOLE_PORT),
                 ]
             )
-            started = True
         except BlockError:
             privileged(
                 [
@@ -647,26 +689,27 @@ class NetworkBackend:
                     str(SINKHOLE_PID),
                 ]
             )
-            started = True
-        if not started:
-            raise BlockError("could not start the suffix DNS sinkhole")
+        self.wait_sinkhole_ready()
 
     def stop_sinkhole(self) -> None:
+        errors = []
         try:
             privileged(["systemctl", "stop", SINKHOLE_UNIT])
-        except BlockError:
-            pass
+        except BlockError as exc:
+            errors.append(str(exc))
         if SINKHOLE_PID.exists():
             try:
                 pid = SINKHOLE_PID.read_text(encoding="utf-8").strip()
                 if pid.isdigit():
                     privileged(["kill", pid])
-            except (OSError, BlockError):
-                pass
+            except (OSError, BlockError) as exc:
+                errors.append(str(exc))
             try:
                 privileged(["rm", "-f", str(SINKHOLE_PID)])
-            except BlockError:
-                pass
+            except BlockError as exc:
+                errors.append(str(exc))
+        if self.sinkhole_running():
+            raise BlockError("could not stop the suffix DNS sinkhole: " + "; ".join(errors))
 
 
 def apply_block(
@@ -730,6 +773,7 @@ def _apply_block_locked(
     hosts_written = False
     nft_written = False
     dns_written: list[str] = []
+    previous_suffixes = backend.read_suffixes() if hasattr(backend, "read_suffixes") else None
     sinkhole_started = False
     try:
         backend.start_sinkhole(suffix_names(hostnames))
@@ -763,7 +807,10 @@ def _apply_block_locked(
                 pass
         if sinkhole_started:
             try:
-                backend.stop_sinkhole()
+                if previous_suffixes:
+                    backend.start_sinkhole(previous_suffixes)
+                else:
+                    backend.stop_sinkhole()
             except Exception:
                 pass
         message = f"Could not apply the network block: {exc}"
