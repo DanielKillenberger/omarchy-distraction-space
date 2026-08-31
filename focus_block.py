@@ -9,6 +9,7 @@ import re
 import shutil
 import socket
 import subprocess
+import sys
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -38,6 +39,35 @@ PERMANENT_OPEN = (
 )
 
 USER_ADD_ONLY = ("Bluesky", "Pinterest", "Tumblr")
+
+FALLBACK_CATALOG = {
+    "Telegram": [
+        "telegram.org",
+        "telegram.me",
+        "t.me",
+        "telesco.pe",
+        "tdesktop.com",
+        "telegram-cdn.org",
+        "telegramcdn.org",
+    ],
+    "Discord": [
+        "discord.com",
+        "discordapp.com",
+        "discord.gg",
+        "discord.media",
+        "discordapp.net",
+        "discordcdn.com",
+    ],
+    "WhatsApp": ["whatsapp.com", "whatsapp.net", "wa.me"],
+    "Signal": ["signal.org", "signal.art", "whispersystems.org"],
+    "Google Messages": ["messages.google.com"],
+    "X": ["x.com", "twitter.com", "t.co", "twimg.com"],
+}
+
+SINKHOLE_PORT = 53553
+SINKHOLE_UNIT = "omarchy-focus-dns"
+SINKHOLE_PID = Path("/run/omarchy-focus-dns.pid")
+SINKHOLE_SUFFIXES = Path("/run/omarchy-focus.suffixes")
 
 HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$"
@@ -237,7 +267,7 @@ def validate_entry(raw: str, defaults: dict | None = None) -> tuple[str | None, 
     if any(ch in name for ch in "#;/\\\n\r\t") or ".." in name:
         return None, f"rejected entry: {raw!r}"
     loaded = defaults if defaults is not None else {"catalog": {}}
-    catalog = loaded.get("catalog") or {}
+    catalog = {**FALLBACK_CATALOG, **(loaded.get("catalog") or {})}
     canonical = catalog_lookup(catalog, name)
     if canonical is not None:
         return canonical, None
@@ -298,7 +328,7 @@ def expand_www(host: str) -> list[str]:
 
 
 def hostnames_for(name: str, defaults: dict) -> list[str]:
-    catalog = defaults.get("catalog") or {}
+    catalog = {**FALLBACK_CATALOG, **(defaults.get("catalog") or {})}
     canonical = catalog_lookup(catalog, name)
     raw_hosts: list[str] = []
     if canonical is not None:
@@ -436,6 +466,11 @@ def nft_ruleset(ipv4: list[str], ipv6: list[str], table: str = NFT_TABLE) -> str
             "    ip daddr @v4 drop",
             "    ip6 daddr @v6 drop",
             "  }",
+            "  chain dnsnat {",
+            "    type nat hook output priority -100; policy accept;",
+            f"    ip daddr != 127.0.0.1 udp dport 53 dnat to 127.0.0.1:{SINKHOLE_PORT}",
+            f"    ip daddr != 127.0.0.1 tcp dport 53 dnat to 127.0.0.1:{SINKHOLE_PORT}",
+            "  }",
             "}",
             "",
         ]
@@ -563,6 +598,76 @@ class NetworkBackend:
             return
         privileged(["tee", str(path)], stdin=text)
 
+    def reload_dns(self) -> None:
+        for argv in (
+            ["systemctl", "reload", "NetworkManager"],
+            ["systemctl", "reload", "dnsmasq"],
+            ["killall", "-HUP", "dnsmasq"],
+        ):
+            try:
+                privileged(argv)
+                return
+            except BlockError:
+                continue
+
+    def start_sinkhole(self, suffixes: list[str]) -> None:
+        self.stop_sinkhole()
+        privileged(["tee", str(SINKHOLE_SUFFIXES)], stdin="\n".join(suffixes) + "\n")
+        script = str(PLUGIN_ROOT / "focus_dns.py")
+        started = False
+        try:
+            privileged(
+                [
+                    "systemd-run",
+                    f"--unit={SINKHOLE_UNIT}",
+                    sys.executable,
+                    script,
+                    "--suffixes",
+                    str(SINKHOLE_SUFFIXES),
+                    "--bind",
+                    "127.0.0.1",
+                    "--port",
+                    str(SINKHOLE_PORT),
+                ]
+            )
+            started = True
+        except BlockError:
+            privileged(
+                [
+                    sys.executable,
+                    script,
+                    "--daemon",
+                    "--suffixes",
+                    str(SINKHOLE_SUFFIXES),
+                    "--bind",
+                    "127.0.0.1",
+                    "--port",
+                    str(SINKHOLE_PORT),
+                    "--pid",
+                    str(SINKHOLE_PID),
+                ]
+            )
+            started = True
+        if not started:
+            raise BlockError("could not start the suffix DNS sinkhole")
+
+    def stop_sinkhole(self) -> None:
+        try:
+            privileged(["systemctl", "stop", SINKHOLE_UNIT])
+        except BlockError:
+            pass
+        if SINKHOLE_PID.exists():
+            try:
+                pid = SINKHOLE_PID.read_text(encoding="utf-8").strip()
+                if pid.isdigit():
+                    privileged(["kill", pid])
+            except (OSError, BlockError):
+                pass
+            try:
+                privileged(["rm", "-f", str(SINKHOLE_PID)])
+            except BlockError:
+                pass
+
 
 def apply_block(
     backend: NetworkBackend | None = None,
@@ -587,7 +692,20 @@ def _apply_block_locked(
             notify_user("Focus mode", message)
         raise BlockError(message)
     warnings: list[str] = []
-    hostnames = active_hostnames(config, defaults_path=defaults_path, warnings=warnings)
+    loaded = None
+    try:
+        loaded = load_defaults(defaults_path)
+    except DefaultsMissing as exc:
+        warnings.append(str(exc))
+        loaded = {"default": [], "catalog": {}}
+    names = active_names(config, loaded, defaults_path, warnings)
+    unexpanded = [name for name in names if not hostnames_for(name, loaded)]
+    if unexpanded:
+        message = "Could not apply the network block: no hostnames for " + ", ".join(unexpanded)
+        if notify:
+            notify_user("Focus mode", message)
+        raise BlockError(message)
+    hostnames = active_hostnames(config, loaded, defaults_path, warnings)
     if notify:
         for warning in warnings:
             notify_user("Focus mode", warning)
@@ -612,7 +730,10 @@ def _apply_block_locked(
     hosts_written = False
     nft_written = False
     dns_written: list[str] = []
+    sinkhole_started = False
     try:
+        backend.start_sinkhole(suffix_names(hostnames))
+        sinkhole_started = True
         backend.write_hosts(new_hosts)
         hosts_written = True
         backend.nft_apply(ruleset)
@@ -620,6 +741,8 @@ def _apply_block_locked(
         for path in dns_targets:
             backend.write_dns(path, new_dns)
             dns_written.append(str(path))
+        if dns_written:
+            backend.reload_dns()
     except Exception as exc:
         if hosts_written:
             try:
@@ -636,6 +759,11 @@ def _apply_block_locked(
         for path_text in dns_written:
             try:
                 backend.write_dns(Path(path_text), previous_dns.get(path_text))
+            except Exception:
+                pass
+        if sinkhole_started:
+            try:
+                backend.stop_sinkhole()
             except Exception:
                 pass
         message = f"Could not apply the network block: {exc}"
@@ -671,7 +799,10 @@ def _lift_block_locked(backend: NetworkBackend, notify: bool) -> None:
         for path in dns_targets:
             backend.write_dns(path, None)
             dns_written.append(str(path))
+        if dns_written:
+            backend.reload_dns()
         backend.nft_delete()
+        backend.stop_sinkhole()
     except Exception as exc:
         if hosts_written:
             try:

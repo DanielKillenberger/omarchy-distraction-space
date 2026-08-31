@@ -4,7 +4,7 @@ A named Hyprland workspace for chat and social apps, plus a **focus mode** that 
 
 Focus mode is on by default. Super+1–0, Super+Tab, and the workspace bar never land on the distraction space. Super+D is the only way in, and only after you turn focus mode off.
 
-While focus mode is on, the plugin also blocks the active distraction list at the network level: it sinkholes those hostnames in `/etc/hosts`, drops their resolved addresses with an `nftables` table named `omarchy_focus`, and writes a dnsmasq `address=/suffix/` drop-in when NetworkManager dnsmasq or `/etc/dnsmasq.d` is present so service subdomains such as `*.googlevideo.com` fail DNS too. Turning focus off removes that table, the drop-in, and the marked hosts block. Apply or lift failures are reported and leave the previous network state in place. `nft` is required.
+While focus mode is on, the plugin also blocks the active distraction list at the network level: it sinkholes those hostnames in `/etc/hosts`, drops their resolved addresses with an `nftables` table named `omarchy_focus`, redirects other DNS lookups to a suffix sinkhole on `127.0.0.1:53553`, and writes a dnsmasq `address=/suffix/` drop-in (then reloads NetworkManager or dnsmasq) when that resolver is present. Service subdomains such as `*.googlevideo.com` therefore fail DNS. Turning focus off removes the table, the sinkhole, the drop-in, and the marked hosts block. Apply or lift failures are reported and leave the previous network state in place. `nft` is required. Permanent destinations still expand if the shipped defaults file is missing.
 
 ## Install
 

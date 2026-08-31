@@ -43,6 +43,9 @@ class FakeBackend(focus_block.NetworkBackend):
         self.nft_applies: list[str] = []
         self.deleted = 0
         self.flushed: list[str] = []
+        self.sinkholes: list[list[str]] = []
+        self.stopped = 0
+        self.reloads = 0
         self.resolutions = {
             "youtube.com": (["203.0.113.10"], ["2001:db8::10"]),
             "www.youtube.com": (["203.0.113.10"], []),
@@ -80,6 +83,20 @@ class FakeBackend(focus_block.NetworkBackend):
 
     def flush_conntrack(self, addresses: list[str]) -> None:
         self.flushed.extend(addresses)
+
+    def dns_targets(self) -> list[Path]:
+        return []
+
+    def reload_dns(self) -> None:
+        self.reloads += 1
+
+    def start_sinkhole(self, suffixes: list[str]) -> None:
+        if self.fail_on == "start_sinkhole":
+            raise RuntimeError("sinkhole start failed")
+        self.sinkholes.append(list(suffixes))
+
+    def stop_sinkhole(self) -> None:
+        self.stopped += 1
 
 
 class DefaultsTests(unittest.TestCase):
@@ -265,6 +282,9 @@ class ApplyLiftTests(unittest.TestCase):
         self.assertIn("0.0.0.0 youtube.com", backend.hosts)
         self.assertTrue(backend.nft_applies)
         self.assertIn("203.0.113.10", backend.nft_applies[-1])
+        self.assertTrue(backend.sinkholes)
+        self.assertIn("youtube.com", backend.sinkholes[-1])
+        self.assertIn("dnat to 127.0.0.1:53553", backend.nft_applies[-1])
 
     def test_lift_failure_leaves_blocks(self):
         hosts = focus_block.splice_hosts(
@@ -276,6 +296,50 @@ class ApplyLiftTests(unittest.TestCase):
             focus_block.lift_block(backend=backend, notify=False)
         self.assertIn("youtube.com", backend.hosts)
         self.assertIsNotNone(backend.nft)
+
+    def test_unexpanded_active_name_does_not_replace_state(self):
+        previous = "127.0.0.1 localhost\n"
+        backend = FakeBackend(hosts=previous, nft="table inet omarchy_focus { old }")
+        with tempfile.TemporaryDirectory() as tmp:
+            defaults_path = Path(tmp) / "destinations.json"
+            defaults_path.write_text(
+                json.dumps({"default": [], "catalog": {"EmptyApp": []}}),
+                encoding="utf-8",
+            )
+            with self.assertRaises(focus_block.BlockError):
+                focus_block.apply_block(
+                    backend=backend,
+                    config={"destinations": ["EmptyApp"]},
+                    defaults_path=defaults_path,
+                    notify=False,
+                )
+        self.assertEqual(backend.hosts, previous)
+        self.assertEqual(backend.nft, "table inet omarchy_focus { old }")
+        self.assertFalse(backend.writes)
+
+    def test_missing_defaults_still_expand_permanent_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "nope.json"
+            warnings: list[str] = []
+            hosts = focus_block.active_hostnames(
+                config={},
+                defaults_path=missing,
+                warnings=warnings,
+            )
+            self.assertIn("telegram.org", hosts)
+            self.assertNotIn("youtube.com", hosts)
+
+    def test_sinkhole_start_failure_leaves_previous_state(self):
+        previous = "127.0.0.1 localhost\n"
+        backend = FakeBackend(hosts=previous, fail_on="start_sinkhole")
+        with self.assertRaises(focus_block.BlockError):
+            focus_block.apply_block(
+                backend=backend,
+                config={"destinations": ["YouTube"]},
+                notify=False,
+            )
+        self.assertEqual(backend.hosts, previous)
+        self.assertFalse(backend.writes)
 
     def test_nft_unavailable_leaves_previous_state(self):
         previous = "127.0.0.1 localhost\n"
@@ -309,6 +373,21 @@ class ApplyLiftTests(unittest.TestCase):
         focus_block.lift_block(backend=backend, notify=False)
         self.assertNotIn("youtube.com", backend.hosts)
         self.assertIsNone(backend.nft)
+
+
+class DnsSinkholeTests(unittest.TestCase):
+    def test_sinkhole_answers_blocked_suffix(self):
+        import focus_dns
+
+        qname = b"\x03www\x07youtube\x03com\x00"
+        query = b"\x00\x01\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + qname + b"\x00\x01\x00\x01"
+        parsed = focus_dns.parse_qname(query)
+        self.assertIsNotNone(parsed)
+        qname_text, end = parsed
+        self.assertEqual(qname_text, "www.youtube.com")
+        self.assertTrue(focus_dns.blocked_qname(qname_text, ["youtube.com"]))
+        reply = focus_dns.sinkhole_response(query, focus_dns.query_type(query, end))
+        self.assertTrue(reply.endswith(b"\x00\x00\x00\x00"))
 
 
 if __name__ == "__main__":
