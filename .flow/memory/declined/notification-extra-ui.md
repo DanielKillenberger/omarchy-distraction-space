@@ -10,3 +10,4 @@ A second settings surface would be a different product from mute-plus-grouped-ca
 - 2026-08-31 — /flow-next:plan --depth=short on fn-2-focus-mode-distraction-notification. Kept no history screen and no per-app toggles. Super+Alt+D of an unnamed class stays out of the mute set.
 - 2026-08-31 — /flow-next:plan --depth=short replan after MAJOR_RETHINK (Quickshell). Kept no history screen and no per-app toggles. Super+Alt+D of an unnamed class stays out of the mute set. Omarchy notification history is not a mid-focus reader for this spec's blocked pings.
 - 2026-08-31 — fn-3 replan kept history screen and per-app toggles out of the agent-summary path.
+- 2026-08-31 — fn-3 second replan after MAJOR_RETHINK kept history screen and per-app toggles out.

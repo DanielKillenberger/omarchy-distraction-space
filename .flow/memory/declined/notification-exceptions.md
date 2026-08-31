@@ -10,3 +10,4 @@ An exception path would reopen the same pings focus mode is meant to stop.
 - 2026-08-31 — /flow-next:plan --depth=short on fn-2-focus-mode-distraction-notification. Kept no allow-list and no urgent bypass.
 - 2026-08-31 — /flow-next:plan --depth=short replan after MAJOR_RETHINK (Quickshell). Kept no allow-list and no urgent bypass.
 - 2026-08-31 — fn-3 replan kept allow-list and urgent bypass out of the agent-summary path.
+- 2026-08-31 — fn-3 second replan after MAJOR_RETHINK kept allow-list and urgent bypass out.

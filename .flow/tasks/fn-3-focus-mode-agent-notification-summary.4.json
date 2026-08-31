@@ -1,0 +1,16 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-08-31T23:13:55.067426Z",
+  "depends_on": [
+    "fn-3-focus-mode-agent-notification-summary.3"
+  ],
+  "id": "fn-3-focus-mode-agent-notification-summary.4",
+  "priority": null,
+  "spec": "fn-3-focus-mode-agent-notification-summary",
+  "spec_path": ".flow/tasks/fn-3-focus-mode-agent-notification-summary.4.md",
+  "status": "todo",
+  "title": "Summary ledger and README",
+  "updated_at": "2026-08-31T23:13:56.064850Z"
+}

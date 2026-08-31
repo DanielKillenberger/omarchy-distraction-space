@@ -13,8 +13,8 @@
   "impl_review_rounds": {},
   "next_task": 1,
   "plan_review_rounds": 1,
-  "plan_review_status": "needs_work",
-  "plan_reviewed_at": "2026-08-31T23:02:13.322115Z",
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": "2026-08-31T23:13:56.565443Z",
   "ready": true,
   "review_attempts": [
     {
@@ -299,5 +299,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-08-31T23:02:13.322788Z"
+  "updated_at": "2026-08-31T23:13:56.565453Z"
 }

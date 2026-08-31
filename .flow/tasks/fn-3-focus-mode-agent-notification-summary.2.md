@@ -1,52 +1,49 @@
 ---
-satisfies: [R1, R2, R3, R4, R6, R14, R15]
+satisfies: [R1, R2, R14]
 ---
 
-# fn-3-focus-mode-agent-notification-summary.2 Ping capture, bounded parse, focus-off XOR
+# fn-3-focus-mode-agent-notification-summary.2 Service composition, capture, and session start
 
 ## Description
-Own ping-text capture, run the offered one-shot under R15 bounds, and show one summary or the mute grouped count (R1, R2, R3, R4, R6, R14, R15). Do not implement mute, banners, or the grouped-count builder.
+Compose capture into mute's one Quickshell service, own ping-text JSONL, and start `summarize-session` on focus-on (R1 start, R2, R14). Split from XOR and bounds so the P0 service slot is proven before parse cost work.
 
 **Size:** M
-**Files:** `distractions`, `PingCapture.qml`, `manifest.json`, `tests/test_summary_parse.py`
-**Touches:** [distractions, PingCapture.qml, manifest.json, tests/test_summary_parse.py]
+**Files:** `NotificationFilter.qml`, `PingCapture.qml`, `distractions`, `manifest.json`, `tests/test_summary_session.py`
+**Touches:** [NotificationFilter.qml, PingCapture.qml, distractions, manifest.json, tests/test_summary_session.py]
 
 ## Approach
-- Add plugin service `PingCapture.qml` that observes member toasts while focus is on and `agent_summaries` is true. Append one `{app,title,body,at}` JSONL line this spec owns. Do not dismiss. Do not increment mute counts. Reuse mute's identity map if present. Otherwise match shipped `hypr/windows.lua` apps. Arm `kinds` with `service` in `manifest.json` if missing. Load via `plugins[]` only as needed for the service to run.
-- Hook `enable_focus()` after mute apply (when present). Cancel leftover children. Discard unread stdout. First new ping-text record starts one offered one-shot (prompt = bounded records + last 20 ledger lines / 4 KiB). Shared spawn. Empty dedicated cwd. Process group. No yolo flags. Result file mode `0600`, session id, atomic rename, flock like `listen()`.
-- Bounds from parent spec §Architecture. One child. 20 s debounce. Max 3 invocations per session. 40 records. 24 KiB. Oldest dropped first. 60 s then kill. One final parse at focus-off if unseen records remain and budget remains.
-- No CLI or notify reads ping-text or result while `is_focus()` is true (R2). Delete result on focus-on, focus-off, cancel, and startup recovery.
-- Focus-off state machine. Valid reason. Lift mute. Wait/kill. Optional final parse. Success and non-empty summary → one `notify()` at 12000 ms, then `clear_counts()`. Any fail, off, empty ping-text, or unusable agent → `show_grouped_notice()` (R4, R6). Never call lift then wait after the grouped notice has already fired. When summaries are off, do not change mute's lift-then-notice order. Empty ping-text with nonzero counts still shows the grouped notice. `focus-off` argv/stdin uses the same chain.
-- Extract `show_grouped_notice()` / `clear_counts()` / `lift_notification_block()` if mute inlined them.
+- Keep one `entryPoints.service`. That path is mute's `NotificationFilter.qml`. Do not point the service at `PingCapture.qml`. If `NotificationFilter.qml` is missing because fn-2 has not landed, stop. Do not invent a second service.
+- Add child `PingCapture.qml` instantiated by `NotificationFilter.qml`. In the incoming-toast handler, append `{app,title,body,at}` JSONL before mute dismisses or deletes history. Do not dismiss. Do not increment mute counts. Membership is mute's identity map only. If that map is absent, write nothing.
+- After mute apply in `enable_focus()`, if `agent_summaries` is true, the service starts `Process { command: [helper, "summarize-session"] }`. Restart that Process if it exits while focus is still on. `enable_focus()` writes a new session id unless a lift-fail catch-up is pending, and reaps leftover agent children from the pidfile.
+- `summarize-session` is a flocked long-lived singleton (same flock style as `listen()` at `distractions:244-250`). It watches the JSONL file. It prints nothing about ping-text or the result. `listen()` does not own it.
+- R2. No bar property, `IpcHandler`, or CLI reads ping-text, session stdout, or the result while `is_focus()` is true. Files are mode `0600`. Bind stdout on the QML Process to nowhere the UI can show.
+- Mid-session enable starts the Process and arms capture on the next toast. Mid-session disable cancels the child, discards unread stdout, and stops capture. Mute counts stay.
 
 ## Investigation targets
 **Required** (read before coding):
-- `distractions:180-198` — `enable_focus()` / `disable_focus()` hooks
-- `distractions:237-260` — flock singleton pattern
-- `distractions:280-284` — `focus-off` argv/stdin path
-- `BarWidget.qml` — Quickshell imports and Process skip
-- Parent spec §Architecture capture contract, bounds, and XOR
+- `BarWidget.qml:1-53` — Quickshell imports, `Process` skip, `localPath`
+- `manifest.json:11-16` — add `service` only if mute has not; never replace mute's entry path
+- `distractions:180-184` — `enable_focus()` hook after mute apply
+- `distractions:237-260` — flock singleton to copy for the session lock
+- Planned mute `NotificationFilter.qml` on `fn-2-focus-mode-distraction-notification` @ `1034c134`
 
 **Optional** (reference as needed):
-- `hypr/windows.lua` — shipped member apps if mute's map is absent
-- `manifest.json` — add `service` kind beside `bar-widget`
-- Planned mute task `.2` on branch `fn-2-focus-mode-distraction-notification` — count file and lift-then-notice to wrap, not replace
+- `hypr/autostart.lua:3` — `listen` is Hyprland-only and stays that way
+- Parent spec §Architecture one-service and parser-start sections
 
 ## Key context
-- Planned mute writes `{app-label: int}` only and discards banners. If ping-text is absent, treat it as empty and keep grouped-count catch-up. Do not invent a second mute buffer.
-- Ledger prompt text can be empty until .3 lands. .3 appends lines this task already passes through.
-- fn-1 may also hook `enable_focus` / `disable_focus`. Insert after mute apply/lift. Do not take over the network block.
+- Omarchy third-party services load from `shell.json` `plugins[]`. Mute apply already adds that entry. This task does not replace it.
+- Planned mute writes `{app-label: int}` only and discards banners. Ping-text is this spec's file.
+- Ledger prompt text can be empty until .4 lands. .3 already includes last-20 / 4 KiB pass-through of whatever exists.
 
 ## Acceptance
-- [ ] Member toasts while summaries are on append ping-text this spec owns. Mute count file is not treated as a text queue.
-- [ ] First ping while summaries are on starts one background one-shot under R15 bounds. Failure notifies at focus-off (R1).
-- [ ] No plugin UI or CLI reads the running parse, ping-text, or result while focus is on (R2). Result is `0600`, session-bound, and deleted on reset.
-- [ ] Focus-off shows one summary on success, not each ping (R3). Counts clear only after that notify succeeds.
-- [ ] Off / no usable agent / empty ping-text leaves grouped-count behavior unchanged, including nonempty mute counts (R4).
-- [ ] Invoke, timeout, empty stdout (including `agy -p` on a pipe), or display failure still calls `show_grouped_notice()` after lift (R6).
-- [ ] Replacement parses obey 20 s debounce, one child, 3 invocations, 40/24KiB caps, 60 s kill, and one optional final parse.
+- [ ] `manifest.json` `entryPoints.service` stays `NotificationFilter.qml`. Capture is a child, not a second service.
+- [ ] Member toasts while summaries are on append ping-text this spec owns, before dismiss. Mute count file is not treated as a text queue.
+- [ ] Focus-on with summaries on starts one `summarize-session` Process. First JSONL record is visible to that session without a kick subcommand.
+- [ ] No plugin UI or CLI reads the running parse, ping-text, or result while focus is on (R2). Files are `0600` and session-bound.
+- [ ] Identity map miss writes no ping-text. Session is empty for later R4.
 - [ ] `python3 -m py_compile distractions` passes.
-- [ ] `python3 -m unittest discover -s tests -p 'test_*.py'` covers bounds, timeout/kill, stale-session reject, XOR fallback, and success count-clear.
+- [ ] `python3 -m unittest discover -s tests -p 'test_*.py'` covers session flock, focus-on start, pending-catch-up no-reset, mid-session disable discard, and no CLI dump while focus is on.
 
 ## Done summary
 TBD

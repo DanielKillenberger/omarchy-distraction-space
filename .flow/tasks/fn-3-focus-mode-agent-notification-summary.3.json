@@ -11,6 +11,6 @@
   "spec": "fn-3-focus-mode-agent-notification-summary",
   "spec_path": ".flow/tasks/fn-3-focus-mode-agent-notification-summary.3.md",
   "status": "todo",
-  "title": "Summary ledger and README",
-  "updated_at": "2026-08-31T22:53:22.782008Z"
+  "title": "Bounded parse, lift XOR, and lift-fail retain",
+  "updated_at": "2026-08-31T23:13:54.493506Z"
 }
