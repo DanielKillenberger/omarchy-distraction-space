@@ -72,9 +72,6 @@ class FakeBackend(focus_block.NetworkBackend):
         self.writes.append(text)
         self.hosts = text
 
-    def nft_list(self) -> str | None:
-        return self.nft
-
     def nft_apply(self, ruleset: str) -> None:
         if self.fail_on == "nft_apply":
             raise RuntimeError("nft apply failed")
@@ -119,8 +116,10 @@ class FakeBackend(focus_block.NetworkBackend):
         self.resolv = text
 
     def backup_resolv(self) -> str | None:
-        self.resolv_backup = self.resolv
-        return self.resolv
+        current = self.resolv
+        if self.resolv_backup is None:
+            self.resolv_backup = current
+        return current
 
     def restore_resolv(self) -> None:
         if self.resolv_backup is None:
@@ -142,9 +141,18 @@ class FakeBackend(focus_block.NetworkBackend):
     def read_suffixes(self) -> list[str] | None:
         return self.sinkholes[-1] if self.sinkholes else None
 
-    def start_sinkhole(self, suffixes: list[str], port: int = focus_block.SINKHOLE_PORT) -> None:
+    def nft_list(self) -> str | None:
+        if self.fail_on == "nft_list":
+            raise focus_block.BlockError("sudo: a password is required")
+        return self.nft
+
+    def start_sinkhole(self, suffixes: list[str], port: int = focus_block.SINKHOLE_PORT, upstreams: list[str] | None = None) -> None:
         if self.fail_on == "start_sinkhole":
             raise RuntimeError("sinkhole start failed")
+        if upstreams is not None:
+            self.upstreams = list(upstreams)
+        if self.sinkholes:
+            self.stopped += 1
         self.sinkholes.append(list(suffixes))
         self.sinkhole_port_used = port
 
@@ -541,6 +549,34 @@ class ApplyLiftTests(unittest.TestCase):
         self.assertIn("address=/googlevideo.com/::", backend.dns_files[str(dropin)])
         self.assertEqual(backend.reloads, 1)
         self.assertFalse(backend.sinkholes)
+
+    def test_nft_list_failure_is_reported_as_apply_failure(self):
+        previous = "127.0.0.1 localhost\n"
+        backend = FakeBackend(hosts=previous, nft="table inet omarchy_focus { old }", fail_on="nft_list")
+        with self.assertRaises(focus_block.BlockError) as raised:
+            focus_block.apply_block(
+                backend=backend,
+                config={"destinations": ["YouTube"]},
+                notify=False,
+            )
+        self.assertIn("Could not apply", str(raised.exception))
+        self.assertEqual(backend.hosts, previous)
+        self.assertFalse(backend.writes)
+
+    def test_resolv_reapply_failure_keeps_previous_resolv(self):
+        previous = "127.0.0.1 localhost\n"
+        backend = FakeBackend(hosts=previous, fail_on="verify")
+        backend.kind = "resolv"
+        backend.resolv = "nameserver 127.0.0.1\n"
+        backend.resolv_backup = "nameserver 9.9.9.9\n"
+        with self.assertRaises(focus_block.BlockError):
+            focus_block.apply_block(
+                backend=backend,
+                config={"destinations": ["YouTube"]},
+                notify=False,
+            )
+        self.assertEqual(backend.resolv, "nameserver 127.0.0.1\n")
+        self.assertEqual(backend.resolv_backup, "nameserver 9.9.9.9\n")
 
     def test_nft_delete_failure_is_not_success(self):
         hosts = focus_block.splice_hosts(
