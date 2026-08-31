@@ -327,9 +327,14 @@ def main() -> None:
             raise SystemExit("usage: distractions destinations-add <name-or-host>")
         try:
             with focus_block.network_lock():
+                previous = focus_block.load_config()
                 added = focus_block.add_destination(name)
                 if is_focus():
-                    apply_network_block()
+                    try:
+                        apply_network_block()
+                    except focus_block.BlockError:
+                        focus_block.write_config(previous)
+                        raise
         except focus_block.BlockError as exc:
             notify("Focus mode", str(exc))
             raise SystemExit(str(exc))
@@ -340,9 +345,14 @@ def main() -> None:
             raise SystemExit("usage: distractions destinations-remove <name-or-host>")
         try:
             with focus_block.network_lock():
+                previous = focus_block.load_config()
                 removed = focus_block.remove_destination(name)
                 if is_focus():
-                    apply_network_block()
+                    try:
+                        apply_network_block()
+                    except focus_block.BlockError:
+                        focus_block.write_config(previous)
+                        raise
         except focus_block.BlockError as exc:
             notify("Focus mode", str(exc))
             raise SystemExit(str(exc))

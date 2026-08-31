@@ -84,7 +84,7 @@ class FakeBackend(focus_block.NetworkBackend):
         self.deleted += 1
         self.nft = None
 
-    def resolve(self, host: str) -> tuple[list[str], list[str]]:
+    def resolve(self, host: str, upstreams: list[str] | None = None) -> tuple[list[str], list[str]]:
         return self.resolutions.get(host, ([], []))
 
     def flush_conntrack(self, addresses: list[str]) -> None:
@@ -209,6 +209,11 @@ class DefaultsTests(unittest.TestCase):
             self.assertNotIn("YouTube", names)
             self.assertIn("example.com", names)
             self.assertNotIn("LinkedIn", names)
+            names_with_telegram = focus_block.active_names(
+                config={"destinations": ["YouTube", "Telegram", "example.com"]},
+                defaults_path=missing,
+            )
+            self.assertIn("Telegram", names_with_telegram)
             self.assertTrue(any("youtube" in item.lower() for item in warnings))
 
     def test_user_list_replaces_defaults_until_changed(self):
@@ -549,6 +554,46 @@ class ApplyLiftTests(unittest.TestCase):
         self.assertIn("address=/googlevideo.com/::", backend.dns_files[str(dropin)])
         self.assertEqual(backend.reloads, 1)
         self.assertFalse(backend.sinkholes)
+
+    def test_sinkhole_and_loopback_addrs_are_not_installed(self):
+        previous_nft = (
+            "table inet omarchy_focus {\n"
+            "  set v4 { elements = { 203.0.113.10 } }\n"
+            "  set v6 { elements = { 2001:db8::10 } }\n"
+            "}"
+        )
+        backend = FakeBackend(nft=previous_nft)
+        backend.resolutions = {
+            "youtube.com": (["0.0.0.0"], ["::1"]),
+            "www.youtube.com": (["127.0.0.1"], []),
+        }
+        focus_block.apply_block(
+            backend=backend,
+            config={"destinations": ["YouTube"]},
+            notify=False,
+        )
+        installed = backend.nft_applies[-1]
+        self.assertIn("203.0.113.10", installed)
+        self.assertIn("2001:db8::10", installed)
+        v4, v6 = focus_block.parse_nft_sets(installed)
+        self.assertEqual(v4, ["203.0.113.10"])
+        self.assertEqual(v6, ["2001:db8::10"])
+        self.assertNotIn("0.0.0.0", v4)
+        self.assertNotIn("::1", v6)
+
+    def test_resolv_path_without_upstreams_fails(self):
+        previous = "127.0.0.1 localhost\n"
+        backend = FakeBackend(hosts=previous)
+        backend.kind = "resolv"
+        backend.capture_upstreams = lambda: []  # type: ignore[method-assign]
+        with self.assertRaises(focus_block.BlockError):
+            focus_block.apply_block(
+                backend=backend,
+                config={"destinations": ["YouTube"]},
+                notify=False,
+            )
+        self.assertEqual(backend.hosts, previous)
+        self.assertFalse(backend.writes)
 
     def test_nft_list_failure_is_reported_as_apply_failure(self):
         previous = "127.0.0.1 localhost\n"

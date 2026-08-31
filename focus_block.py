@@ -240,13 +240,14 @@ def active_names(
             seen.add(folded)
             names.append(accepted)
         if missing:
+            catalog = {**FALLBACK_CATALOG, **(loaded.get("catalog") or {})}
             names = [
                 item
                 for item in names
                 if _norm_name(item) != "youtube"
                 and (
                     is_hostname_or_ip(item)
-                    or catalog_lookup(loaded.get("catalog") or {}, item) is not None
+                    or catalog_lookup(catalog, item) is not None
                 )
             ]
         return names
@@ -535,6 +536,83 @@ def resolve_host(host: str) -> tuple[list[str], list[str]]:
     return _unique(ipv4), _unique(ipv6)
 
 
+SINKHOLE_V4 = {"0.0.0.0", "127.0.0.1"}
+SINKHOLE_V6 = {"::", "::1", "0:0:0:0:0:0:0:1"}
+
+
+def usable_v4(address: str) -> bool:
+    return address not in SINKHOLE_V4 and not address.startswith("127.")
+
+
+def usable_v6(address: str) -> bool:
+    lowered = address.lower().split("%", 1)[0]
+    return lowered not in SINKHOLE_V6 and not lowered.startswith("fe80:")
+
+
+def parse_nft_sets(ruleset: str | None) -> tuple[list[str], list[str]]:
+    if not ruleset:
+        return [], []
+    blocks = re.findall(r"elements\s*=\s*\{([^}]*)\}", ruleset)
+    parsed: list[list[str]] = []
+    for block in blocks:
+        parsed.append([item.strip() for item in block.split(",") if item.strip()])
+    ipv4 = [item for item in (parsed[0] if parsed else []) if usable_v4(item)]
+    ipv6 = [item for item in (parsed[1] if len(parsed) > 1 else []) if usable_v6(item)]
+    return ipv4, ipv6
+
+
+def parse_dns_addresses(reply: bytes) -> tuple[list[str], list[str]]:
+    import focus_dns
+
+    if len(reply) < 12:
+        return [], []
+    parsed = focus_dns.parse_qname(reply)
+    if parsed is None:
+        return [], []
+    pos = parsed[1]
+    ancount = int.from_bytes(reply[6:8], "big")
+    ipv4: list[str] = []
+    ipv6: list[str] = []
+    for _ in range(ancount):
+        if pos >= len(reply):
+            break
+        if reply[pos] & 0xC0:
+            pos += 2
+        else:
+            while pos < len(reply) and reply[pos] != 0:
+                pos += 1 + reply[pos]
+            pos += 1
+        if pos + 10 > len(reply):
+            break
+        rtype = int.from_bytes(reply[pos : pos + 2], "big")
+        rdlen = int.from_bytes(reply[pos + 8 : pos + 10], "big")
+        pos += 10
+        rdata = reply[pos : pos + rdlen]
+        pos += rdlen
+        if rtype == 1 and len(rdata) == 4:
+            ipv4.append(".".join(str(part) for part in rdata))
+        elif rtype == 28 and len(rdata) == 16:
+            ipv6.append(socket.inet_ntop(socket.AF_INET6, rdata))
+    return ipv4, ipv6
+
+
+def resolve_via_upstreams(host: str, servers: list[str]) -> tuple[list[str], list[str]]:
+    import focus_dns
+
+    if IPV4_RE.match(host):
+        return [host], []
+    ipv4: list[str] = []
+    ipv6: list[str] = []
+    for qtype in (1, 28):
+        reply = focus_dns.forward(dns_query_packet(host, qtype), servers)
+        if not reply:
+            continue
+        got_v4, got_v6 = parse_dns_addresses(reply)
+        ipv4.extend(got_v4)
+        ipv6.extend(got_v6)
+    return _unique(ipv4), _unique(ipv6)
+
+
 def _unique(items: list[str]) -> list[str]:
     seen = set()
     out = []
@@ -613,7 +691,9 @@ class NetworkBackend:
             return
         privileged(["nft", "delete", "table", "inet", NFT_TABLE])
 
-    def resolve(self, host: str) -> tuple[list[str], list[str]]:
+    def resolve(self, host: str, upstreams: list[str] | None = None) -> tuple[list[str], list[str]]:
+        if upstreams:
+            return resolve_via_upstreams(host, upstreams)
         return resolve_host(host)
 
     def flush_conntrack(self, addresses: list[str]) -> None:
@@ -713,6 +793,9 @@ class NetworkBackend:
         privileged(["rm", "-f", str(RESOLV_BACKUP)])
 
     def capture_upstreams(self) -> list[str]:
+        existing = self.read_upstreams()
+        if existing:
+            return existing
         servers: list[str] = []
         for path in (Path("/run/systemd/resolve/resolv.conf"), RESOLV_PATH):
             if not path.exists():
@@ -824,18 +907,27 @@ class NetworkBackend:
     def verify_suffix_block(self, suffixes: list[str], port: int, kind: str) -> None:
         if kind == "dnsmasq":
             self.wait_sinkhole_ready(suffixes, 53)
-            return
-        self.wait_sinkhole_ready(suffixes, port)
-        if kind != "resolved":
-            return
+        elif kind in {"resolved", "resolv"}:
+            self.wait_sinkhole_ready(suffixes, port)
+        if kind == "resolved":
+            probe = sinkhole_probe_name(suffixes[0])
+            try:
+                result = privileged(["resolvectl", "query", "--legend=no", probe])
+            except BlockError as exc:
+                raise BlockError(f"systemd-resolved did not apply the suffix block: {exc}") from exc
+            text = (result.stdout or "").lower()
+            if "0.0.0.0" not in text and "::" not in text:
+                raise BlockError(f"systemd-resolved still resolves {probe} instead of sinkholing it")
+        self.verify_libc_suffix(suffixes)
+
+    def verify_libc_suffix(self, suffixes: list[str]) -> None:
         probe = sinkhole_probe_name(suffixes[0])
-        try:
-            result = privileged(["resolvectl", "query", "--legend=no", probe])
-        except BlockError as exc:
-            raise BlockError(f"systemd-resolved did not apply the suffix block: {exc}") from exc
-        text = (result.stdout or "").lower()
-        if "0.0.0.0" not in text and "::" not in text:
-            raise BlockError(f"systemd-resolved still resolves {probe} instead of sinkholing it")
+        ipv4, ipv6 = resolve_host(probe)
+        leaked = [item for item in ipv4 if usable_v4(item)] + [item for item in ipv6 if usable_v6(item)]
+        if leaked:
+            raise BlockError(f"system resolver still reaches {probe} at {', '.join(leaked)}")
+        if not ipv4 and not ipv6:
+            raise BlockError(f"system resolver did not sinkhole {probe}")
 
     def _launch_sinkhole(self, port: int) -> None:
         script = str(PLUGIN_ROOT / "focus_dns.py")
@@ -1029,16 +1121,19 @@ def _apply_block_locked(
         kind = backend.resolver_kind() if suffixes else None
         port = backend.sinkhole_port(kind) if kind else SINKHOLE_PORT
 
+        captured = backend.capture_upstreams() if hasattr(backend, "capture_upstreams") else []
+        if suffixes and kind == "resolv" and not captured:
+            raise BlockError("no upstream DNS servers captured for unblocked names")
+        previous_v4, previous_v6 = parse_nft_sets(previous_nft)
         for host in hostnames:
-            v4, v6 = backend.resolve(host)
-            ipv4.extend(v4)
-            ipv6.extend(v6)
-        ipv4 = _unique(ipv4)
-        ipv6 = _unique(ipv6)
+            v4, v6 = backend.resolve(host, captured or None)
+            ipv4.extend(item for item in v4 if usable_v4(item))
+            ipv6.extend(item for item in v6 if usable_v6(item))
+        ipv4 = _unique(ipv4 + previous_v4)
+        ipv6 = _unique(ipv6 + previous_v6)
         ruleset = nft_ruleset(ipv4, ipv6)
 
         if suffixes and kind in {"resolved", "resolv"}:
-            captured = backend.capture_upstreams() if hasattr(backend, "capture_upstreams") else []
             backend.start_sinkhole(suffixes, port, captured)
             sinkhole_started = True
         backend.write_hosts(new_hosts)
