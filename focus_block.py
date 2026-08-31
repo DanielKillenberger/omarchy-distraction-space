@@ -66,10 +66,13 @@ FALLBACK_CATALOG = {
 }
 
 SINKHOLE_PORT = 53553
-SINKHOLE_MARK = 0x0F0C05
 SINKHOLE_UNIT = "omarchy-focus-dns"
 SINKHOLE_PID = Path("/run/omarchy-focus-dns.pid")
 SINKHOLE_SUFFIXES = Path("/run/omarchy-focus.suffixes")
+SINKHOLE_UPSTREAMS = Path("/run/omarchy-focus.upstreams")
+RESOLVED_DROPIN = Path("/etc/systemd/resolved.conf.d/omarchy-focus.conf")
+RESOLV_PATH = Path("/etc/resolv.conf")
+RESOLV_BACKUP = Path("/run/omarchy-focus.resolv.bak")
 
 HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$"
@@ -401,6 +404,46 @@ def dns_fragment(hostnames: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def resolved_fragment(suffixes: list[str], port: int = SINKHOLE_PORT) -> str:
+    domains = " ".join(f"~{suffix}" for suffix in suffixes)
+    return (
+        "# Managed by omarchy-distraction-space. Do not edit by hand.\n"
+        "[Resolve]\n"
+        f"DNS=127.0.0.1:{port} [::1]:{port}\n"
+        f"Domains={domains}\n"
+    )
+
+
+def resolv_fragment() -> str:
+    return (
+        "# Managed by omarchy-distraction-space. Do not edit by hand.\n"
+        "nameserver 127.0.0.1\n"
+        "nameserver ::1\n"
+    )
+
+
+def encode_dns_name(name: str) -> bytes:
+    out = bytearray()
+    labels = [label for label in name.rstrip(".").split(".") if label]
+    for label in labels:
+        encoded = label.encode("ascii")
+        out.append(len(encoded))
+        out.extend(encoded)
+    out.append(0)
+    return bytes(out)
+
+
+def dns_query_packet(name: str, qtype: int) -> bytes:
+    return b"\x12\x34\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + encode_dns_name(name) + qtype.to_bytes(2, "big") + b"\x00\x01"
+
+
+def sinkhole_probe_name(suffix: str) -> str:
+    tail = suffix.rstrip(".").lower()
+    if not tail:
+        return "blocked.invalid"
+    return f"r4---sn-abc.{tail}"
+
+
 def hosts_fragment(hostnames: list[str]) -> str:
     lines = [HOSTS_BEGIN, "# Managed by omarchy-distraction-space. Do not edit by hand."]
     for host in hostnames:
@@ -467,12 +510,6 @@ def nft_ruleset(ipv4: list[str], ipv6: list[str], table: str = NFT_TABLE) -> str
             "    type filter hook output priority 0; policy accept;",
             "    ip daddr @v4 drop",
             "    ip6 daddr @v6 drop",
-            "  }",
-            "  chain dnsnat {",
-            "    type nat hook output priority -100; policy accept;",
-            f"    meta mark {SINKHOLE_MARK:#x} return",
-            f"    ip daddr != 127.0.0.1 udp dport 53 dnat to 127.0.0.1:{SINKHOLE_PORT}",
-            f"    ip6 daddr != ::1 udp dport 53 dnat to [::1]:{SINKHOLE_PORT}",
             "  }",
             "}",
             "",
@@ -584,7 +621,7 @@ class NetworkBackend:
             try:
                 privileged(["conntrack", "-D", "-d", address])
             except BlockError:
-                return
+                continue
 
     def dns_targets(self) -> list[Path]:
         return [path for path in DNS_DROPINS if path.parent.is_dir()]
@@ -601,17 +638,128 @@ class NetworkBackend:
             return
         privileged(["tee", str(path)], stdin=text)
 
-    def reload_dns(self) -> None:
-        for argv in (
-            ["systemctl", "reload", "NetworkManager"],
-            ["systemctl", "reload", "dnsmasq"],
-            ["killall", "-HUP", "dnsmasq"],
-        ):
+    def resolved_active(self) -> bool:
+        if Path("/run/systemd/resolve/resolv.conf").exists():
+            return True
+        try:
+            privileged(["systemctl", "is-active", "--quiet", "systemd-resolved"])
+            return True
+        except BlockError:
+            return False
+
+    def dnsmasq_usable(self) -> bool:
+        nm = Path("/etc/NetworkManager/NetworkManager.conf")
+        if nm.exists():
             try:
-                privileged(argv)
-                return
-            except BlockError:
+                text = nm.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            if re.search(r"(?im)^\s*dns\s*=\s*dnsmasq\b", text):
+                return True
+        try:
+            privileged(["systemctl", "is-active", "--quiet", "dnsmasq"])
+            return True
+        except BlockError:
+            return False
+
+    def resolver_kind(self) -> str:
+        if self.resolved_active():
+            return "resolved"
+        if self.dnsmasq_usable():
+            return "dnsmasq"
+        return "resolv"
+
+    def sinkhole_port(self, kind: str) -> int:
+        return 53 if kind == "resolv" else SINKHOLE_PORT
+
+    def read_resolved(self) -> str | None:
+        if not RESOLVED_DROPIN.exists():
+            return None
+        return RESOLVED_DROPIN.read_text(encoding="utf-8")
+
+    def write_resolved(self, text: str | None) -> None:
+        if text is None:
+            if RESOLVED_DROPIN.exists():
+                privileged(["rm", "-f", str(RESOLVED_DROPIN)])
+            return
+        privileged(["mkdir", "-p", str(RESOLVED_DROPIN.parent)])
+        privileged(["tee", str(RESOLVED_DROPIN)], stdin=text)
+
+    def read_resolv(self) -> str:
+        if not RESOLV_PATH.exists():
+            return ""
+        return RESOLV_PATH.read_text(encoding="utf-8")
+
+    def write_resolv(self, text: str) -> None:
+        privileged(["tee", str(RESOLV_PATH)], stdin=text)
+
+    def backup_resolv(self) -> str | None:
+        if RESOLV_BACKUP.exists():
+            return RESOLV_BACKUP.read_text(encoding="utf-8")
+        if not RESOLV_PATH.exists():
+            return None
+        text = self.read_resolv()
+        privileged(["tee", str(RESOLV_BACKUP)], stdin=text)
+        return text
+
+    def restore_resolv(self) -> None:
+        if not RESOLV_BACKUP.exists():
+            return
+        text = RESOLV_BACKUP.read_text(encoding="utf-8")
+        self.write_resolv(text)
+        privileged(["rm", "-f", str(RESOLV_BACKUP)])
+
+    def capture_upstreams(self) -> list[str]:
+        servers: list[str] = []
+        for path in (Path("/run/systemd/resolve/resolv.conf"), RESOLV_PATH):
+            if not path.exists():
                 continue
+            try:
+                lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            found = []
+            for line in lines:
+                parts = line.split()
+                if len(parts) < 2 or parts[0] != "nameserver":
+                    continue
+                server = parts[1]
+                if server.startswith("127.") or server in {":1", "::1"}:
+                    continue
+                found.append(server)
+            if found:
+                servers = found
+                break
+        return _unique(servers)
+
+    def write_upstreams(self, servers: list[str]) -> None:
+        privileged(["tee", str(SINKHOLE_UPSTREAMS)], stdin="".join(f"{item}\n" for item in servers))
+
+    def reload_resolver(self, kind: str) -> None:
+        if kind == "resolved":
+            try:
+                privileged(["systemctl", "reload", "systemd-resolved"])
+            except BlockError:
+                privileged(["systemctl", "restart", "systemd-resolved"])
+            try:
+                privileged(["resolvectl", "flush-caches"])
+            except BlockError:
+                pass
+            return
+        if kind == "dnsmasq":
+            errors = []
+            for argv in (
+                ["systemctl", "reload", "dnsmasq"],
+                ["killall", "-HUP", "dnsmasq"],
+                ["systemctl", "reload", "NetworkManager"],
+            ):
+                try:
+                    privileged(argv)
+                    return
+                except BlockError as exc:
+                    errors.append(str(exc))
+            raise BlockError("could not reload dnsmasq: " + "; ".join(errors))
+        return
 
     def read_suffixes(self) -> list[str] | None:
         if not SINKHOLE_SUFFIXES.exists():
@@ -634,62 +782,73 @@ class NetworkBackend:
                     return False
         return False
 
-    def wait_sinkhole_ready(self) -> None:
-        query = b"\x00\x01\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x01"
-        deadline = time.time() + 2
-        last = None
-        while time.time() < deadline:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            try:
-                sock.settimeout(0.3)
-                sock.sendto(query, ("127.0.0.1", SINKHOLE_PORT))
-                sock.recvfrom(512)
-                return
-            except OSError as exc:
-                last = exc
-            finally:
-                sock.close()
-        raise BlockError(f"suffix DNS sinkhole did not become ready: {last}")
+    def query_sinkhole(self, name: str, qtype: int, port: int, address: str = "127.0.0.1") -> bytes:
+        family = socket.AF_INET6 if ":" in address else socket.AF_INET
+        sock = socket.socket(family, socket.SOCK_DGRAM)
+        try:
+            sock.settimeout(0.4)
+            sock.sendto(dns_query_packet(name, qtype), (address, port))
+            data, _addr = sock.recvfrom(512)
+            return data
+        finally:
+            sock.close()
 
-    def start_sinkhole(self, suffixes: list[str]) -> None:
+    def wait_sinkhole_ready(self, suffixes: list[str], port: int = SINKHOLE_PORT) -> None:
+        if not suffixes:
+            raise BlockError("suffix DNS sinkhole has no suffixes to serve")
+        probe = sinkhole_probe_name(suffixes[0])
+        deadline = time.time() + 3
+        last: Exception | None = None
+        while time.time() < deadline:
+            try:
+                answer = self.query_sinkhole(probe, 1, port)
+                if answer.endswith(b"\x00\x00\x00\x00"):
+                    aaaa = self.query_sinkhole(probe, 28, port)
+                    if aaaa.endswith(bytes(16)):
+                        return
+                    last = BlockError("suffix sinkhole AAAA was not ::")
+                    continue
+                last = BlockError("suffix sinkhole A was not 0.0.0.0")
+            except (OSError, BlockError) as exc:
+                last = exc
+            time.sleep(0.05)
+        raise BlockError(f"suffix DNS sinkhole did not answer {probe} with 0.0.0.0/:: : {last}")
+
+    def verify_suffix_block(self, suffixes: list[str], port: int, kind: str) -> None:
+        self.wait_sinkhole_ready(suffixes, port)
+        if kind != "resolved":
+            return
+        probe = sinkhole_probe_name(suffixes[0])
+        try:
+            result = privileged(["resolvectl", "query", "--legend=no", probe])
+        except BlockError as exc:
+            raise BlockError(f"systemd-resolved did not apply the suffix block: {exc}") from exc
+        text = (result.stdout or "").lower()
+        if "0.0.0.0" not in text and "::" not in text:
+            raise BlockError(f"systemd-resolved still resolves {probe} instead of sinkholing it")
+
+    def start_sinkhole(self, suffixes: list[str], port: int = SINKHOLE_PORT) -> None:
         privileged(["tee", str(SINKHOLE_SUFFIXES)], stdin="\n".join(suffixes) + "\n")
         script = str(PLUGIN_ROOT / "focus_dns.py")
+        argv_common = [
+            sys.executable,
+            script,
+            "--suffixes",
+            str(SINKHOLE_SUFFIXES),
+            "--upstreams",
+            str(SINKHOLE_UPSTREAMS),
+            "--bind",
+            "127.0.0.1",
+            "--port",
+            str(port),
+        ]
         if self.sinkhole_running():
-            privileged(["killall", "-HUP", "focus_dns.py"])
-            self.wait_sinkhole_ready()
-            return
+            self.stop_sinkhole()
         try:
-            privileged(
-                [
-                    "systemd-run",
-                    f"--unit={SINKHOLE_UNIT}",
-                    sys.executable,
-                    script,
-                    "--suffixes",
-                    str(SINKHOLE_SUFFIXES),
-                    "--bind",
-                    "127.0.0.1",
-                    "--port",
-                    str(SINKHOLE_PORT),
-                ]
-            )
+            privileged(["systemd-run", f"--unit={SINKHOLE_UNIT}", *argv_common])
         except BlockError:
-            privileged(
-                [
-                    sys.executable,
-                    script,
-                    "--daemon",
-                    "--suffixes",
-                    str(SINKHOLE_SUFFIXES),
-                    "--bind",
-                    "127.0.0.1",
-                    "--port",
-                    str(SINKHOLE_PORT),
-                    "--pid",
-                    str(SINKHOLE_PID),
-                ]
-            )
-        self.wait_sinkhole_ready()
+            privileged([*argv_common, "--daemon", "--pid", str(SINKHOLE_PID)])
+        self.wait_sinkhole_ready(suffixes, port)
 
     def stop_sinkhole(self) -> None:
         errors = []
@@ -749,6 +908,11 @@ def _apply_block_locked(
             notify_user("Focus mode", message)
         raise BlockError(message)
     hostnames = active_hostnames(config, loaded, defaults_path, warnings)
+    if not hostnames:
+        message = "Could not apply the network block: the active list expanded to no hostnames"
+        if notify:
+            notify_user("Focus mode", message)
+        raise BlockError(message)
     if notify:
         for warning in warnings:
             notify_user("Focus mode", warning)
@@ -757,8 +921,13 @@ def _apply_block_locked(
     previous_nft = backend.nft_list()
     dns_targets = backend.dns_targets()
     previous_dns = {str(path): backend.read_dns(path) for path in dns_targets}
+    previous_resolved = backend.read_resolved() if hasattr(backend, "read_resolved") else None
+    previous_resolv = backend.read_resolv() if hasattr(backend, "read_resolv") else None
+    previous_suffixes = backend.read_suffixes() if hasattr(backend, "read_suffixes") else None
     new_hosts = splice_hosts(previous_hosts, hosts_fragment(hostnames))
-    new_dns = dns_fragment(hostnames)
+    suffixes = suffix_names(hostnames)
+    kind = backend.resolver_kind() if suffixes else None
+    port = backend.sinkhole_port(kind) if kind else SINKHOLE_PORT
 
     ipv4: list[str] = []
     ipv6: list[str] = []
@@ -773,21 +942,11 @@ def _apply_block_locked(
     hosts_written = False
     nft_written = False
     dns_written: list[str] = []
-    previous_suffixes = backend.read_suffixes() if hasattr(backend, "read_suffixes") else None
+    resolved_written = False
+    resolv_written = False
     sinkhole_started = False
-    try:
-        backend.start_sinkhole(suffix_names(hostnames))
-        sinkhole_started = True
-        backend.write_hosts(new_hosts)
-        hosts_written = True
-        backend.nft_apply(ruleset)
-        nft_written = True
-        for path in dns_targets:
-            backend.write_dns(path, new_dns)
-            dns_written.append(str(path))
-        if dns_written:
-            backend.reload_dns()
-    except Exception as exc:
+
+    def rollback() -> None:
         if hosts_written:
             try:
                 backend.write_hosts(previous_hosts)
@@ -805,14 +964,60 @@ def _apply_block_locked(
                 backend.write_dns(Path(path_text), previous_dns.get(path_text))
             except Exception:
                 pass
+        if resolved_written:
+            try:
+                backend.write_resolved(previous_resolved)
+                backend.reload_resolver("resolved")
+            except Exception:
+                pass
+        if resolv_written:
+            try:
+                if hasattr(backend, "restore_resolv"):
+                    backend.restore_resolv()
+                elif previous_resolv is not None:
+                    backend.write_resolv(previous_resolv)
+            except Exception:
+                pass
         if sinkhole_started:
             try:
                 if previous_suffixes:
-                    backend.start_sinkhole(previous_suffixes)
+                    backend.start_sinkhole(previous_suffixes, port)
                 else:
                     backend.stop_sinkhole()
             except Exception:
                 pass
+
+    try:
+        if suffixes and kind in {"resolved", "resolv"}:
+            if hasattr(backend, "write_upstreams"):
+                backend.write_upstreams(backend.capture_upstreams())
+            backend.start_sinkhole(suffixes, port)
+            sinkhole_started = True
+        backend.write_hosts(new_hosts)
+        hosts_written = True
+        backend.nft_apply(ruleset)
+        nft_written = True
+        if suffixes and kind == "resolved":
+            backend.write_resolved(resolved_fragment(suffixes, port))
+            resolved_written = True
+            backend.reload_resolver("resolved")
+            backend.verify_suffix_block(suffixes, port, "resolved")
+        elif suffixes and kind == "dnsmasq":
+            if not dns_targets:
+                raise BlockError("dnsmasq is the resolver but no drop-in directory is available")
+            new_dns = dns_fragment(hostnames)
+            for path in dns_targets:
+                backend.write_dns(path, new_dns)
+                dns_written.append(str(path))
+            backend.reload_resolver("dnsmasq")
+        elif suffixes and kind == "resolv":
+            if hasattr(backend, "backup_resolv"):
+                backend.backup_resolv()
+            backend.write_resolv(resolv_fragment())
+            resolv_written = True
+            backend.verify_suffix_block(suffixes, port, "resolv")
+    except Exception as exc:
+        rollback()
         message = f"Could not apply the network block: {exc}"
         if notify:
             notify_user("Focus mode", message)
@@ -836,18 +1041,28 @@ def _lift_block_locked(backend: NetworkBackend, notify: bool) -> None:
     previous_hosts = backend.read_hosts()
     dns_targets = backend.dns_targets()
     previous_dns = {str(path): backend.read_dns(path) for path in dns_targets}
+    previous_resolved = backend.read_resolved() if hasattr(backend, "read_resolved") else None
     new_hosts = splice_hosts(previous_hosts, None)
     hosts_written = False
     dns_written: list[str] = []
+    resolved_cleared = False
     try:
         if new_hosts != previous_hosts:
             backend.write_hosts(new_hosts)
             hosts_written = True
+        if hasattr(backend, "write_resolved") and previous_resolved:
+            backend.write_resolved(None)
+            resolved_cleared = True
+            backend.reload_resolver("resolved")
+        if hasattr(backend, "restore_resolv"):
+            backend.restore_resolv()
         for path in dns_targets:
+            if backend.read_dns(path) is None:
+                continue
             backend.write_dns(path, None)
             dns_written.append(str(path))
         if dns_written:
-            backend.reload_dns()
+            backend.reload_resolver("dnsmasq")
         backend.nft_delete()
         backend.stop_sinkhole()
     except Exception as exc:
@@ -859,6 +1074,12 @@ def _lift_block_locked(backend: NetworkBackend, notify: bool) -> None:
         for path_text in dns_written:
             try:
                 backend.write_dns(Path(path_text), previous_dns.get(path_text))
+            except Exception:
+                pass
+        if resolved_cleared:
+            try:
+                backend.write_resolved(previous_resolved)
+                backend.reload_resolver("resolved")
             except Exception:
                 pass
         message = f"Could not lift the network block: {exc}"

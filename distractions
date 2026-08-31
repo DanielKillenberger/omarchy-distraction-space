@@ -192,13 +192,13 @@ def lift_network_block() -> None:
 
 def enable_focus() -> None:
     with focus_block.network_lock():
-        set_focus(True)
-        if on_distractions():
-            hide()
         try:
             apply_network_block()
         except focus_block.BlockError:
             return
+        set_focus(True)
+        if on_distractions():
+            hide()
     notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
