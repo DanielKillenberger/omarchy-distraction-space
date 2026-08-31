@@ -15,7 +15,7 @@ omarchy plugin add https://github.com/DanielKillenberger/omarchy-distraction-spa
 The bar widget appears in the center section. Move it if you want:
 
 ```bash
-omarchy bar move daniel.focus --section right
+omarchy bar move distraction-space --section right
 ```
 
 Copy the Hyprland snippets into your user config (plugin add does not edit Hyprland for you):
@@ -27,15 +27,15 @@ Copy the Hyprland snippets into your user config (plugin add does not edit Hyprl
 Then:
 
 ```bash
-chmod +x ~/.config/omarchy/plugins/daniel.focus/distractions
-cp ~/.config/omarchy/plugins/daniel.focus/focus.json ~/.config/omarchy/focus.json
+chmod +x ~/.config/omarchy/plugins/distraction-space/distractions
+cp ~/.config/omarchy/plugins/distraction-space/focus.json ~/.config/omarchy/focus.json
 hyprctl reload
 ```
 
 Start the listener once if you do not want to log out:
 
 ```bash
-~/.config/omarchy/plugins/daniel.focus/distractions listen &
+~/.config/omarchy/plugins/distraction-space/distractions listen &
 ```
 
 Edit the `o.window(...)` lines in the windows snippet if your chat apps use different classes.
@@ -59,10 +59,10 @@ Turning focus **on** is instant. Turning it **off** opens a zenity field; the re
 ## Commands
 
 ```bash
-~/.config/omarchy/plugins/daniel.focus/distractions toggle
-~/.config/omarchy/plugins/daniel.focus/distractions focus
-~/.config/omarchy/plugins/daniel.focus/distractions focus-status
-~/.config/omarchy/plugins/daniel.focus/distractions log-path
+~/.config/omarchy/plugins/distraction-space/distractions toggle
+~/.config/omarchy/plugins/distraction-space/distractions focus
+~/.config/omarchy/plugins/distraction-space/distractions focus-status
+~/.config/omarchy/plugins/distraction-space/distractions log-path
 ```
 
 ## License

@@ -6,7 +6,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "daniel.focus"
+  moduleName: "distraction-space"
 
   property bool focusOn: true
   readonly property string helperPath: localPath(Qt.resolvedUrl("distractions"))
@@ -31,7 +31,7 @@ BarWidget {
   }
 
   IpcHandler {
-    target: "daniel.focus-bar"
+    target: "distraction-space-bar"
     function refresh(): void {
       root.refresh()
     }

@@ -1,7 +1,7 @@
 -- Add to ~/.config/hypr/bindings.lua
 -- Super+Ctrl+Shift+F is unbound in stock Omarchy.
 
-local helper = os.getenv("HOME") .. "/.config/omarchy/plugins/daniel.focus/distractions"
+local helper = os.getenv("HOME") .. "/.config/omarchy/plugins/distraction-space/distractions"
 
 o.bind("SUPER + CTRL + SHIFT + F", "Toggle focus mode", helper .. " focus")
 
