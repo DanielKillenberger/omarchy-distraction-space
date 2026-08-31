@@ -1,0 +1,16 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-08-31T22:16:36.127500Z",
+  "depends_on": [
+    "fn-2-focus-mode-distraction-notification.1"
+  ],
+  "id": "fn-2-focus-mode-distraction-notification.2",
+  "priority": null,
+  "spec": "fn-2-focus-mode-distraction-notification",
+  "spec_path": ".flow/tasks/fn-2-focus-mode-distraction-notification.2.md",
+  "status": "todo",
+  "title": "Grouped catch-up count and docs",
+  "updated_at": "2026-08-31T22:16:36.127500Z"
+}

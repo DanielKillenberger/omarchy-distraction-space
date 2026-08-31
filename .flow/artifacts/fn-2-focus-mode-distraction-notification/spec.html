@@ -55,7 +55,7 @@ h1 .id { color: var(--amber); }
   margin: 0 0 28px;
 }
 .dial {
-  flex: 1 1 120px; padding: 14px 16px;
+  flex: 1 1 110px; padding: 14px 16px;
   border-right: 1px solid var(--line);
 }
 .dial:last-child { border-right: none; }
@@ -88,6 +88,7 @@ section:nth-of-type(4) { animation-delay: .20s; }
 section:nth-of-type(5) { animation-delay: .25s; }
 section:nth-of-type(6) { animation-delay: .30s; }
 section:nth-of-type(7) { animation-delay: .35s; }
+section:nth-of-type(8) { animation-delay: .40s; }
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 table { width: 100%; border-collapse: collapse; }
 th {
@@ -95,14 +96,14 @@ th {
   color: var(--faint); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--line);
 }
 td { padding: 10px; border-bottom: 1px solid var(--line-soft); color: var(--dim); vertical-align: top; }
-tr:hover td { color: var(--ink); background: #1c170d; }
-.tagchip {
+tr:hover td, tr.lit td { color: var(--ink); background: #1c170d; }
+.tagchip, .tchip {
   display: inline-block; border: 1px solid var(--line); padding: 1px 7px;
   font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
 }
 .tagchip.user { color: var(--green); border-color: #2a4a28; }
 .tagchip.paraphrase { color: var(--cyan); border-color: #1a3a42; }
-.tagchip.inferred { color: var(--red); border-color: #4a2224; }
+.tchip { color: var(--amber); margin-right: 4px; }
 .archgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .archbox { border: 1px solid var(--line); background: var(--panel); padding: 14px 16px; }
 .archbox h3 { margin: 0 0 6px; font-size: 13px; color: var(--amber); }
@@ -126,8 +127,23 @@ tr:hover td { color: var(--ink); background: #1c170d; }
 .ecard.low { border-left: 3px solid var(--cyan); }
 .ecard h3 { margin: 0 0 6px; font-size: 13px; }
 .ecard p { margin: 0; color: var(--dim); }
-.parked { border: 1px solid var(--line); background: var(--panel); padding: 8px 0; }
-.parked li { color: var(--dim); margin: 6px 18px; }
+.proof {
+  border: 1px solid var(--amber-deep); background: var(--panel);
+  padding: 14px 16px; margin: 0 0 12px;
+}
+.dagwrap { position: relative; overflow-x: auto; min-height: 160px; }
+#edges { position: absolute; inset: 0; pointer-events: none; overflow: visible; }
+#edges path { fill: none; stroke: var(--line); stroke-width: 1.5; }
+#edges path.crit { stroke: var(--amber); stroke-width: 2.4; }
+.daggrid { display: flex; gap: 48px; position: relative; z-index: 1; padding: 18px 8px; }
+.dagcol { display: flex; flex-direction: column; gap: 12px; min-width: 220px; }
+.node {
+  border: 1px solid var(--line); background: var(--panel); padding: 12px 14px;
+}
+.node.lit { border-color: var(--amber); }
+.node .nid { color: var(--amber); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+.node .nt { color: var(--ink); margin-top: 4px; }
+.legend { color: var(--faint); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; margin-top: 10px; }
 footer {
   margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   color: var(--dim); font-size: 13px;
@@ -148,39 +164,64 @@ footer {
   body::before { display: none; }
   nav.rail, .progress { display: none; }
   section { break-inside: avoid-page; animation: none; }
-  @page { size: A4; margin: 1.2cm; }
+  .dagwrap { overflow: visible; }
+  @page { size: A4 landscape; margin: 1.2cm; }
 }
 </style>
 </head>
 <body>
 <nav class="rail">
   <a href="#thesis">Thesis</a>
+  <a href="#dag">Plan</a>
   <a href="#criteria">Criteria</a>
   <a href="#architecture">Architecture</a>
   <a href="#edges">Edges</a>
   <a href="#boundaries">Boundaries</a>
   <a href="#decisions">Decisions</a>
-  <a href="#parked">Parked</a>
+  <a href="#proof">Proof</a>
 </nav>
 
-<p class="kicker">Spec lens <span class="sep">·</span> capture <span class="sep">·</span> 2026-08-31</p>
+<p class="kicker">Spec lens <span class="sep">·</span> plan <span class="sep">·</span> 2026-08-31</p>
 <h1><span class="id">fn-2</span> Focus-mode distraction notification block</h1>
 <div class="dials">
   <div class="dial"><div class="v">ready</div><div class="c">status</div></div>
-  <div class="dial"><div class="v">3</div><div class="c">R-IDs</div></div>
-  <div class="dial"><div class="v">0 / 3</div><div class="c">task coverage</div></div>
+  <div class="dial"><div class="v">8</div><div class="c">R-IDs</div></div>
+  <div class="dial"><div class="v">8 / 8</div><div class="c">task coverage</div></div>
+  <div class="dial"><div class="v">2</div><div class="c">tasks</div></div>
+  <div class="dial"><div class="v">2</div><div class="c">critical depth</div></div>
   <div class="dial"><div class="v">open</div><div class="c">activation</div></div>
-  <div class="dial"><div class="v">none</div><div class="c">tracker</div></div>
 </div>
 
 <section id="thesis">
   <div class="shead"><span class="num">01</span><span class="ttl">Thesis</span><span class="note">scope: business</span></div>
-  <p class="tldr">While focus mode is on, <strong>apps in the distraction space must not notify</strong>. A hidden workspace is not enough if a chat ping still lands. <em>Traffic is the sibling spec. This one is notifications.</em></p>
-  <div class="thesis">Load-bearing carve: membership is the workspace's apps, not the extra network destinations (YouTube, Netflix, and the rest) unless those apps also live in the distraction space.</div>
+  <p class="tldr">While focus mode is on, <strong>distraction-space apps send no banner and no sound</strong>. Other apps keep notifying. Focus off lifts this mute, then <em>one grouped per-app count</em> may play one sound.</p>
+  <div class="thesis">Mechanism is a mako custom mode named focus-distraction plus PipeWire per-client mute. Whole-desktop do-not-disturb (Super+Ctrl+,) stays the user mute and is out of spec for R2. Omarchy ships mako. SwayNC is not the daemon.</div>
+</section>
+
+<section id="dag">
+  <div class="shead"><span class="num">02</span><span class="ttl">Plan DAG</span><span class="note">2 tasks</span></div>
+  <div class="dagwrap">
+    <svg id="edges"></svg>
+    <div class="daggrid" id="dag">
+      <div class="dagcol">
+        <div class="node" id="n1" data-deps="" data-rids="R1,R2,R3,R6,R8">
+          <div class="nid">.1</div>
+          <div class="nt">Per-app mako mode and PipeWire mute</div>
+        </div>
+      </div>
+      <div class="dagcol">
+        <div class="node" id="n2" data-deps="n1" data-rids="R3,R4,R5,R7">
+          <div class="nid">.2</div>
+          <div class="nt">Grouped catch-up count and docs</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="legend">Critical path .1 → .2 (2 deep) · serial wave · no parallel lane</p>
 </section>
 
 <section id="criteria">
-  <div class="shead"><span class="num">02</span><span class="ttl">Acceptance</span><span class="note">3 criteria</span></div>
+  <div class="shead"><span class="num">03</span><span class="ttl">Acceptance</span><span class="note">8 criteria</span></div>
   <table>
     <thead>
       <tr><th>R-ID</th><th>Criterion</th><th>Errors</th><th>Source</th><th>Owned by</th></tr>
@@ -191,112 +232,190 @@ footer {
         <td>While focus mode is on, the user does not receive a notification from any app that belongs to the distraction space.</td>
         <td>If apply fails, tell the user and leave the previous notification state unchanged.</td>
         <td><span class="tagchip paraphrase">paraphrase</span></td>
-        <td>TBD</td>
+        <td><span class="tchip">.1</span></td>
       </tr>
       <tr data-rid="R2">
         <td>R2</td>
         <td>Notifications from apps that do not belong to the distraction space still appear while focus mode is on.</td>
         <td>No error surface beyond R1.</td>
         <td><span class="tagchip paraphrase">paraphrase</span></td>
-        <td>TBD</td>
+        <td><span class="tchip">.1</span></td>
       </tr>
       <tr data-rid="R3">
         <td>R3</td>
         <td>Turning focus mode off restores notifications from the distraction-space apps.</td>
         <td>If the lift fails, tell the user and blocks may remain until a later successful lift.</td>
-        <td><span class="tagchip inferred">inferred</span></td>
-        <td>TBD</td>
+        <td><span class="tagchip paraphrase">confirmed</span></td>
+        <td><span class="tchip">.1</span><span class="tchip">.2</span></td>
+      </tr>
+      <tr data-rid="R4">
+        <td>R4</td>
+        <td>After focus turns off, one grouped notice lists a count per distraction-space app that pinged.</td>
+        <td>If nothing was blocked, show no notice.</td>
+        <td><span class="tagchip user">user</span></td>
+        <td><span class="tchip">.2</span></td>
+      </tr>
+      <tr data-rid="R5">
+        <td>R5</td>
+        <td>That grouped notice may play one sound.</td>
+        <td>No error surface beyond R4.</td>
+        <td><span class="tagchip user">user</span></td>
+        <td><span class="tchip">.2</span></td>
+      </tr>
+      <tr data-rid="R6">
+        <td>R6</td>
+        <td>While focus is on, both the popup banner and the sound from those apps are blocked.</td>
+        <td>No error surface beyond R1.</td>
+        <td><span class="tagchip user">user</span></td>
+        <td><span class="tchip">.1</span></td>
+      </tr>
+      <tr data-rid="R7">
+        <td>R7</td>
+        <td>There is no way to read blocked pings or a running summary while focus is on.</td>
+        <td>No error surface beyond R1.</td>
+        <td><span class="tagchip user">user</span></td>
+        <td><span class="tchip">.2</span></td>
+      </tr>
+      <tr data-rid="R8">
+        <td>R8</td>
+        <td>If the mute cannot apply, the plugin tells the user, leaves pings as they were, and focus can still turn on.</td>
+        <td>No error surface beyond R1.</td>
+        <td><span class="tagchip user">user</span></td>
+        <td><span class="tchip">.1</span></td>
       </tr>
     </tbody>
   </table>
 </section>
 
 <section id="architecture">
-  <div class="shead"><span class="num">03</span><span class="ttl">Architecture</span><span class="note">scope: technical</span></div>
+  <div class="shead"><span class="num">04</span><span class="ttl">Architecture</span><span class="note">scope: technical</span></div>
   <div class="archgrid">
     <div class="archbox">
-      <h3>Focus on</h3>
-      <p>Apply a notification block for every app that belongs to the distraction space.</p>
+      <h3>Custom mako mode</h3>
+      <p>focus-distraction criteria set invisible=1 per member app. Apply adds the mode. Lift removes it. Never toggle do-not-disturb.</p>
     </div>
     <div class="archbox">
-      <h3>Focus off</h3>
-      <p>Lift the block this spec applied. Failed lift leaves blocks in place and tells the user.</p>
+      <h3>PipeWire client mute</h3>
+      <p>Mute matching sink-inputs only. Restore those clients on lift. Default sink stays up. Covers issue 5073 app sounds.</p>
     </div>
     <div class="archbox">
-      <h3>Membership</h3>
-      <p>Workspace apps only. Extra network destinations that are not those apps are out of this set.</p>
+      <h3>Count then one notice</h3>
+      <p>on-notify writes an XDG count file. No mid-focus reader. Focus off sends one grouped notify() if any count is above zero.</p>
     </div>
   </div>
 </section>
 
 <section id="edges">
-  <div class="shead"><span class="num">04</span><span class="ttl">Edges</span><span class="note">parked + apply/lift</span></div>
+  <div class="shead"><span class="num">05</span><span class="ttl">Edges</span><span class="note">apply / identity / compose</span></div>
   <div class="edge">
     <div class="ecard high">
-      <h3>Apply fails</h3>
-      <p>Tell the user. Leave the previous notification state unchanged.</p>
+      <h3>Chrome identity</h3>
+      <p>Match desktop-entry for PWAs. A bare Google Chrome app-name would mute every Chrome site and fail R2.</p>
+    </div>
+    <div class="ecard high">
+      <h3>Apply fail</h3>
+      <p>Tell the user. Roll back this spec's mutation. Focus still turns on.</p>
     </div>
     <div class="ecard med">
-      <h3>Lift fails</h3>
-      <p>Tell the user. Blocks may remain until a later successful lift.</p>
-    </div>
-    <div class="ecard low">
-      <h3>Mechanism unset</h3>
-      <p>Plan picks the daemon and the suppress/restore path against Omarchy.</p>
+      <h3>User DND</h3>
+      <p>Super+Ctrl+, stays independent. Custom mode stacks with do-not-disturb.</p>
     </div>
   </div>
 </section>
 
 <section id="boundaries">
-  <div class="shead"><span class="num">05</span><span class="ttl">Boundaries</span><span class="note">scope: business</span></div>
+  <div class="shead"><span class="num">06</span><span class="ttl">Boundaries</span><span class="note">scope: business</span></div>
   <div class="bounds">
     <div class="is">
       <h3>Is</h3>
       <ul>
-        <li>Block notifications from apps in the distraction space while focus is on</li>
+        <li>Mute banners and sounds from shipped workspace apps while focus is on</li>
         <li>Keep notifications from every other app</li>
-        <li>Restore those notifications when focus turns off</li>
+        <li>Restore, then one grouped per-app count</li>
       </ul>
     </div>
     <div class="isnot">
       <h3>Is not</h3>
       <ul>
-        <li>Network destination blocking (sibling spec)</li>
-        <li>A notification-block set for extra destinations that are not workspace apps</li>
-        <li>A whole-desktop mute that blocks every app</li>
+        <li>Network destination blocking (sibling fn-1)</li>
+        <li>Whole-desktop DND or SwayNC</li>
+        <li>History screen, allow-list, urgent bypass, badge count</li>
       </ul>
     </div>
   </div>
 </section>
 
 <section id="decisions">
-  <div class="shead"><span class="num">06</span><span class="ttl">Decisions</span><span class="note">flat context</span></div>
+  <div class="shead"><span class="num">07</span><span class="ttl">Decisions</span><span class="note">plan</span></div>
   <div class="dec">
-    <div class="dtag">D1 · sibling surface</div>
-    <p class="q">"all notifications from distraction space should also be blocked"</p>
-    <p>Chosen path: a second spec on the same focus-mode gate, notifications only.</p>
-    <p class="rej">Rejected: folding this into the network-destination spec.</p>
+    <div class="dtag">D1 · daemon</div>
+    <p class="q">Omarchy ships mako. Super+Ctrl+, is makoctl do-not-disturb.</p>
+    <p>Chosen path: custom mode focus-distraction plus PipeWire per-client mute.</p>
+    <p class="rej">Rejected: whole-desktop DND (R2). Rejected: SwayNC. Rejected: editing theme mako.ini.</p>
   </div>
   <div class="dec">
     <div class="dtag">D2 · membership</div>
     <p class="q">"i don't want to get a notification from apps in distraction space"</p>
-    <p>Chosen path: workspace apps, not the extra network list.</p>
-    <p class="rej">Rejected: mute every desktop notification, or block YouTube/Netflix banners as if they lived in the space.</p>
+    <p>Chosen path: shipped window-rule apps, mapped to app-name / desktop-entry.</p>
+    <p class="rej">Rejected: mute every Chromium notification. Rejected: a settings list for Super+Alt+D strays.</p>
+  </div>
+  <div class="dec">
+    <div class="dtag">D3 · catch-up</div>
+    <p class="q">Grouped per-app count after focus off. May play one sound.</p>
+    <p>Chosen path: sidecar count file plus one notify().</p>
+    <p class="rej">Rejected: replay each banner. Rejected: mid-focus history (declined extra UI).</p>
   </div>
 </section>
 
-<section id="parked">
-  <div class="shead"><span class="num">07</span><span class="ttl">Parked</span><span class="note">3 unknowns</span></div>
-  <ul class="parked">
-    <li>How the notification block is enforced. Plan picks the mechanism.</li>
-    <li>Whether notifications that arrived during focus are shown after focus turns off, or discarded.</li>
-    <li>Whether in-app unread badges count as a notification.</li>
-  </ul>
+<section id="proof">
+  <div class="shead"><span class="num">08</span><span class="ttl">Early proof</span><span class="note">task .1</span></div>
+  <div class="proof">Task .1 must prove a custom mako mode plus PipeWire client mute can hide banners and sounds for mapped apps only, without toggling do-not-disturb. If apply cannot stay per-app, stop before the count work.</div>
 </section>
 
 <footer>
   <p>Render lens, not record. Source: .flow/specs/fn-2-focus-mode-distraction-notification.md</p>
-  <div class="stamp">staleness stamp · spec updated_at 2026-08-31T21:49:21.859656Z · repo commit 36d36c0 · rendered 2026-08-31</div>
+  <div class="stamp">staleness stamp · spec updated_at 2026-08-31T22:16:35.624209Z · repo commit d31b8af · rendered 2026-08-31</div>
 </footer>
+<script>
+(function () {
+  var svg = document.getElementById('edges');
+  var wrap = svg.parentElement;
+  var CRIT = { 'n1>n2': 1 };
+  function draw() {
+    var grid = document.getElementById('dag');
+    var w = Math.max(grid.scrollWidth, wrap.clientWidth), h = grid.scrollHeight + 26;
+    svg.setAttribute('width', w); svg.setAttribute('height', h);
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    svg.innerHTML = '';
+    var wb = wrap.getBoundingClientRect();
+    document.querySelectorAll('#dag .node').forEach(function (n) {
+      (n.dataset.deps || '').split(',').filter(Boolean).forEach(function (d) {
+        var a = document.getElementById(d).getBoundingClientRect(), b = n.getBoundingClientRect();
+        var x1 = a.right - wb.left + wrap.scrollLeft, y1 = a.top + a.height / 2 - wb.top;
+        var x2 = b.left - wb.left + wrap.scrollLeft, y2 = b.top + b.height / 2 - wb.top;
+        var mx = (x1 + x2) / 2;
+        var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('d', 'M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2);
+        if (CRIT[d + '>' + n.id]) p.setAttribute('class', 'crit');
+        svg.appendChild(p);
+      });
+    });
+  }
+  window.addEventListener('resize', draw);
+  requestAnimationFrame(draw);
+  document.querySelectorAll('#dag .node').forEach(function (n) {
+    n.addEventListener('mouseenter', function () {
+      n.classList.add('lit');
+      (n.dataset.rids || '').split(',').forEach(function (rid) {
+        document.querySelectorAll('tr[data-rid="' + rid + '"]').forEach(function (row) { row.classList.add('lit'); });
+      });
+    });
+    n.addEventListener('mouseleave', function () {
+      n.classList.remove('lit');
+      document.querySelectorAll('tr.lit').forEach(function (row) { row.classList.remove('lit'); });
+    });
+  });
+})();
+</script>
 </body>
 </html>
