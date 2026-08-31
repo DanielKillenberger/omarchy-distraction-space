@@ -14,8 +14,8 @@ Compose capture into mute's one Quickshell service, own ping-text JSONL, and sta
 ## Approach
 - Keep one `entryPoints.service`. That path is mute's `NotificationFilter.qml`. Do not point the service at `PingCapture.qml`. If `NotificationFilter.qml` is missing because fn-2 has not landed, stop. Do not invent a second service.
 - Add child `PingCapture.qml` instantiated by `NotificationFilter.qml`. In the incoming-toast handler, append `{app,title,body,at}` JSONL before mute dismisses or deletes history. Do not dismiss. Do not increment mute counts. Membership is mute's identity map only. If that map is absent, write nothing.
-- After mute apply in `enable_focus()`, if `agent_summaries` is true, the service starts `Process { command: [helper, "summarize-session"] }`. Restart that Process if it exits while focus is still on. `enable_focus()` writes a new session id unless a lift-fail catch-up is pending, and reaps leftover agent children from the pidfile.
-- `summarize-session` is a flocked long-lived singleton (same flock style as `listen()` at `distractions:244-250`). It watches the JSONL file. It prints nothing about ping-text or the result. `listen()` does not own it.
+- After mute apply in `enable_focus()`, if `agent_summaries` is true, the service starts `Process { command: [helper, "summarize-session"] }`. On an unexpected exit while focus is still on, consult the durable session control file and restart at most twice, after 1 s and 4 s. A clean finish, disable, or finish-request marker never restarts; Quickshell restart cannot reset the counter. `enable_focus()` writes a new session id unless a lift-fail catch-up is pending, and reaps leftover agent children from the pidfile.
+- `summarize-session` is a flocked long-lived singleton (same flock style as `listen()` at `distractions:244-250`). It watches records with a session-monotonic `seq`. A mode-`0600` session control file owns durable `invocations`, `last_consumed_seq`, `parser_restarts`, and finish-request state. It prints nothing about ping-text or the result. `listen()` does not own it.
 - R2. No bar property, `IpcHandler`, or CLI reads ping-text, session stdout, or the result while `is_focus()` is true. Files are mode `0600`. Bind stdout on the QML Process to nowhere the UI can show.
 - Mid-session enable starts the Process and arms capture on the next toast. Mid-session disable cancels the child, discards unread stdout, and stops capture. Mute counts stay.
 
@@ -39,11 +39,11 @@ Compose capture into mute's one Quickshell service, own ping-text JSONL, and sta
 ## Acceptance
 - [ ] `manifest.json` `entryPoints.service` stays `NotificationFilter.qml`. Capture is a child, not a second service.
 - [ ] Member toasts while summaries are on append ping-text this spec owns, before dismiss. Mute count file is not treated as a text queue.
-- [ ] Focus-on with summaries on starts one `summarize-session` Process. First JSONL record is visible to that session without a kick subcommand.
+- [ ] Focus-on with summaries on starts one `summarize-session` Process. First JSONL record is visible to that session without a kick subcommand. Unexpected exits use only the two durable 1 s / 4 s restarts; clean finish/disable does not restart.
 - [ ] No plugin UI or CLI reads the running parse, ping-text, or result while focus is on (R2). Files are `0600` and session-bound.
 - [ ] Identity map miss writes no ping-text. Session is empty for later R4.
 - [ ] `python3 -m py_compile distractions` passes.
-- [ ] `python3 -m unittest discover -s tests -p 'test_*.py'` covers session flock, focus-on start, pending-catch-up no-reset, mid-session disable discard, and no CLI dump while focus is on.
+- [ ] `python3 -m unittest discover -s tests -p 'test_*.py'` covers session flock, focus-on start, durable restart cap/backoff across Quickshell restart, clean-exit no-restart, pending-catch-up no-reset, mid-session disable discard, and no CLI dump while focus is on.
 
 ## Done summary
 TBD

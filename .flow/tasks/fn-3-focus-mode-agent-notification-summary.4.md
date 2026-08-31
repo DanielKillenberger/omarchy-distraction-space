@@ -15,7 +15,7 @@ After a shown summary, record helpful / not-helpful plus an optional note with a
 - After the focus-off summary notice, `omarchy-menu-select` with Helpful and Not helpful. Exit 1 (cancel) does not append. Then optional zenity `--entry` for a note. Do not copy `prompt_reason()` as the helpful/not-helpful control.
 - Append one JSONL object `{at, helpful, note}` at `~/.local/state/omarchy/focus-summary-ledger.jsonl`. Notify on write failure. Keep the summary already shown (R10).
 - `.3` already includes the ledger file in the next prompt (last 20 lines / 4 KiB). Confirm that pass-through reads new lines. `.2` shipped with an empty-ledger stub.
-- README. New Agent summaries section between Use and Commands. State R13 consent, default vs override, open-table picker (`claude` and `omp`), gated-closed ids, focus-off one summary, ledger, and fallback to the mute grouped count. Document `agent-summaries` and `summary-agent`. Extend the `focus.json` example with the two new keys defaulting off / null.
+- README. New Agent summaries section between Use and Commands. State R13 consent, default vs override, open-table picker (`claude`), gated-closed ids including `omp`, focus-off one summary, ledger, and fallback to the mute grouped count. Document `agent-summaries` and `summary-agent`. Extend the `focus.json` example with the two new keys defaulting off / null.
 - Do not add a history screen or per-app toggles.
 
 ## Investigation targets

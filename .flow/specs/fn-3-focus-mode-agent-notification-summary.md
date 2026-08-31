@@ -23,7 +23,7 @@ The mute spec already hides banners and sounds, then shows a grouped per-app cou
 
 ## Overview
 
-This path stays off until `agent_summaries` is true in plugin config. The plugin then captures member-toast text into its own JSONL, resolves one usable Omarchy agent id, runs that agent's documented print/run/exec one-shot with the captured text plus the ledger, and holds stdout until focus turns off. The user sees one summary, then a helpful / not-helpful note. Mute still owns banners, sounds, and the grouped-count fallback. This spec does not read a raw ping queue from the mute spec. That queue does not exist.
+This path stays off until `agent_summaries` is true in plugin config. The plugin then captures member-toast text into its own JSONL, resolves one usable Omarchy agent id, runs that agent's documented print one-shot with the captured text plus the ledger, and holds stdout until focus turns off. The user sees one summary, then a helpful / not-helpful note. Mute still owns banners, sounds, and the grouped-count fallback. This spec does not read a raw ping queue from the mute spec. That queue does not exist.
 
 ## Architecture & Data Models
 <!-- scope: technical -->
@@ -35,9 +35,9 @@ The mute spec owns apply/lift, banner dismiss, sound mute, the `{app-label: int}
 
 **Ping-text capture (this spec owns it).** Planned mute stores only `{ "<app-label>": <int> }` and discards individual banners. In the same toast handler, before mute dismisses the toast or deletes history, the child appends one JSONL record per member toast while focus is on and `agent_summaries` is true. Membership is mute's identity map only. If that map is not in tree yet, capture writes nothing and the session is empty ping-text (R4). Do not invent a second membership list. The writer does not dismiss the toast and does not increment the mute count.
 
-**Parser location and start.** The parser is the Python subcommand `summarize-session` on the existing helper. It is a long-lived flocked singleton, separate from `listen()`. The service starts it with a Quickshell `Process` after mute apply, when focus is on and `agent_summaries` is true. `enable_focus()` writes a new session id (unless a lift-fail catch-up is pending) and cancels any leftover agent child via the session pidfile. The QML `Process` is the activator. If the process exits while focus is still on, the service starts it again. `listen()` restart does not own or kill the session. If the service is not loaded, capture and parse do not run and R4 applies.
+**Parser location and start.** The parser is the Python subcommand `summarize-session` on the existing helper. It is a long-lived flocked singleton, separate from `listen()`. The service starts it with a Quickshell `Process` after mute apply, when focus is on and `agent_summaries` is true. `enable_focus()` writes a new session id (unless a lift-fail catch-up is pending) and cancels any leftover agent child via the session pidfile. The QML `Process` is the activator. If the process exits unexpectedly while focus is still on, the service consults the session control file and makes at most two crash restarts, after 1 s and 4 s. The restart count is session-keyed and durable, so a Quickshell restart cannot reset it. A clean `summarize-finish`, mid-session disable, or finish-request marker never restarts. `listen()` restart does not own or kill the session. If the service is not loaded, capture and parse do not run and R4 applies.
 
-The session watches the JSONL file (inotify, or a 250 ms poll if inotify is missing). The first unseen record starts the first one-shot. Later unseen records follow the replacement rules. No extra kick subcommand.
+The session watches the JSONL file (inotify, or a 250 ms poll if inotify is missing). Each record has a session-monotonic `seq`. A mode-`0600`, session-keyed control file atomically stores `invocations`, `last_consumed_seq`, `parser_restarts`, and the finish-request marker. Before every agent spawn, under the session flock, reserve one invocation and advance `last_consumed_seq` through the records included in that prompt; a crash therefore consumes budget and cannot replay paid input. Restarts reload this state. The first unseen record starts the first one-shot. Later unseen records follow the replacement rules. No extra kick subcommand.
 
 **Mute seam (thin contract, not a queue).** After a valid leave-focus reason, finish the session, then lift mute, then choose exactly one catch-up surface.
 
@@ -56,17 +56,17 @@ The existing "Focus mode off" toast stays.
 
 **Headless invoke.** The plugin does not call `omarchy agent` or `omarchy agent prompt`. Those launch an unattended interactive TUI with each agent's don't-stop-to-ask flags ([`bin/omarchy-agent`](https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-agent), [`bin/omarchy-agent-prompt`](https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-agent-prompt), [legacy Omarchy CLI page](https://learn.omacom.io/2/the-omarchy-manual/115/omarchy-cli)). The current Quattro manual is [omarchy.org/manual](https://omarchy.org/manual/) and [omarchy.org/manual/ai](https://omarchy.org/manual/ai/). The plugin spawns the agent's own one-shot from the open table, passes ping text plus ledger as the prompt, and captures stdout. Shared spawn rules for every open row. Dedicated empty cwd (not `$HOME`, not the plugin tree). Process group. Sanitized environment. No session-resume flags. No auto-approve / yolo / bypass-permissions flags.
 
-Open table (exact argv). Prompt on stdin. Only ids whose CLI documents a tool-free print/run/exec.
+Open table (exact argv). Prompt on stdin. Only ids whose CLI documents a tool-free print path and a provider-side spend bound.
 
 | id | Argv | Prompt | Bound | Source |
 |----|------|--------|-------|--------|
 | claude | `claude -p --output-format text --tools "" --disallowedTools "mcp__*" --max-turns 1 --max-budget-usd 0.25 --restricted` | stdin | 1 turn, $0.25 | [Claude Code CLI](https://code.claude.com/docs/en/cli-reference) (`--tools ""` disables built-ins; `--disallowedTools "mcp__*"` drops MCP; `--restricted` skips user/project hooks) |
-| omp | `omp --print --no-tools --no-extensions --no-skills --no-rules --no-session --max-time 60s` | stdin | 60 s wall | [omp CLI](https://omp.sh/docs/cli) (`--no-tools` disables built-ins; `--no-extensions` blocks plugin tools) |
 
 Gated closed until a documented CLI-level no-tools contract exists. Not offered. An Omarchy default that is one of these ids resolves empty (R7 then R4).
 
 | id | Why closed |
 |----|------------|
+| omp | Tool-free print mode and wall-time bounds exist, but normal requests have no documented completion-token, reasoning-token, request, or monetary ceiling. |
 | codex | `codex exec --sandbox read-only` still exposes file and command tools. No shipped empty tool-router flag. |
 | grok | `grok -p` is a coding-agent one-shot. Official CLI has no verified `--no-tools`. |
 | agy | `agy -p` auto-allows workspace file ops. No `--no-tools`. Empty stdout on a pipe is also a documented miss. |
@@ -79,7 +79,7 @@ If the user enables summaries while the resolved id is unusable and no override 
 
 Empty stdout, non-zero exit, missing binary, timeout, over-limit output, or an id outside the open table is a parse failure (R1 then R6).
 
-**Parse bounds (deterministic).** One active child. First unseen record after the session starts the first one-shot. Replacement runs only after the child exits, after a 20 second debounce, and only when unseen records exist. At most 3 invocations per focus session, including one optional final parse at focus-off. Prompt payload is at most 40 records and 24 KiB of concatenated title plus body. The JSONL file itself is at most 64 KiB. Drop oldest records first on disk and in the prompt, and tell the model that older pings were truncated. Captured stdout is at most 8 KiB. The stored result is at most 8 KiB. The user-visible notify body is at most 800 bytes (truncate a longer valid result for display). Child timeout is 60 seconds, then kill the process group. Resource limits on the child process group. `RLIMIT_AS` 512 MiB. `RLIMIT_FSIZE` 1 MiB. `RLIMIT_NPROC` 16. Zero retries. Crossing any bound kills the child and uses the last valid non-empty stdout, or R6 if none. Enabling summaries mid-session arms capture on the next member toast. It does not rewrite already-dismissed toasts. Disabling summaries mid-session cancels the child, discards unread stdout, and stops capture. Mute counts stay. Changing `summary_agent` mid-session applies on the next invocation.
+**Parse bounds (deterministic).** One active child. The durable session control file reserves invocation count and consumed record sequence atomically before each spawn; crashes and parser restarts neither replay records nor reset budget. At most two parser crash restarts use 1 s / 4 s backoff; exhausting them defers to R6 at focus-off. First unseen record after the session starts the first one-shot. Replacement runs only after the child exits, after a 20 second debounce, and only when unseen records exist. At most 3 invocations per focus session, including one optional final parse at focus-off. Prompt payload is at most 40 records and 24 KiB of concatenated title plus body. The JSONL file itself is at most 64 KiB. Drop oldest records first on disk and in the prompt, and tell the model that older pings were truncated. Captured stdout is at most 8 KiB. The stored result is at most 8 KiB. The user-visible notify body is at most 800 bytes (truncate a longer valid result for display). Child timeout is 60 seconds, then kill the process group. Resource limits on the child process group. `RLIMIT_AS` 512 MiB. `RLIMIT_FSIZE` 1 MiB. `RLIMIT_NPROC` 16. Zero retries. Crossing any bound kills the child and uses the last valid non-empty stdout, or R6 if none. Enabling summaries mid-session arms capture on the next member toast. It does not rewrite already-dismissed toasts. Disabling summaries mid-session cancels the child, discards unread stdout, and stops capture. Mute counts stay. Changing `summary_agent` mid-session applies on the next invocation.
 
 **Result storage and R2.** Stdout lands in an XDG state file, mode `0600`, bound to a per-session id, published by atomic rename, flocked like `listen()`. Ping-text JSONL is also `0600`. R2 means no plugin UI or CLI reads ping-text, the running parse, or the result while focus is on. The QML `Process` does not bind session stdout to any bar property or `IpcHandler`. No new status command prints those files. Same-user filesystem read is outside the product threat model. Delete the result on a clean focus-on reset, successful XOR, and startup recovery. A pending lift-fail catch-up is not a clean reset. A missing or stale session id without pending catch-up is R1. Reason zenity cancel leaves the session running and keeps any result for the next successful leave.
 
@@ -121,7 +121,7 @@ Plugin config in `~/.config/omarchy/focus.json` (existing `log` key unchanged):
 Ping-text record this spec writes (not the mute count file):
 
 ```json
-{ "app": "string", "title": "string", "body": "string", "at": "ISO-8601" }
+{ "seq": 1, "app": "string", "title": "string", "body": "string", "at": "ISO-8601" }
 ```
 
 Mute count file this spec may clear after a shown summary, and otherwise leaves to `show_grouped_notice()`:
@@ -157,7 +157,7 @@ Named mute functions this spec calls and does not reimplement. `lift_notificatio
 - Summaries on, Omarchy default unset or unusable (dropped, omitted, or gated closed), no override. R4.
 - Binary missing or id not in the open table. R1 at focus-off, then R6.
 - Child still running at focus-off. One 60 s wait, then kill, then R1 and R6 unless a prior valid result exists.
-- SIGINT or crash of `distractions` while a child is running. Next focus-on reaps the leftover process group from the pidfile. Next focus-off treats a missing or stale session result as R1 unless catch-up is pending.
+- SIGINT or crash of `distractions` while a child is running. The pre-spawn reservation remains consumed. A permitted parser restart reloads the invocation count and `last_consumed_seq` and cannot replay that paid input. After two backoff restarts, leave state for R6 at focus-off. Next clean focus-on reaps a leftover process group from the pidfile. Next focus-off treats a missing or stale session result as R1 unless catch-up is pending.
 - Two focus toggles at once. Flock the session, result, ping-text, and ledger files. The bar already skips a second `Process` while one runs. Super+Ctrl+Shift+F and `focus-off` use the same flock.
 - Focus-on during an in-flight parse, clean reset only. Cancel the child. Discard unread stdout. Start fresh if summaries are still on.
 - Focus-on after lift-fail. Keep counts, ping-text, and result. New toasts may append. Next successful lift runs XOR on the retained plus new state.
@@ -187,7 +187,7 @@ Named mute functions this spec calls and does not reimplement. `lift_notificatio
 - **R12:** The override picker is the same kind of selector modal Omarchy uses (`omarchy.menu` select mode). Errors: if the picker cannot open, the previous setting stays and the plugin tells the user. [user]
 - **R13:** Agent summaries stay off until the user enables them in the plugin. An Omarchy default agent alone does not turn them on. Errors: while off, R4 applies. [user]
 - **R14:** This spec owns blocked-ping text capture. It does not read a raw notification queue from the mute spec. Errors: append failure treats the session as empty ping-text for the summary path (R4). Mute counts stay unchanged. [paraphrase]
-- **R15:** Parse cost is bounded. One active child, 20 s debounce, 3 invocations per session, 40 records, 24 KiB prompt, 64 KiB JSONL, 8 KiB captured stdout, 8 KiB stored result, 800-byte notify body, 60 s timeout, `RLIMIT_AS` 512 MiB, `RLIMIT_FSIZE` 1 MiB, `RLIMIT_NPROC` 16, zero retries, one optional final parse at focus-off, plus the open-table turn and spend flags. Errors: over budget stops invoking and uses the last valid summary or R6. [paraphrase]
+- **R15:** Parse cost is bounded. One active child, 20 s debounce, 3 atomically reserved invocations per session, session-durable consumed-record cursor and crash-restart count, at most two parser crash restarts with 1 s / 4 s backoff, 40 records, 24 KiB prompt, 64 KiB JSONL, 8 KiB captured stdout, 8 KiB stored result, 800-byte notify body, 60 s timeout, `RLIMIT_AS` 512 MiB, `RLIMIT_FSIZE` 1 MiB, `RLIMIT_NPROC` 16, zero retries, one optional final parse at focus-off, plus the open-table turn and spend flags. Errors: over budget stops invoking and uses the last valid summary or R6. [paraphrase]
 - **R16:** XOR and count-clear run only after a successful lift. A failed lift keeps the count file, ping-text, and any valid result. Errors: the plugin tells the user. Neither summary nor grouped notice is shown. The next successful lift retries the XOR.
 
 ## Boundaries
@@ -199,7 +199,7 @@ Named mute functions this spec calls and does not reimplement. `lift_notificatio
 - Peeking at the running parse while focus is on is out of scope. [user]
 - An override that is not an Omarchy-allowed agent, or that cannot run a verified tool-free one-shot, is out of scope. [user]
 - `omarchy agent prompt` and any interactive TUI launch are out of scope.
-- `ori`, `pi`, and `copilot` are out of the picker. `codex`, `grok`, and `agy` stay gated closed. `opencode` and `crush` stay omitted until a documented tool-free one-shot exists.
+- `ori`, `pi`, and `copilot` are out of the picker. `omp`, `codex`, `grok`, and `agy` stay gated closed. `opencode` and `crush` stay omitted until a documented tool-free one-shot exists.
 - A history screen of past summaries and per-app notification toggles stay declined (`.flow/memory/declined/notification-extra-ui.md`).
 - Allow-lists and urgent bypass stay declined (`.flow/memory/declined/notification-exceptions.md`).
 - Changing Omarchy's own default-agent file from this plugin is out of scope.
@@ -233,9 +233,9 @@ Host plan-review MAJOR_RETHINK (heads 611de37 and c5e21de) required this replan.
 
 **D4 · focus-off XOR (kept).** Finish session, lift, then one summary with silent count clear, or `show_grouped_notice()`. Rejected. Waiting after `disable_focus()` and suppressing a notice that already fired.
 
-**D5 · offered table.** Open only `claude` and `omp`, with exact tool-free argv and turn/spend/time flags. Gate `codex`, `grok`, and `agy` closed. Drop `ori`, `pi`, `copilot`. Omit `opencode` and `crush`. Rejected. Shipping unverified tool-free argv as a closed table.
+**D5 · offered table.** Open only `claude`, with exact tool-free argv plus turn and monetary limits. Gate `omp`, `codex`, `grok`, and `agy` closed. OMP wall time does not cap provider token/spend cost. Drop `ori`, `pi`, `copilot`. Omit `opencode` and `crush`. Rejected. Shipping unverified tool-free argv as a closed table.
 
-**D6 · bounds.** 40 records, 24 KiB prompt, 64 KiB JSONL, 8 KiB stdout, 8 KiB stored result, 800-byte notify body, one child, 20 s debounce, 3 invocations, 60 s kill, rlimits, zero retries, one final parse. Rejected. "A replacement parse may run" with no cap.
+**D6 · bounds.** 40 records, 24 KiB prompt, 64 KiB JSONL, 8 KiB stdout, 8 KiB stored result, 800-byte notify body, one child, 20 s debounce, 3 durably reserved invocations, 60 s kill, rlimits, zero retries, one final parse, and at most two durable 1 s / 4 s parser crash restarts. Consumed `seq` state prevents paid replay. Rejected. "A replacement parse may run" with no cap.
 
 **D7 · picker parity (kept).** Same visual plugin in select mode. Rejected. Claiming it is the Setup > Defaults > Agent submenu. Checkmarks are not required.
 
@@ -245,7 +245,7 @@ Host plan-review MAJOR_RETHINK (heads 611de37 and c5e21de) required this replan.
 
 **D10 · one service.** Extend `NotificationFilter.qml`. Capture is a child in the same toast handler, before dismiss. Rejected. A second `PingCapture.qml` service entry.
 
-**D11 · parser start.** `summarize-session` lives in Python. The service starts it on focus-on via Quickshell `Process`. The session watches JSONL. Rejected. Putting the parser in `listen()`, or waiting for a first-ping kick with no owner.
+**D11 · parser start.** `summarize-session` lives in Python. The service starts it on focus-on via Quickshell `Process`. The session watches JSONL. Its mode-`0600` control file durably owns invocation reservations, consumed `seq`, and a two-restart backoff budget across parser or Quickshell restarts. Rejected. Putting the parser in `listen()`, or waiting for a first-ping kick with no owner.
 
 **D12 · lift-fail.** XOR only after successful lift. Retain counts, ping-text, and result. Retry on the next successful lift. Rejected. Showing or clearing catch-up while mute is still applied.
 

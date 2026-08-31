@@ -14,9 +14,9 @@ Add plugin consent, default-agent resolve, and the open-table picker only (R5, R
 ## Approach
 - Extend `load_config()` keys. `agent_summaries` default false. `summary_agent` default null. Reject unknown ids and gated-closed ids. Atomic temp-file rename. Previous object stays on reject.
 - Resolve with `omarchy default agent` when `summary_agent` is null. Empty stdout, or a dropped / omitted / gated-closed id (ori, pi, copilot, opencode, crush, codex, grok, agy), is an unusable empty resolve (R7 then R4 later).
-- Closed open argv from parent spec §Architecture. Exact vectors only for `claude` and `omp`. Shared spawn later uses empty cwd, rlimits, and no yolo flags. This task can unit-test the mapping without spawning a TUI.
+- Closed open argv from parent spec §Architecture. Exact vector only for `claude`. OMP is gated closed because wall time does not cap provider token/spend cost. Shared spawn later uses empty cwd, rlimits, and no yolo flags. This task can unit-test the mapping without spawning a TUI.
 - Do not call `omarchy agent` or `omarchy agent prompt`.
-- `distractions agent-summaries` and `distractions summary-agent` call `omarchy-menu-select` (select mode, tempfile handshake). Labels from `setup.default.agent.*`. Offer only open-table ids plus an Omarchy-default row on the override picker. No checkmarks. Gated-closed ids are not listed.
+- `distractions agent-summaries` and `distractions summary-agent` call `omarchy-menu-select` (select mode, tempfile handshake). Labels from `setup.default.agent.*`. Offer only the open-table `claude` id plus an Omarchy-default row on the override picker. No checkmarks. Gated-closed ids are not listed.
 - Early proof. One open argv returns stdout or a clear failure. No TUI. No tools.
 
 ## Investigation targets
@@ -31,13 +31,14 @@ Add plugin consent, default-agent resolve, and the open-table picker only (R5, R
 
 ## Key context
 - `omarchy-menu-select` options are `label`, `glyph\tlabel`, or `glyph\tlabel\tsubtext`. Cancel exits 1. Same visual plugin as Setup, not the Setup submenu.
+- OMP, codex, grok, and agy are gated closed and must not appear.
 - A plugin override must not write `~/.config/omarchy/defaults/agent`.
 - `codex`, `grok`, and `agy` stay gated closed. Do not ship placeholder argv for them.
 
 ## Acceptance
 - [ ] `agent_summaries` defaults false. Omarchy default agent alone does not enable summaries.
 - [ ] Null override reads `omarchy default agent`. Unset, dropped, omitted, or gated-closed default is a resolved empty id.
-- [ ] Override picker lists only `claude` and `omp`. ori, pi, copilot, opencode, crush, codex, grok, and agy are not offered. Unknown id is rejected. Previous setting stays.
+- [ ] Override picker lists only `claude`. omp, ori, pi, copilot, opencode, crush, codex, grok, and agy are not offered. Unknown id is rejected. Previous setting stays.
 - [ ] `omarchy-menu-select` failure keeps the previous setting and notifies.
 - [ ] No `omarchy agent` / `omarchy agent prompt` spawn in this task.
 - [ ] Config write is atomic. Rejected write leaves the previous object.
