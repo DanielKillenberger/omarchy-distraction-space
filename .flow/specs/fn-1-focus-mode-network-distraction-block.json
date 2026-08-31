@@ -543,7 +543,7 @@
     "impl:fn-1-focus-mode-network-distraction-block.1": 0
   },
   "spec_path": ".flow/specs/fn-1-focus-mode-network-distraction-block.md",
-  "status": "open",
+  "status": "done",
   "title": "Focus-mode network distraction block",
   "tracker": {
     "baseHashFlow": null,
@@ -556,5 +556,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-08-31T22:55:56.028494Z"
+  "updated_at": "2026-08-31T23:01:55.493849Z"
 }
