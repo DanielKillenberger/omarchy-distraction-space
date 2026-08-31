@@ -8,12 +8,87 @@
   "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-1-focus-mode-network-distraction-block",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-1-focus-mode-network-distraction-block.1": 1
+  },
   "next_task": 1,
   "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "ready": true,
+  "review_attempts": [
+    {
+      "artifact_sha256": "d0ce4e51cb28754a01888c2086af2bafb82431892118e6702dbf7bea76b1f2f2",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-826119af05665198ce08b03dc4f87a65",
+            "classification": "introduced",
+            "findingId": "finding-826119af05665198ce08b03dc4f87a65",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-4481b50828284ddef775865101969c1d",
+            "classification": "introduced",
+            "findingId": "finding-4481b50828284ddef775865101969c1d",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-90abb706f8068a205a61eac2e0685e75",
+            "classification": "introduced",
+            "findingId": "finding-90abb706f8068a205a61eac2e0685e75",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-74edfdc11d234785cde31b880cfd9d24",
+            "classification": "introduced",
+            "findingId": "finding-74edfdc11d234785cde31b880cfd9d24",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "502f49eacb37b446bc522cb1e78cd48579a1e5e0",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 2649,
+      "output_sha256": "67fa5988cb3f697197ad1d03e5a6a11b05978db20a925df9cd08a6740d064b35",
+      "reservation_id": "27a76e1dce104b3bbb4ddccc09ff6229",
+      "round_consumed": true,
+      "scope": "impl:fn-1-focus-mode-network-distraction-block.1",
+      "superseded_by": null,
+      "task": "fn-1-focus-mode-network-distraction-block.1",
+      "timestamp": "2026-08-31T21:49:47.979260Z",
+      "verdict": "NEEDS_WORK"
+    }
+  ],
+  "review_hash_epoch": {},
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-1-focus-mode-network-distraction-block.1": 0
+  },
   "spec_path": ".flow/specs/fn-1-focus-mode-network-distraction-block.md",
   "status": "open",
   "title": "Focus-mode network distraction block",
@@ -28,5 +103,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-08-31T21:34:10.578572Z"
+  "updated_at": "2026-08-31T21:49:48.375200Z"
 }

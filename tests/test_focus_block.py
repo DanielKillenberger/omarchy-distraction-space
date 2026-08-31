@@ -114,6 +114,20 @@ class DefaultsTests(unittest.TestCase):
         for extra in ("YouTube", "Netflix", "Twitch", "Reddit"):
             self.assertIn(extra, names)
 
+    def test_missing_defaults_omits_youtube_from_user_list(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing = Path(tmp) / "nope.json"
+            warnings: list[str] = []
+            names = focus_block.active_names(
+                config={"destinations": ["YouTube", "example.com", "LinkedIn"]},
+                defaults_path=missing,
+                warnings=warnings,
+            )
+            self.assertNotIn("YouTube", names)
+            self.assertIn("example.com", names)
+            self.assertNotIn("LinkedIn", names)
+            self.assertTrue(any("youtube" in item.lower() for item in warnings))
+
     def test_user_list_replaces_defaults_until_changed(self):
         defaults = focus_block.load_defaults()
         names = focus_block.active_names(
@@ -177,6 +191,20 @@ class EditTests(unittest.TestCase):
             )
             self.assertEqual(names, ["YouTube", "Reddit"])
             self.assertTrue(any("rejected" in item for item in warnings))
+            with self.assertRaises(focus_block.BlockError):
+                focus_block.add_destination(
+                    "DateMeme",
+                    config_path=config_path,
+                    defaults_path=ROOT / "defaults" / "destinations.json",
+                )
+            added = focus_block.add_destination(
+                "LinkedIn",
+                config_path=config_path,
+                defaults_path=ROOT / "defaults" / "destinations.json",
+            )
+            self.assertEqual(added, "LinkedIn")
+            hosts = focus_block.hostnames_for("LinkedIn", focus_block.load_defaults())
+            self.assertIn("linkedin.com", hosts)
 
 
 class RenderTests(unittest.TestCase):
@@ -238,6 +266,29 @@ class ApplyLiftTests(unittest.TestCase):
             focus_block.lift_block(backend=backend, notify=False)
         self.assertIn("youtube.com", backend.hosts)
         self.assertIsNotNone(backend.nft)
+
+    def test_nft_unavailable_leaves_previous_state(self):
+        previous = "127.0.0.1 localhost\n"
+        backend = FakeBackend(hosts=previous, nft=None)
+        backend.nft_available = lambda: False  # type: ignore[method-assign]
+        with self.assertRaises(focus_block.BlockError):
+            focus_block.apply_block(
+                backend=backend,
+                config={"destinations": ["YouTube"]},
+                notify=False,
+            )
+        self.assertEqual(backend.hosts, previous)
+        self.assertFalse(backend.writes)
+
+    def test_nft_delete_failure_is_reported(self):
+        hosts = focus_block.splice_hosts(
+            "127.0.0.1 localhost\n",
+            focus_block.hosts_fragment(["youtube.com"]),
+        )
+        backend = FakeBackend(hosts=hosts, nft="table inet omarchy_focus { }", fail_on="nft_delete")
+        with self.assertRaises(focus_block.BlockError):
+            focus_block.lift_block(backend=backend, notify=False)
+        self.assertIn("youtube.com", backend.hosts)
 
     def test_lift_success_removes_block(self):
         hosts = focus_block.splice_hosts(

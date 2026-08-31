@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
 import shutil
 import socket
 import subprocess
+from contextlib import contextmanager
 from pathlib import Path
 
 PLUGIN_ROOT = Path(__file__).resolve().parent
@@ -17,6 +19,10 @@ HOSTS_PATH = Path("/etc/hosts")
 NFT_TABLE = "omarchy_focus"
 HOSTS_BEGIN = "# BEGIN omarchy-focus"
 HOSTS_END = "# END omarchy-focus"
+LOCK_PATH = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "omarchy-focus.block.lock"
+
+_lock_depth = 0
+_lock_fp = None
 
 PERMANENT_OPEN = (
     "Telegram",
@@ -33,7 +39,26 @@ HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$"
 )
 IPV4_RE = re.compile(r"^(?:\d{1,3}\.){3}\d{1,3}$")
-PRODUCT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 .'-]{0,62}$")
+
+
+@contextmanager
+def network_lock():
+    """Reentrant process lock for focus-state plus network apply/lift."""
+    global _lock_depth, _lock_fp
+    if _lock_depth == 0:
+        LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
+        handle = open(LOCK_PATH, "w", encoding="utf-8")
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        _lock_fp = handle
+    _lock_depth += 1
+    try:
+        yield
+    finally:
+        _lock_depth -= 1
+        if _lock_depth == 0 and _lock_fp is not None:
+            fcntl.flock(_lock_fp.fileno(), fcntl.LOCK_UN)
+            _lock_fp.close()
+            _lock_fp = None
 
 
 class BlockError(Exception):
@@ -171,6 +196,16 @@ def active_names(
                 continue
             seen.add(folded)
             names.append(accepted)
+        if missing:
+            names = [
+                item
+                for item in names
+                if _norm_name(item) != "youtube"
+                and (
+                    is_hostname_or_ip(item)
+                    or catalog_lookup(loaded.get("catalog") or {}, item) is not None
+                )
+            ]
         return names
 
     if missing:
@@ -200,8 +235,6 @@ def validate_entry(raw: str, defaults: dict | None = None) -> tuple[str | None, 
         return canonical, None
     if is_hostname_or_ip(name):
         return name.rstrip(".").lower(), None
-    if PRODUCT_RE.match(name) and "://" not in name:
-        return name, None
     return None, f"rejected entry: {raw!r}"
 
 
@@ -424,7 +457,13 @@ def privileged(argv: list[str], stdin: str | None = None, env: dict | None = Non
         except subprocess.CalledProcessError as exc:
             last = exc
             continue
-    raise BlockError(f"could not run {' '.join(argv)} with privilege") from last
+    detail = ""
+    if isinstance(last, subprocess.CalledProcessError):
+        detail = ((last.stderr or last.stdout or "")).strip()
+    elif last is not None:
+        detail = str(last)
+    suffix = f": {detail}" if detail else ""
+    raise BlockError(f"could not run {' '.join(argv)} with privilege{suffix}") from last
 
 
 class NetworkBackend:
@@ -439,27 +478,31 @@ class NetworkBackend:
     def nft_available(self) -> bool:
         return shutil.which("nft") is not None
 
+    def nft_missing_table(self, exc: BlockError) -> bool:
+        text = str(exc).lower()
+        return "does not exist" in text or "no such file" in text
+
     def nft_list(self) -> str | None:
         if not self.nft_available():
-            return None
+            raise BlockError("nftables (nft) is not available")
         try:
             result = privileged(["nft", "list", "table", "inet", NFT_TABLE])
-        except BlockError:
-            return None
+        except BlockError as exc:
+            if self.nft_missing_table(exc):
+                return None
+            raise
         return result.stdout
 
     def nft_apply(self, ruleset: str) -> None:
         if not self.nft_available():
-            return
+            raise BlockError("nftables (nft) is not available")
         privileged(["nft", "-f", "-"], stdin=ruleset)
 
     def nft_delete(self) -> None:
-        if not self.nft_available():
+        existing = self.nft_list()
+        if existing is None:
             return
-        try:
-            privileged(["nft", "delete", "table", "inet", NFT_TABLE])
-        except BlockError:
-            return
+        privileged(["nft", "delete", "table", "inet", NFT_TABLE])
 
     def resolve(self, host: str) -> tuple[list[str], list[str]]:
         return resolve_host(host)
@@ -479,6 +522,21 @@ def apply_block(
     notify: bool = True,
 ) -> None:
     backend = backend or NetworkBackend()
+    with network_lock():
+        _apply_block_locked(backend, config, defaults_path, notify)
+
+
+def _apply_block_locked(
+    backend: NetworkBackend,
+    config: dict | None,
+    defaults_path: Path | None,
+    notify: bool,
+) -> None:
+    if not backend.nft_available():
+        message = "nftables (nft) is not available"
+        if notify:
+            notify_user("Focus mode", message)
+        raise BlockError(message)
     warnings: list[str] = []
     hostnames = active_hostnames(config, defaults_path=defaults_path, warnings=warnings)
     if notify:
@@ -529,6 +587,16 @@ def apply_block(
 
 def lift_block(backend: NetworkBackend | None = None, notify: bool = True) -> None:
     backend = backend or NetworkBackend()
+    with network_lock():
+        _lift_block_locked(backend, notify)
+
+
+def _lift_block_locked(backend: NetworkBackend, notify: bool) -> None:
+    if not backend.nft_available():
+        message = "nftables (nft) is not available"
+        if notify:
+            notify_user("Focus mode", message)
+        raise BlockError(message)
     previous_hosts = backend.read_hosts()
     new_hosts = splice_hosts(previous_hosts, None)
     hosts_written = False

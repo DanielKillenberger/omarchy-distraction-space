@@ -121,6 +121,25 @@
     "Tumblr": [
       "tumblr.com",
       "tmblr.co"
+    ],
+    "LinkedIn": [
+      "linkedin.com",
+      "licdn.com"
+    ],
+    "CNN": [
+      "cnn.com"
+    ],
+    "Yahoo": [
+      "yahoo.com"
+    ],
+    "Buzzfeed": [
+      "buzzfeed.com"
+    ],
+    "MySpace": [
+      "myspace.com"
+    ],
+    "Clubhouse": [
+      "clubhouse.com"
     ]
   }
 }

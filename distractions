@@ -197,10 +197,11 @@ def lift_network_block() -> None:
 
 
 def enable_focus() -> None:
-    set_focus(True)
-    if on_distractions():
-        hide()
-    apply_network_block()
+    with focus_block.network_lock():
+        set_focus(True)
+        if on_distractions():
+            hide()
+        apply_network_block()
     notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
@@ -213,8 +214,9 @@ def disable_focus(reason: str) -> None:
     stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     with log_path().open("a", encoding="utf-8") as handle:
         handle.write(f"{stamp}  {reason}\n")
-    set_focus(False)
-    lift_network_block()
+    with focus_block.network_lock():
+        set_focus(False)
+        lift_network_block()
     notify("Focus mode off", "Super+D opens the distraction space.")
 
 
@@ -320,24 +322,26 @@ def main() -> None:
         if not name:
             raise SystemExit("usage: distractions destinations-add <name-or-host>")
         try:
-            added = focus_block.add_destination(name)
+            with focus_block.network_lock():
+                added = focus_block.add_destination(name)
+                if is_focus():
+                    apply_network_block()
         except focus_block.BlockError as exc:
             notify("Focus mode", str(exc))
             raise SystemExit(str(exc))
-        if is_focus():
-            apply_network_block()
         print(added)
     elif command == "destinations-remove":
         name = " ".join(sys.argv[2:]).strip()
         if not name:
             raise SystemExit("usage: distractions destinations-remove <name-or-host>")
         try:
-            removed = focus_block.remove_destination(name)
+            with focus_block.network_lock():
+                removed = focus_block.remove_destination(name)
+                if is_focus():
+                    apply_network_block()
         except focus_block.BlockError as exc:
             notify("Focus mode", str(exc))
             raise SystemExit(str(exc))
-        if is_focus():
-            apply_network_block()
         print(removed)
     else:
         raise SystemExit(f"unknown command: {command}")
