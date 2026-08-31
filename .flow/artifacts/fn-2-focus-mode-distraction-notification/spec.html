@@ -181,7 +181,7 @@ footer {
   <a href="#proof">Proof</a>
 </nav>
 
-<p class="kicker">Spec lens <span class="sep">·</span> plan <span class="sep">·</span> 2026-08-31</p>
+<p class="kicker">Spec lens <span class="sep">·</span> plan replan <span class="sep">·</span> 2026-08-31</p>
 <h1><span class="id">fn-2</span> Focus-mode distraction notification block</h1>
 <div class="dials">
   <div class="dial"><div class="v">ready</div><div class="c">status</div></div>
@@ -189,13 +189,13 @@ footer {
   <div class="dial"><div class="v">8 / 8</div><div class="c">task coverage</div></div>
   <div class="dial"><div class="v">2</div><div class="c">tasks</div></div>
   <div class="dial"><div class="v">2</div><div class="c">critical depth</div></div>
-  <div class="dial"><div class="v">open</div><div class="c">activation</div></div>
+  <div class="dial"><div class="v">unknown</div><div class="c">plan review</div></div>
 </div>
 
 <section id="thesis">
   <div class="shead"><span class="num">01</span><span class="ttl">Thesis</span><span class="note">scope: business</span></div>
   <p class="tldr">While focus mode is on, <strong>distraction-space apps send no banner and no sound</strong>. Other apps keep notifying. Focus off lifts this mute, then <em>one grouped per-app count</em> may play one sound.</p>
-  <div class="thesis">Mechanism is a mako custom mode named focus-distraction plus PipeWire per-client mute. Whole-desktop do-not-disturb (Super+Ctrl+,) stays the user mute and is out of spec for R2. Omarchy ships mako. SwayNC is not the daemon.</div>
+  <div class="thesis">Mechanism is a plugin Quickshell service (same world as BarWidget.qml) plus a session stream watcher. Whole-desktop toggleDnd (Super+Ctrl+,) stays the user mute and is out of spec for R2. Live Omarchy 4 ships Quickshell, not mako. SwayNC is not the daemon.</div>
 </section>
 
 <section id="dag">
@@ -206,7 +206,7 @@ footer {
       <div class="dagcol">
         <div class="node" id="n1" data-deps="" data-rids="R1,R2,R3,R6,R8">
           <div class="nid">.1</div>
-          <div class="nt">Per-app mako mode and PipeWire mute</div>
+          <div class="nt">Per-app Quickshell filter and stream mute</div>
         </div>
       </div>
       <div class="dagcol">
@@ -291,16 +291,16 @@ footer {
   <div class="shead"><span class="num">04</span><span class="ttl">Architecture</span><span class="note">scope: technical</span></div>
   <div class="archgrid">
     <div class="archbox">
-      <h3>Custom mako mode</h3>
-      <p>focus-distraction criteria set invisible=1 per member app. Apply adds the mode. Lift removes it. Never toggle do-not-disturb.</p>
+      <h3>Quickshell service</h3>
+      <p>Armed while focus is on. Dismisses member toasts via omarchy-shell notifications dismiss. Never calls toggleDnd.</p>
     </div>
     <div class="archbox">
-      <h3>PipeWire client mute</h3>
-      <p>Mute matching sink-inputs only. Restore those clients on lift. Default sink stays up. Covers issue 5073 app sounds.</p>
+      <h3>Session stream watcher</h3>
+      <p>Evaluates new nodes for the whole session. Native PW keys or chrome cmdline host/app-id. Bare Chrome stays up. Default sink stays up.</p>
     </div>
     <div class="archbox">
       <h3>Count then one notice</h3>
-      <p>on-notify writes an XDG count file. No mid-focus reader. Focus off sends one grouped notify() if any count is above zero.</p>
+      <p>Dismiss increments an XDG count file. No mid-focus reader. Focus off sends one grouped notify() if any count is above zero.</p>
     </div>
   </div>
 </section>
@@ -310,7 +310,7 @@ footer {
   <div class="edge">
     <div class="ecard high">
       <h3>Chrome identity</h3>
-      <p>Match desktop-entry for PWAs. A bare Google Chrome app-name would mute every Chrome site and fail R2.</p>
+      <p>PWA banners match app or desktop-entry. PWA sounds match cmdline host/app-id. Bare Chrome mute fails R2.</p>
     </div>
     <div class="ecard high">
       <h3>Apply fail</h3>
@@ -318,7 +318,7 @@ footer {
     </div>
     <div class="ecard med">
       <h3>User DND</h3>
-      <p>Super+Ctrl+, stays independent. Custom mode stacks with do-not-disturb.</p>
+      <p>Super+Ctrl+, stays independent. This spec never toggles the Quickshell dnd boolean.</p>
     </div>
   </div>
 </section>
@@ -338,8 +338,8 @@ footer {
       <h3>Is not</h3>
       <ul>
         <li>Network destination blocking (sibling fn-1)</li>
-        <li>Whole-desktop DND or SwayNC</li>
-        <li>History screen, allow-list, urgent bypass, badge count</li>
+        <li>Whole-desktop toggleDnd, mako, or SwayNC</li>
+        <li>History screen, allow-list, urgent bypass, all-Chrome mute</li>
       </ul>
     </div>
   </div>
@@ -349,14 +349,14 @@ footer {
   <div class="shead"><span class="num">07</span><span class="ttl">Decisions</span><span class="note">plan</span></div>
   <div class="dec">
     <div class="dtag">D1 · daemon</div>
-    <p class="q">Omarchy ships mako. Super+Ctrl+, is makoctl do-not-disturb.</p>
-    <p>Chosen path: custom mode focus-distraction plus PipeWire per-client mute.</p>
-    <p class="rej">Rejected: whole-desktop DND (R2). Rejected: SwayNC. Rejected: editing theme mako.ini.</p>
+    <p class="q">Omarchy 4 ships Quickshell NotificationServer. Super+Ctrl+, is toggleDnd.</p>
+    <p>Chosen path: plugin Quickshell service plus session stream watcher.</p>
+    <p class="rej">Rejected: whole-desktop toggleDnd (R2). Rejected: mako custom mode. Rejected: SwayNC. Rejected: cloning omarchy.notifications.</p>
   </div>
   <div class="dec">
     <div class="dtag">D2 · membership</div>
     <p class="q">"i don't want to get a notification from apps in distraction space"</p>
-    <p>Chosen path: shipped window-rule apps, mapped to app-name / desktop-entry.</p>
+    <p>Chosen path: shipped window-rule apps, mapped to notification app / desktop-entry and cmdline host/app-id.</p>
     <p class="rej">Rejected: mute every Chromium notification. Rejected: a settings list for Super+Alt+D strays.</p>
   </div>
   <div class="dec">
@@ -369,12 +369,12 @@ footer {
 
 <section id="proof">
   <div class="shead"><span class="num">08</span><span class="ttl">Early proof</span><span class="note">task .1</span></div>
-  <div class="proof">Task .1 must prove a custom mako mode plus PipeWire client mute can hide banners and sounds for mapped apps only, without toggling do-not-disturb. If apply cannot stay per-app, stop before the count work.</div>
+  <div class="proof">Task .1 must prove the Quickshell service hides banners for mapped apps only, and the stream watcher mutes matching nodes including new ones, without toggleDnd and without muting bare Chrome. If apply cannot stay per-app, stop before the count work.</div>
 </section>
 
 <footer>
   <p>Render lens, not record. Source: .flow/specs/fn-2-focus-mode-distraction-notification.md</p>
-  <div class="stamp">staleness stamp · spec updated_at 2026-08-31T22:16:35.624209Z · repo commit d31b8af · rendered 2026-08-31</div>
+  <div class="stamp">staleness stamp · spec updated_at 2026-08-31T22:37:38.948666Z · repo commit 7ec5016 · rendered 2026-08-31</div>
 </footer>
 <script>
 (function () {

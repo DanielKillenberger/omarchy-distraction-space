@@ -10,9 +10,9 @@
   "id": "fn-2-focus-mode-distraction-notification",
   "impl_review_rounds": {},
   "next_task": 1,
-  "plan_review_rounds": 1,
-  "plan_review_status": "needs_work",
-  "plan_reviewed_at": "2026-08-31T22:25:55.970501Z",
+  "plan_review_rounds": 0,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": "2026-08-31T22:37:38.948655Z",
   "ready": true,
   "review_attempts": [
     {
@@ -81,7 +81,10 @@
       "verdict": "MAJOR_RETHINK"
     }
   ],
-  "review_hash_epoch": {},
+  "review_hash_epoch": {
+    "plan": 1,
+    "plan#completion": 1
+  },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
@@ -101,5 +104,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-08-31T22:25:55.971375Z"
+  "updated_at": "2026-08-31T22:37:38.948666Z"
 }
