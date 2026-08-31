@@ -698,8 +698,11 @@ class DnsSinkholeTests(unittest.TestCase):
         qname_text, end = parsed
         self.assertEqual(qname_text, "www.youtube.com")
         self.assertTrue(focus_dns.blocked_qname(qname_text, ["youtube.com"]))
-        reply = focus_dns.sinkhole_response(query, focus_dns.query_type(query, end))
+        reply = focus_dns.sinkhole_response(query, focus_dns.query_type(query, end), end)
         self.assertTrue(reply.endswith(b"\x00\x00\x00\x00"))
+        self.assertEqual(int.from_bytes(reply[4:6], "big"), 1)
+        self.assertEqual(int.from_bytes(reply[6:8], "big"), 1)
+        self.assertEqual(int.from_bytes(reply[10:12], "big"), 0)
         aaaa_query = b"\x00\x01\x01\x00\x00\x01\x00\x00\x00\x00\x00\x00" + qname + b"\x00\x1c\x00\x01"
         aaaa_parsed = focus_dns.parse_qname(aaaa_query)
         self.assertIsNotNone(aaaa_parsed)
@@ -711,6 +714,22 @@ class DnsSinkholeTests(unittest.TestCase):
             upstreams = Path(tmp) / "upstreams"
             upstreams.write_text("9.9.9.9\n127.0.0.53\n", encoding="utf-8")
             self.assertEqual(focus_dns.load_upstreams(upstreams), ["9.9.9.9"])
+
+    def test_edns_query_does_not_copy_opt_into_answer(self):
+        import focus_dns
+
+        qname = b"\x03www\x07youtube\x03com\x00"
+        opt = b"\x00\x00\x29\x10\x00\x00\x00\x00\x00\x00\x00"
+        query = b"\x00\x01\x01\x00\x00\x01\x00\x00\x00\x00\x00\x01" + qname + b"\x00\x01\x00\x01" + opt
+        parsed = focus_dns.parse_qname(query)
+        self.assertIsNotNone(parsed)
+        _name, end = parsed
+        reply = focus_dns.sinkhole_response(query, 1, end)
+        self.assertTrue(reply.endswith(b"\x00\x00\x00\x00"))
+        self.assertNotIn(b"\x00\x29", reply)
+        self.assertEqual(int.from_bytes(reply[6:8], "big"), 1)
+        self.assertEqual(int.from_bytes(reply[10:12], "big"), 0)
+        self.assertEqual(len(reply), end + 16)
 
     def test_live_sinkhole_answers_service_subdomain(self):
         import focus_dns

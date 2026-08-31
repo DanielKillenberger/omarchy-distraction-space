@@ -63,14 +63,18 @@ def blocked_qname(qname: str, suffixes: list[str]) -> bool:
     return any(suffix_matches(qname, suffix) for suffix in suffixes)
 
 
-def sinkhole_response(query: bytes, qtype: int) -> bytes:
+def sinkhole_response(query: bytes, qtype: int, question_end: int | None = None) -> bytes:
+    if question_end is None:
+        parsed = parse_qname(query)
+        question_end = parsed[1] if parsed is not None else min(len(query), 12)
     header = bytearray(query[:12])
     header[2] = 0x81
     header[3] = 0x80
+    header[4:6] = b"\x00\x01"
     header[6:8] = b"\x00\x01"
     header[8:10] = b"\x00\x00"
     header[10:12] = b"\x00\x00"
-    question = query[12:]
+    question = query[12:question_end]
     rdata = SINKHOLE_AAAA if qtype == 28 else SINKHOLE_A
     answer = b"\xc0\x0c" + qtype.to_bytes(2, "big") + b"\x00\x01" + (30).to_bytes(4, "big")
     answer += len(rdata).to_bytes(2, "big") + rdata
@@ -163,7 +167,7 @@ def serve(bind: str, port: int, suffix_path: Path, upstream_path: Path | None = 
             qname, end = parsed
             qtype = query_type(data, end)
             if blocked_qname(qname, suffixes["items"]):
-                sock.sendto(sinkhole_response(data, qtype), addr)
+                sock.sendto(sinkhole_response(data, qtype, end), addr)
                 continue
             reply = forward(data, servers["items"])
             if reply:
