@@ -20,6 +20,10 @@ NFT_TABLE = "omarchy_focus"
 HOSTS_BEGIN = "# BEGIN omarchy-focus"
 HOSTS_END = "# END omarchy-focus"
 LOCK_PATH = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "omarchy-focus.block.lock"
+DNS_DROPINS = (
+    Path("/etc/NetworkManager/dnsmasq.d/omarchy-focus.conf"),
+    Path("/etc/dnsmasq.d/omarchy-focus.conf"),
+)
 
 _lock_depth = 0
 _lock_fp = None
@@ -63,6 +67,10 @@ def network_lock():
 
 class BlockError(Exception):
     """User-visible apply/lift/list failure."""
+
+
+class MissingTable(BlockError):
+    """nftables table is absent."""
 
 
 class DefaultsMissing(BlockError):
@@ -336,6 +344,31 @@ def active_hostnames(
     return hosts
 
 
+def suffix_matches(hostname: str, suffix: str) -> bool:
+    name = hostname.rstrip(".").lower()
+    tail = suffix.rstrip(".").lower()
+    return name == tail or name.endswith("." + tail)
+
+
+def suffix_names(hostnames: list[str]) -> list[str]:
+    hosts = [host.rstrip(".").lower() for host in hostnames if not IPV4_RE.match(host)]
+    unique = sorted(set(hosts), key=lambda host: (host.count("."), len(host), host))
+    kept: list[str] = []
+    for host in unique:
+        if any(suffix_matches(host, suffix) for suffix in kept):
+            continue
+        kept.append(host)
+    return kept
+
+
+def dns_fragment(hostnames: list[str]) -> str:
+    lines = ["# Managed by omarchy-distraction-space. Do not edit by hand."]
+    for suffix in suffix_names(hostnames):
+        lines.append(f"address=/{suffix}/0.0.0.0")
+        lines.append(f"address=/{suffix}/::")
+    return "\n".join(lines) + "\n"
+
+
 def hosts_fragment(hostnames: list[str]) -> str:
     lines = [HOSTS_BEGIN, "# Managed by omarchy-distraction-space. Do not edit by hand."]
     for host in hostnames:
@@ -438,9 +471,15 @@ def _unique(items: list[str]) -> list[str]:
     return out
 
 
+def _missing_table_text(text: str) -> bool:
+    lowered = text.lower()
+    return "does not exist" in lowered or "no such file" in lowered
+
+
 def privileged(argv: list[str], stdin: str | None = None, env: dict | None = None) -> subprocess.CompletedProcess:
     attempts = [argv, ["pkexec", *argv], ["sudo", "-n", *argv]]
     last: Exception | None = None
+    details: list[str] = []
     for cmd in attempts:
         try:
             return subprocess.run(
@@ -453,16 +492,17 @@ def privileged(argv: list[str], stdin: str | None = None, env: dict | None = Non
             )
         except FileNotFoundError as exc:
             last = exc
+            details.append(str(exc))
             continue
         except subprocess.CalledProcessError as exc:
+            detail = ((exc.stderr or exc.stdout or "")).strip()
+            if _missing_table_text(detail):
+                raise MissingTable(detail or "nftables table does not exist") from exc
             last = exc
+            if detail:
+                details.append(detail)
             continue
-    detail = ""
-    if isinstance(last, subprocess.CalledProcessError):
-        detail = ((last.stderr or last.stdout or "")).strip()
-    elif last is not None:
-        detail = str(last)
-    suffix = f": {detail}" if detail else ""
+    suffix = f": {'; '.join(details)}" if details else ""
     raise BlockError(f"could not run {' '.join(argv)} with privilege{suffix}") from last
 
 
@@ -478,19 +518,13 @@ class NetworkBackend:
     def nft_available(self) -> bool:
         return shutil.which("nft") is not None
 
-    def nft_missing_table(self, exc: BlockError) -> bool:
-        text = str(exc).lower()
-        return "does not exist" in text or "no such file" in text
-
     def nft_list(self) -> str | None:
         if not self.nft_available():
             raise BlockError("nftables (nft) is not available")
         try:
             result = privileged(["nft", "list", "table", "inet", NFT_TABLE])
-        except BlockError as exc:
-            if self.nft_missing_table(exc):
-                return None
-            raise
+        except MissingTable:
+            return None
         return result.stdout
 
     def nft_apply(self, ruleset: str) -> None:
@@ -513,6 +547,21 @@ class NetworkBackend:
                 privileged(["conntrack", "-D", "-d", address])
             except BlockError:
                 return
+
+    def dns_targets(self) -> list[Path]:
+        return [path for path in DNS_DROPINS if path.parent.is_dir()]
+
+    def read_dns(self, path: Path) -> str | None:
+        if not path.exists():
+            return None
+        return path.read_text(encoding="utf-8")
+
+    def write_dns(self, path: Path, text: str | None) -> None:
+        if text is None:
+            if path.exists():
+                privileged(["rm", "-f", str(path)])
+            return
+        privileged(["tee", str(path)], stdin=text)
 
 
 def apply_block(
@@ -545,7 +594,10 @@ def _apply_block_locked(
 
     previous_hosts = backend.read_hosts()
     previous_nft = backend.nft_list()
+    dns_targets = backend.dns_targets()
+    previous_dns = {str(path): backend.read_dns(path) for path in dns_targets}
     new_hosts = splice_hosts(previous_hosts, hosts_fragment(hostnames))
+    new_dns = dns_fragment(hostnames)
 
     ipv4: list[str] = []
     ipv6: list[str] = []
@@ -559,11 +611,15 @@ def _apply_block_locked(
 
     hosts_written = False
     nft_written = False
+    dns_written: list[str] = []
     try:
         backend.write_hosts(new_hosts)
         hosts_written = True
         backend.nft_apply(ruleset)
         nft_written = True
+        for path in dns_targets:
+            backend.write_dns(path, new_dns)
+            dns_written.append(str(path))
     except Exception as exc:
         if hosts_written:
             try:
@@ -575,6 +631,11 @@ def _apply_block_locked(
                 backend.nft_delete()
                 if previous_nft:
                     backend.nft_apply(previous_nft)
+            except Exception:
+                pass
+        for path_text in dns_written:
+            try:
+                backend.write_dns(Path(path_text), previous_dns.get(path_text))
             except Exception:
                 pass
         message = f"Could not apply the network block: {exc}"
@@ -598,17 +659,28 @@ def _lift_block_locked(backend: NetworkBackend, notify: bool) -> None:
             notify_user("Focus mode", message)
         raise BlockError(message)
     previous_hosts = backend.read_hosts()
+    dns_targets = backend.dns_targets()
+    previous_dns = {str(path): backend.read_dns(path) for path in dns_targets}
     new_hosts = splice_hosts(previous_hosts, None)
     hosts_written = False
+    dns_written: list[str] = []
     try:
         if new_hosts != previous_hosts:
             backend.write_hosts(new_hosts)
             hosts_written = True
+        for path in dns_targets:
+            backend.write_dns(path, None)
+            dns_written.append(str(path))
         backend.nft_delete()
     except Exception as exc:
         if hosts_written:
             try:
                 backend.write_hosts(previous_hosts)
+            except Exception:
+                pass
+        for path_text in dns_written:
+            try:
+                backend.write_dns(Path(path_text), previous_dns.get(path_text))
             except Exception:
                 pass
         message = f"Could not lift the network block: {exc}"

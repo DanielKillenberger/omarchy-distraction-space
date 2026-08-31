@@ -229,6 +229,16 @@ class RenderTests(unittest.TestCase):
         self.assertIn("youtube.com", hosts)
         self.assertIn("www.youtube.com", hosts)
         self.assertIn("youtu.be", hosts)
+        self.assertTrue(focus_block.suffix_matches("r4---sn-abc.googlevideo.com", "googlevideo.com"))
+        fragment = focus_block.dns_fragment(hosts)
+        self.assertIn("address=/googlevideo.com/0.0.0.0", fragment)
+        self.assertIn("address=/youtube.com/0.0.0.0", fragment)
+        self.assertNotIn("address=/www.youtube.com/", fragment)
+
+    def test_missing_table_error_is_classified_before_later_attempts(self):
+        self.assertTrue(focus_block._missing_table_text("Error: No such file or directory"))
+        self.assertTrue(focus_block._missing_table_text("table inet omarchy_focus does not exist"))
+        self.assertFalse(focus_block._missing_table_text("sudo: a password is required"))
 
 
 class ApplyLiftTests(unittest.TestCase):
