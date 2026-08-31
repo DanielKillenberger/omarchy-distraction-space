@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "distraction-space",
   "name": "Focus mode",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "Daniel Killenberger",
   "license": "MIT",
   "description": "Lock a named distraction space until you leave focus mode with a written reason.",

@@ -11,6 +11,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+PLUGIN_DIR = Path(__file__).resolve().parent
+if str(PLUGIN_DIR) not in sys.path:
+    sys.path.insert(0, str(PLUGIN_DIR))
+import focus_block
+
 NAME = "distraction"
 REF = f"name:{NAME}"
 SAFE_ID = 99
@@ -177,10 +182,25 @@ def cycle(step: int) -> None:
             return
 
 
+def apply_network_block() -> None:
+    try:
+        focus_block.apply_block()
+    except focus_block.BlockError:
+        pass
+
+
+def lift_network_block() -> None:
+    try:
+        focus_block.lift_block()
+    except focus_block.BlockError:
+        pass
+
+
 def enable_focus() -> None:
     set_focus(True)
     if on_distractions():
         hide()
+    apply_network_block()
     notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
@@ -194,6 +214,7 @@ def disable_focus(reason: str) -> None:
     with log_path().open("a", encoding="utf-8") as handle:
         handle.write(f"{stamp}  {reason}\n")
     set_focus(False)
+    lift_network_block()
     notify("Focus mode off", "Super+D opens the distraction space.")
 
 
@@ -251,6 +272,8 @@ def listen() -> None:
 
     if is_focus() and on_distractions():
         hide()
+    if is_focus():
+        apply_network_block()
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(str(sock_path))
@@ -286,6 +309,36 @@ def main() -> None:
         raise SystemExit(0 if is_focus() else 1)
     elif command == "log-path":
         print(log_path())
+    elif command == "destinations":
+        warnings: list[str] = []
+        for name in focus_block.active_names(warnings=warnings):
+            print(name)
+        for warning in warnings:
+            notify("Focus mode", warning)
+    elif command == "destinations-add":
+        name = " ".join(sys.argv[2:]).strip()
+        if not name:
+            raise SystemExit("usage: distractions destinations-add <name-or-host>")
+        try:
+            added = focus_block.add_destination(name)
+        except focus_block.BlockError as exc:
+            notify("Focus mode", str(exc))
+            raise SystemExit(str(exc))
+        if is_focus():
+            apply_network_block()
+        print(added)
+    elif command == "destinations-remove":
+        name = " ".join(sys.argv[2:]).strip()
+        if not name:
+            raise SystemExit("usage: distractions destinations-remove <name-or-host>")
+        try:
+            removed = focus_block.remove_destination(name)
+        except focus_block.BlockError as exc:
+            notify("Focus mode", str(exc))
+            raise SystemExit(str(exc))
+        if is_focus():
+            apply_network_block()
+        print(removed)
     else:
         raise SystemExit(f"unknown command: {command}")
 
