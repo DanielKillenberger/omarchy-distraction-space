@@ -1,0 +1,14 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-08-31T22:33:27.904284Z",
+  "depends_on": [],
+  "id": "fn-3-focus-mode-agent-notification-summary.1",
+  "priority": null,
+  "spec": "fn-3-focus-mode-agent-notification-summary",
+  "spec_path": ".flow/tasks/fn-3-focus-mode-agent-notification-summary.1.md",
+  "status": "todo",
+  "title": "Consent, agent identity, and headless picker",
+  "updated_at": "2026-08-31T22:33:27.904284Z"
+}
