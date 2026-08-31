@@ -1,0 +1,294 @@
+#!/usr/bin/env python3
+"""Named native workspace `distraction`, not overlay and not Super+1-0."""
+
+from __future__ import annotations
+
+import json
+import os
+import socket
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+NAME = "distraction"
+REF = f"name:{NAME}"
+SAFE_ID = 99
+MIN_REASON = 50
+STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy"
+CONFIG_PATH = Path.home() / ".config/omarchy/focus.json"
+FOCUS = STATE_DIR / "distractions.focus"
+LISTEN_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.listen.lock"
+DEFAULT_LOG = STATE_DIR / "focus-disable.log"
+
+
+def hyprctl(*args: str) -> str:
+    return subprocess.check_output(["hyprctl", *args], text=True)
+
+
+def hyprctl_json(*args: str):
+    return json.loads(hyprctl("-j", *args))
+
+
+def dispatch(lua: str) -> None:
+    subprocess.check_call(["hyprctl", "dispatch", lua])
+
+
+def notify(title: str, body: str = "", timeout_ms: int = 4000) -> None:
+    cmd = ["omarchy-notification-send", "-u", "normal", "-t", str(timeout_ms), title]
+    if body:
+        cmd.append(body)
+    try:
+        subprocess.check_call(cmd)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        subprocess.call(["notify-send", "-t", str(timeout_ms), title, body])
+
+
+def load_config() -> dict:
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        data = json.loads(CONFIG_PATH.read_text())
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def log_path() -> Path:
+    raw = load_config().get("log", str(DEFAULT_LOG))
+    path = Path(os.path.expanduser(str(raw)))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def current() -> dict:
+    return hyprctl_json("activeworkspace")
+
+
+def current_id() -> int:
+    return int(current()["id"])
+
+
+def is_distraction(workspace: dict) -> bool:
+    name = str(workspace.get("name") or "")
+    return name == NAME or name == REF or int(workspace.get("id") or 0) == SAFE_ID
+
+
+def on_distractions() -> bool:
+    return is_distraction(current())
+
+
+def occupied_ids() -> list[int]:
+    workspaces = hyprctl_json("workspaces")
+    return sorted({workspace["id"] for workspace in workspaces if workspace["id"] > 0})
+
+
+def skip_ids() -> set[int]:
+    return {workspace["id"] for workspace in hyprctl_json("workspaces") if is_distraction(workspace)}
+
+
+def focus_workspace(workspace: str) -> None:
+    dispatch(f'hl.dsp.focus({{ workspace = "{workspace}" }})')
+
+
+def pin_id() -> None:
+    # Named workspaces often get a Hyprland-managed id (e.g. -1337) which
+    # already sits outside Super+1-0 and the 1-10 bar. Only retarget if a
+    # numbered slot 1-10 got used.
+    for workspace in hyprctl_json("workspaces"):
+        if not is_distraction(workspace):
+            continue
+        ident = int(workspace["id"])
+        if ident < 1 or ident > 10:
+            return
+        dispatch(
+            f'hl.dsp.workspace.change_id({{ workspace = "{REF}", id = {SAFE_ID} }})'
+        )
+        return
+
+
+def show() -> None:
+    if not on_distractions():
+        focus_workspace(REF)
+    pin_id()
+
+
+def hide() -> None:
+    if not on_distractions():
+        return
+    focus_workspace("previous")
+    if on_distractions():
+        focus_workspace("1")
+
+
+def is_focus() -> bool:
+    if not FOCUS.exists():
+        return True
+    return FOCUS.read_text().strip().lower() != "off"
+
+
+def set_focus(value: bool) -> None:
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    FOCUS.write_text("on\n" if value else "off\n")
+
+
+def ensure_focus_default() -> None:
+    if not FOCUS.exists():
+        set_focus(True)
+
+
+def blocked_message() -> None:
+    notify(
+        "Focus mode is on",
+        "The distraction space is locked. Super+Ctrl+Shift+F, then a 50-character reason, to leave.",
+    )
+
+
+def enter() -> None:
+    if on_distractions():
+        return
+    if is_focus():
+        blocked_message()
+        return
+    show()
+
+
+def toggle() -> None:
+    if on_distractions():
+        hide()
+        return
+    enter()
+
+
+def cycle(step: int) -> None:
+    ids = occupied_ids()
+    current = current_id()
+    if current not in ids:
+        ids.append(current)
+        ids.sort()
+    if not ids:
+        return
+    index = ids.index(current)
+    for _ in range(len(ids)):
+        index = (index + step) % len(ids)
+        candidate = ids[index]
+        if candidate not in skip_ids():
+            focus_workspace(str(candidate))
+            return
+
+
+def enable_focus() -> None:
+    set_focus(True)
+    if on_distractions():
+        hide()
+    notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
+
+
+def disable_focus(reason: str) -> None:
+    reason = " ".join(reason.split())
+    if len(reason) < MIN_REASON:
+        raise SystemExit(
+            f"reason must be at least {MIN_REASON} characters (got {len(reason)})"
+        )
+    stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    with log_path().open("a", encoding="utf-8") as handle:
+        handle.write(f"{stamp}  {reason}\n")
+    set_focus(False)
+    notify("Focus mode off", "Super+D opens the distraction space.")
+
+
+def prompt_reason() -> str | None:
+    try:
+        result = subprocess.run(
+            [
+                "zenity",
+                "--entry",
+                "--title=Leave focus mode",
+                "--text=Write at least 50 characters on why you are leaving focus mode.",
+                "--width=520",
+                "--ok-label=Turn off",
+                "--cancel-label=Stay focused",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        notify("Focus mode", "zenity is missing; cannot ask for a reason.")
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def request_focus_toggle() -> None:
+    if not is_focus():
+        enable_focus()
+        return
+    reason = prompt_reason()
+    if reason is None:
+        return
+    try:
+        disable_focus(reason)
+    except SystemExit as exc:
+        notify("Focus mode", str(exc))
+
+
+def listen() -> None:
+    ensure_focus_default()
+    pin_id()
+    runtime = Path(os.environ["XDG_RUNTIME_DIR"])
+    signature = os.environ["HYPRLAND_INSTANCE_SIGNATURE"]
+    sock_path = runtime / "hypr" / signature / ".socket2.sock"
+
+    lock = open(LISTEN_LOCK, "w")
+    try:
+        import fcntl
+
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return
+
+    if is_focus() and on_distractions():
+        hide()
+
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(str(sock_path))
+    with sock.makefile("r") as events:
+        for _line in events:
+            if is_focus() and on_distractions():
+                hide()
+
+
+def main() -> None:
+    command = sys.argv[1] if len(sys.argv) > 1 else "toggle"
+    if command == "toggle":
+        toggle()
+    elif command == "enter":
+        enter()
+    elif command == "next":
+        cycle(1)
+    elif command == "prev":
+        cycle(-1)
+    elif command == "listen":
+        listen()
+    elif command in {"focus", "focus-toggle"}:
+        request_focus_toggle()
+    elif command == "focus-on":
+        if not is_focus():
+            enable_focus()
+    elif command == "focus-off":
+        reason = " ".join(sys.argv[2:]).strip()
+        if not reason and not sys.stdin.isatty():
+            reason = sys.stdin.read().strip()
+        disable_focus(reason)
+    elif command == "focus-status":
+        raise SystemExit(0 if is_focus() else 1)
+    elif command == "log-path":
+        print(log_path())
+    else:
+        raise SystemExit(f"unknown command: {command}")
+
+
+if __name__ == "__main__":
+    main()

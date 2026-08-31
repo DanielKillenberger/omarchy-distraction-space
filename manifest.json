@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "daniel.focus",
+  "name": "Focus mode",
+  "version": "1.2.0",
+  "author": "Daniel Killenberger",
+  "license": "MIT",
+  "description": "Lock a named distraction space until you leave focus mode with a written reason.",
+  "homepage": "https://github.com/DanielKillenberger/omarchy-distraction-space",
+  "repository": "https://github.com/DanielKillenberger/omarchy-distraction-space",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Focus mode",
+    "description": "Lock the distraction space until you leave focus mode with a written reason.",
+    "category": "Status",
+    "allowMultiple": false,
+    "defaultSection": "center"
+  }
+}
