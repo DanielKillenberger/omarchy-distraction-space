@@ -12,9 +12,9 @@
   "id": "fn-3-focus-mode-agent-notification-summary",
   "impl_review_rounds": {},
   "next_task": 1,
-  "plan_review_rounds": 1,
-  "plan_review_status": "needs_work",
-  "plan_reviewed_at": "2026-08-31T22:43:25.547574Z",
+  "plan_review_rounds": 0,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": "2026-08-31T22:53:23.762562Z",
   "ready": true,
   "review_attempts": [
     {
@@ -123,7 +123,10 @@
       "verdict": "MAJOR_RETHINK"
     }
   ],
-  "review_hash_epoch": {},
+  "review_hash_epoch": {
+    "plan": 1,
+    "plan#completion": 1
+  },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
@@ -143,5 +146,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-08-31T22:43:25.548218Z"
+  "updated_at": "2026-08-31T22:53:23.762571Z"
 }

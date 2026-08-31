@@ -128,11 +128,11 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   <a href="#decisions">Decisions</a>
   <a href="#proof">Proof</a>
 </nav>
-<p class="kicker">Spec lens <span class="sep">·</span> plan <span class="sep">·</span> 2026-08-31</p>
+<p class="kicker">Spec lens <span class="sep">·</span> plan replan <span class="sep">·</span> 2026-08-31</p>
 <h1><span class="id">fn-3</span> Focus-mode agent notification summary</h1>
 <div class="dials">
   <div class="dial"><div class="v">ready</div><div class="c">status</div></div>
-  <div class="dial"><div class="v">13 / 13</div><div class="c">R-ID coverage</div></div>
+  <div class="dial"><div class="v">15 / 15</div><div class="c">R-ID coverage</div></div>
   <div class="dial"><div class="v">3</div><div class="c">tasks</div></div>
   <div class="dial"><div class="v">3 deep</div><div class="c">critical path</div></div>
   <div class="dial"><div class="v">opt-in</div><div class="c">consent</div></div>
@@ -140,8 +140,8 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
 </div>
 <section id="thesis">
   <div class="shead"><span class="num">01</span><span class="ttl">Thesis</span><span class="note">scope: business</span></div>
-  <p class="tldr">Agent summaries are <strong>off until you enable them</strong>. Then Omarchy’s default agent reads blocked pings in the background and you get <em>one important-things summary</em> at focus-off. Helpful / not-helpful feedback trains the next parse.</p>
-  <div class="thesis">An Omarchy default agent is not consent (R13). The plugin reads <code>omarchy default agent</code>, picks with <code>omarchy-menu-select</code>, and runs a closed print/run/exec argv table. It does not call <code>omarchy agent prompt</code>.</div>
+  <p class="tldr">Agent summaries are <strong>off until you enable them</strong>. This plugin captures blocked-ping text itself, Omarchy’s default agent reads it in the background, and you get <em>one important-things summary</em> at focus-off. The mute grouped count stays the catch-up when this path is off or fails.</p>
+  <div class="thesis">An Omarchy default agent is not consent (R13). The plugin reads <code>omarchy default agent</code>, picks with <code>omarchy-menu-select</code>, and runs a gated print/run/exec argv table. It does not call <code>omarchy agent prompt</code>. It does not read a mute raw-ping queue.</div>
 </section>
 <section id="dag">
   <div class="shead"><span class="num">02</span><span class="ttl">Plan DAG</span><span class="note">critical path 3 deep</span></div>
@@ -152,13 +152,13 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       <div class="dagcol">
         <div class="node" id="n1" data-deps="" data-rids="R5,R7,R8,R11,R12,R13">
           <div class="nid">.1</div>
-          <div class="nt">Consent, identity, headless picker</div>
+          <div class="nt">Consent, gated argv table, picker</div>
         </div>
       </div>
       <div class="dagcol">
-        <div class="node" id="n2" data-deps="n1" data-rids="R1,R2,R3,R4,R6">
+        <div class="node" id="n2" data-deps="n1" data-rids="R1,R2,R3,R4,R6,R14,R15">
           <div class="nid">.2</div>
-          <div class="nt">Background parse and focus-off summary</div>
+          <div class="nt">Ping capture, bounded parse, focus-off XOR</div>
         </div>
       </div>
       <div class="dagcol">
@@ -171,50 +171,52 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
   </div>
 </section>
 <section id="criteria">
-  <div class="shead"><span class="num">03</span><span class="ttl">Acceptance</span><span class="note">13 criteria · 13 owned</span></div>
+  <div class="shead"><span class="num">03</span><span class="ttl">Acceptance</span><span class="note">15 criteria · 15 owned</span></div>
   <table>
     <thead><tr><th>R-ID</th><th>Criterion</th><th>Source</th><th>Owned by</th></tr></thead>
     <tbody>
-      <tr data-rid="R1"><td>R1</td><td>Configured agent parses blocked pings in the background while focus is on.</td><td><span class="tagchip paraphrase">paraphrase</span></td><td><span class="tchip">.2</span></td></tr>
-      <tr data-rid="R2"><td>R2</td><td>Running parse stays inaccessible until focus-off.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.2</span></td></tr>
+      <tr data-rid="R1"><td>R1</td><td>Usable agent parses this spec’s ping-text in the background while focus is on.</td><td><span class="tagchip paraphrase">paraphrase</span></td><td><span class="tchip">.2</span></td></tr>
+      <tr data-rid="R2"><td>R2</td><td>Running parse stays inaccessible in plugin UI/CLI until focus-off.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.2</span></td></tr>
       <tr data-rid="R3"><td>R3</td><td>Focus-off shows one important-things summary, not each ping.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.2</span></td></tr>
-      <tr data-rid="R4"><td>R4</td><td>No agent configured leaves the mute spec’s grouped count unchanged.</td><td><span class="tagchip paraphrase">paraphrase</span></td><td><span class="tchip">.2</span></td></tr>
+      <tr data-rid="R4"><td>R4</td><td>Off / no usable agent / empty ping-text leaves the mute grouped count unchanged.</td><td><span class="tagchip paraphrase">paraphrase</span></td><td><span class="tchip">.2</span></td></tr>
       <tr data-rid="R5"><td>R5</td><td>User can point the plugin at an existing agent without rebuild.</td><td><span class="tagchip paraphrase">paraphrase</span></td><td><span class="tchip">.1</span></td></tr>
-      <tr data-rid="R6"><td>R6</td><td>Agent-path failure still shows the grouped-count notice.</td><td><span class="tagchip paraphrase">paraphrase</span></td><td><span class="tchip">.2</span></td></tr>
-      <tr data-rid="R7"><td>R7</td><td>No override uses Omarchy’s default agent. No default → R4.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.1</span></td></tr>
-      <tr data-rid="R8"><td>R8</td><td>User can override to any agent Omarchy allows.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.1</span></td></tr>
-      <tr data-rid="R9"><td>R9</td><td>After a summary, mark helpful / not helpful and leave feedback.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.3</span></td></tr>
+      <tr data-rid="R6"><td>R6</td><td>Agent-path failure still calls the grouped-count notice after lift.</td><td><span class="tagchip paraphrase">paraphrase</span></td><td><span class="tchip">.2</span></td></tr>
+      <tr data-rid="R7"><td>R7</td><td>No override uses Omarchy’s default when that id is offered. Else R4.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.1</span></td></tr>
+      <tr data-rid="R8"><td>R8</td><td>User can override to an offered-table Omarchy agent.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.1</span></td></tr>
+      <tr data-rid="R9"><td>R9</td><td>After a summary, mark helpful / not helpful and leave feedback. Cancel skips.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.3</span></td></tr>
       <tr data-rid="R10"><td>R10</td><td>Feedback ledger informs the next parse.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.3</span></td></tr>
-      <tr data-rid="R11"><td>R11</td><td>Override set is only headless-capable Omarchy agents.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.1</span></td></tr>
-      <tr data-rid="R12"><td>R12</td><td>Override picker is the same kind of selector modal Omarchy uses.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.1</span></td></tr>
+      <tr data-rid="R11"><td>R11</td><td>Override set is only verified tool-free one-shot Omarchy agents.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.1</span></td></tr>
+      <tr data-rid="R12"><td>R12</td><td>Override picker is omarchy.menu select mode (same kind, not Setup submenu).</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.1</span></td></tr>
       <tr data-rid="R13"><td>R13</td><td>Summaries stay off until enabled in this plugin. Default agent is not consent.</td><td><span class="tagchip user">user</span></td><td><span class="tchip">.1</span></td></tr>
+      <tr data-rid="R14"><td>R14</td><td>This spec owns ping-text capture. Mute’s count file is not a text queue.</td><td><span class="tagchip paraphrase">paraphrase</span></td><td><span class="tchip">.2</span></td></tr>
+      <tr data-rid="R15"><td>R15</td><td>Parse cost is bounded (one child, debounce, 3 shots, 40/24KiB, 60s, one final).</td><td><span class="tagchip paraphrase">paraphrase</span></td><td><span class="tchip">.2</span></td></tr>
     </tbody>
   </table>
 </section>
 <section id="architecture">
   <div class="shead"><span class="num">04</span><span class="ttl">Architecture</span><span class="note">scope: technical</span></div>
   <div class="archgrid">
-    <div class="archbox"><h3>Consent</h3><p><code>agent_summaries</code> in focus.json defaults false. Plugin enable is required.</p></div>
+    <div class="archbox"><h3>Capture</h3><p>Plugin service writes JSONL <code>{app,title,body,at}</code>. Does not dismiss. Does not increment mute counts.</p></div>
     <div class="archbox"><h3>Identity</h3><p><code>omarchy default agent</code>, or a plugin-local <code>summary_agent</code> from <code>omarchy-menu-select</code>.</p></div>
-    <div class="archbox"><h3>One-shot</h3><p>Closed print/run/exec argv. Stdout is the summary. No TUI. No auto-approve.</p></div>
+    <div class="archbox"><h3>One-shot</h3><p>Offered print/run/exec argv. Tool-free flags. Empty cwd. No TUI. No auto-approve.</p></div>
   </div>
   <div class="ladder">
     <span>summaries off</span>
     <span>→ grouped count</span>
-    <span>no default / empty buffer</span>
+    <span>no usable agent / empty text</span>
     <span>→ grouped count</span>
     <span>parse or display fail</span>
     <span>→ grouped count</span>
     <span>success</span>
-    <span>→ one summary + ledger</span>
+    <span>→ one summary + silent clear</span>
   </div>
 </section>
 <section id="edges">
   <div class="shead"><span class="num">05</span><span class="ttl">Edge cases</span><span class="note">blast radius</span></div>
   <div class="archgrid">
-    <div class="edges"><h3>Focus session</h3><p>Cancel in-flight parse on focus-on. One wait-then-kill at focus-off. Reason cancel stays focused.</p></div>
-    <div class="edges"><h3>Invoke</h3><p>Missing binary, unknown id, empty stdout (including agy non-TTY), non-zero exit → R1 then R6.</p></div>
-    <div class="edges"><h3>State</h3><p>Flock result and ledger files. No peek command while focus is on. CLI focus-off still runs the chain.</p></div>
+    <div class="edges"><h3>Focus-off XOR</h3><p>Lift mute, then summary or <code>show_grouped_notice()</code>. Never wait after the count already fired.</p></div>
+    <div class="edges"><h3>Invoke</h3><p>Dropped ori/pi/copilot. Omitted opencode/crush. Empty stdout including agy non-TTY is R1 then R6.</p></div>
+    <div class="edges"><h3>Bounds</h3><p>One child, 20s debounce, 3 invocations, 40 records, 24 KiB, 60s kill, one final parse.</p></div>
   </div>
 </section>
 <section id="boundaries">
@@ -224,8 +226,8 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       <h3>Is</h3>
       <ul>
         <li>Opt-in agent summary after focus-off</li>
-        <li>Default agent, plus Omarchy-style override</li>
-        <li>Headless one-shot agents only</li>
+        <li>Owned ping-text capture</li>
+        <li>Default agent, plus offered-table override</li>
         <li>Feedback ledger for the next parse</li>
       </ul>
     </div>
@@ -233,43 +235,43 @@ footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
       <h3>Is not</h3>
       <ul>
         <li>Mute or grouped count (fn-2)</li>
-        <li>Network block (fn-1)</li>
-        <li>Consent just because Omarchy has a default agent</li>
-        <li>omarchy agent prompt, peek, history, or allow-list</li>
+        <li>A mute raw-ping queue</li>
+        <li>omarchy agent prompt, ori, pi, copilot</li>
+        <li>History, allow-list, or peek while focused</li>
       </ul>
     </div>
   </div>
 </section>
 <section id="decisions">
-  <div class="shead"><span class="num">07</span><span class="ttl">Decisions</span><span class="note">plan resolved parked</span></div>
+  <div class="shead"><span class="num">07</span><span class="ttl">Decisions</span><span class="note">MAJOR_RETHINK replan</span></div>
   <div class="dec">
-    <div class="dtag">D1 · invoke</div>
+    <div class="dtag">D3 · ping text</div>
+    <p class="q">Mute stores counts and discards banners. This spec writes JSONL.</p>
+    <p>Plugin service owns <code>{app,title,body,at}</code>. Mute count file is not a text queue.</p>
+    <p class="rej">Rejected: depending on an fn-2 raw-ping queue.</p>
+  </div>
+  <div class="dec">
+    <div class="dtag">D4 · focus-off XOR</div>
+    <p class="q">Grouped count stays the catch-up when summaries are off or the one-shot fails.</p>
+    <p>Lift, then one summary with silent clear, or <code>show_grouped_notice()</code>.</p>
+    <p class="rej">Rejected: waiting after disable_focus() and suppressing a notice that already fired.</p>
+  </div>
+  <div class="dec">
+    <div class="dtag">D5 · offered table</div>
     <p class="q">“well any of them that allow headless invocation like claude -p or similar”</p>
-    <p>Closed argv table. Read default with <code>omarchy default agent</code>. Pick with <code>omarchy-menu-select</code>.</p>
-    <p class="rej">Rejected: omarchy agent prompt (interactive unattended TUI).</p>
-  </div>
-  <div class="dec">
-    <div class="dtag">D2 · consent</div>
-    <p class="q">“Having an agent in omarchy doesn't immediately consent to agent summaries.”</p>
-    <p><code>agent_summaries</code> defaults false. Plugin enable is required (R13).</p>
-    <p class="rej">Rejected: treating Setup &gt; Defaults &gt; Agent as consent.</p>
-  </div>
-  <div class="dec">
-    <div class="dtag">D3 · fallback</div>
-    <p class="q">Grouped count stays until agent summaries are enabled.</p>
-    <p>R6 scout-confirmed. Mute owns the count. This spec suppresses it only after a shown summary.</p>
-    <p class="rej">Rejected: a second catalog, a QML settings panel, a history screen.</p>
+    <p>claude, codex, grok, omp, agy with exact tool-free argv. Default lookup and R13 kept.</p>
+    <p class="rej">Rejected: ori, pi, copilot, and unverified opencode/crush rows. Rejected: omarchy agent prompt.</p>
   </div>
 </section>
 <section id="proof">
   <div class="shead"><span class="num">08</span><span class="ttl">Early proof</span><span class="note">task .1</span></div>
   <div class="proof">
-    <p>Task .1 proves the invoke path. <code>omarchy default agent</code> resolves, <code>omarchy-menu-select</code> can write an override, and one closed-table argv returns stdout (or a clear failure) without opening a TUI. If it fails, re-evaluate the argv table before wiring focus-on.</p>
+    <p>Task .1 proves the invoke path. <code>omarchy default agent</code> resolves, <code>omarchy-menu-select</code> can write an override, and one offered-table argv returns stdout or a clear failure without opening a TUI and without tools. If it fails, re-evaluate the offered table before capture or focus-off wiring.</p>
   </div>
 </section>
 <footer>
   <p>Render lens, not record. Source: .flow/specs/fn-3-focus-mode-agent-notification-summary.md</p>
-  <div class="stamp">staleness stamp · spec updated_at 2026-08-31T22:33:26.875472Z · repo commit 1229dc9 · rendered 2026-08-31</div>
+  <div class="stamp">staleness stamp · spec updated_at 2026-08-31T22:53:23.762562Z · repo commit 36db0a1 · rendered 2026-08-31</div>
 </footer>
 <script>
 (function () {

@@ -11,6 +11,6 @@
   "spec": "fn-3-focus-mode-agent-notification-summary",
   "spec_path": ".flow/tasks/fn-3-focus-mode-agent-notification-summary.2.md",
   "status": "todo",
-  "title": "Background parse and focus-off summary",
-  "updated_at": "2026-08-31T22:33:27.904351Z"
+  "title": "Ping capture, bounded parse, focus-off XOR",
+  "updated_at": "2026-08-31T22:53:22.298723Z"
 }
