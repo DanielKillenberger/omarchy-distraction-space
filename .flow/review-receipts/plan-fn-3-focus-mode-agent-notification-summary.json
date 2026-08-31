@@ -1,22 +1,41 @@
 {
   "findings": {
     "backend": "host",
-    "headSha": "611de3751acf19879cf5321b1e742fe8cbbe5031",
+    "headSha": "c5e21de2cd635835c30d3eafba49db884d42cbba",
     "items": [
+      {
+        "body": "Location: `PingCapture.qml` integration with fn-2's planned `NotificationFilter.qml` service. Omarchy manifests provide one `entryPoints.service` path per plugin. Fn-2 already assigns that slot to `NotificationFilter.qml`; task .2 plans another service, `PingCapture.qml`, without touching or composing with the existing service. Replacing the entry point disables fn-2's mute/count service, while retaining it leaves capture unloaded. Either outcome prevents the required combined implementation. Keep one service entry point. Extend `NotificationFilter.qml` to perform capture in the same incoming-toast handler, or have it instantiate a capture child component. Add `NotificationFilter.qml` to `Files`/`Touches` and specify the composition explicitly.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "id": "finding-490ad17bf6133115f3b32233dccc4de9",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "ordinal": 10,
+        "rIds": [
+          "R1",
+          "R3",
+          "R4",
+          "R6",
+          "R14"
+        ],
+        "severity": "P0",
+        "status": "open",
+        "title": "Location: `PingCapture"
+      },
       {
         "body": "Location: The asserted blocked-ping input contract and task .2 integration boundary. The plan consumes `{app,title,body,at}` records that fn-2 does not produce. At the review head, fn-2 has no such API. Its current planned branch defines only `{app-label: count}` (https://github.com/DanielKillenberger/omarchy-distraction-space/blob/1034c134ca731f3f3e6896fc9d39a9faced13f42/.flow/specs/fn-2-focus-mode-distraction-notification.md#L81-L84) and explicitly discards individual banners (https://github.com/DanielKillenberger/omarchy-distraction-space/blob/1034c134ca731f3f3e6896fc9d39a9faced13f42/.flow/specs/fn-2-focus-mode-distraction-notification.md#L149). Notification events occur in `NotificationFilter.qml`, but fn-3 task .2 touches only `distractions`. The Python process therefore has neither notification content nor an event that can start its \u201cfirst ping\u201d parse. The downstream implementation will produce no useful summary. Define a real cross-epic queue contract and producer ownership. Either extend fn-2\u2019s QML service to atomically append raw records and signal a summarizer, or add the QML/service work to fn-3 task .2 and its Touches. Reconcile this with fn-2\u2019s discard and no-reader constraints before implementation.",
         "classification": "introduced",
         "confidence": 100,
         "firstSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
         "id": "finding-ffc46c7b9bb9a8f4e14195b3bbe8f4b9",
-        "lastSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
         "ordinal": 1,
         "rIds": [
           "R1",
           "R3"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "not_fixed",
         "title": "Location: The asserted blocked-ping input contract and task"
       },
       {
@@ -25,14 +44,14 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
         "id": "finding-a76ba9121f737a0908a3d4b1071610b9",
-        "lastSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
         "ordinal": 2,
         "rIds": [
           "R4",
           "R6"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "title": "Location: Focus-off ordering and grouped-count fallback"
       },
       {
@@ -41,7 +60,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
         "id": "finding-9263c846a0cde9f6ec04e5e59df76610",
-        "lastSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
         "ordinal": 3,
         "rIds": [
           "R1",
@@ -50,7 +69,7 @@
           "R11"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "not_fixed",
         "title": "Location: Trust boundary for notification text and coding-agent execution"
       },
       {
@@ -59,15 +78,81 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
         "id": "finding-73e63412007348f31bb8d0e67a4e808c",
-        "lastSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
         "ordinal": 4,
         "rIds": [
           "R8",
           "R11"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "title": "Location: Closed headless argv table"
+      },
+      {
+        "body": "Location: QML-to-parser activation and process ownership. The plan now produces JSONL, but it still defines no mechanism by which a new QML record reaches a Python process and starts the \u201cfirst record\u201d one-shot. Ordinary `distractions` commands exit immediately; only `listen()` is long-lived, and no file watcher, IPC, socket, signal, or capture subcommand is planned. A competent implementation can therefore capture records while never parsing in the background, or defer all work until focus-off, violating R1. Ownership of the child, debounce timer, session budget, and crash recovery is consequently also ambiguous. Define one executable handoff: for example, make `listen()` own a record-notification channel and child state, or have the QML service invoke a dedicated session-aware `distractions` subcommand whose locks and state enforce R15. Specify startup and recovery behavior.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "id": "finding-d670e43c8b691ba92d33e0151512d58c",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "ordinal": 11,
+        "rIds": [
+          "R1",
+          "R14",
+          "R15"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "title": "Location: QML-to-parser activation and process ownership"
+      },
+      {
+        "body": "Location: The offered agent table's claimed tool-free security contract. Removing Ori, Pi, and Copilot resolves those specific unsafe paths, but three remaining vectors are not tool-free. `codex exec --sandbox read-only` still exposes file-reading and command tools; `grok -p` runs the coding agent with tools and configuration discovery; and `agy -p` documents enabled tools and permits workspace file operations according to effective settings. Empty cwd and an unspecified \u201csanitized environment\u201d do not remove those capabilities or prevent user configuration from weakening permissions. Attacker-controlled toast text can therefore cause reads, tool loops, or mutations despite R11's tool-free requirement. For every offered row, specify flags/config isolation that removes all tools and ignores user/project hooks, rules, plugins, MCP, and session state. Drop any agent lacking a verifiable CLI-level no-tools contract. Verify every retained vector, not merely one offered argv.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "id": "finding-f6a2264b4c256a9d36c260909e75a92a",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "ordinal": 12,
+        "rIds": [
+          "R1",
+          "R2",
+          "R11"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "title": "Location: The offered agent table's claimed tool-free security contract"
+      },
+      {
+        "body": "Location: Deterministic parse cost and resource bounds. The new limits bound input, invocation count, concurrency, and wall time, but not stdout size, model turns for most rows, completion tokens, API spend, retries, memory, or file growth. A hostile prompt can produce or buffer unbounded output during the 60-second window, exhaust state storage or memory, and incur multiple model/tool turns. A timeout does not cap already-billed tokens. Thus R15's claimed deterministic cost/resource bound remains false. Add a hard captured-output and stored-summary byte limit, process memory/file/process limits, and per-agent maximum turns/completion tokens or spend. Exclude vectors that cannot enforce these limits, and kill/fallback when any limit is crossed.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "id": "finding-677a959c9c28ed63bdd219288d3f95eb",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "ordinal": 13,
+        "rIds": [
+          "R1",
+          "R15"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "title": "Location: Deterministic parse cost and resource bounds"
+      },
+      {
+        "body": "Location: Focus-off behavior when `lift_notification_block()` fails. The state machine does not branch on lift success. It proceeds to show a summary and clear counts, or show the grouped notice, even when fn-2 reports that its mute remains active. Clearing counts after a summary or grouped notice then loses catch-up state while further notifications can remain blocked, producing the wrong R4/R6 outcome. Run the summary/grouped-count XOR only after a successful lift. On lift failure, retain counts, capture, and result state and define when lift and catch-up are retried.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "id": "finding-c804f02413ecd36bee87e9b136fff57b",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "ordinal": 14,
+        "rIds": [
+          "R4",
+          "R6"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "title": "Location: Focus-off behavior when `lift_notification_block()` fails"
       },
       {
         "body": "Location: Replacement-parse policy and resource bounds. \u201cIf the buffer grows ... a replacement parse may run\u201d is nondeterministic. Skipping replacement leaves the final summary based on the first notification; repeatedly replacing it permits unbounded paid agent calls as notifications arrive. There is no byte/token limit, debounce, per-session invocation budget, or final-delta rule. A noisy or malicious app can therefore create substantial API cost while still producing a stale summary. Define deterministic coalescing: bounded records and bytes, one active process, a minimum debounce interval, a maximum invocation count, and one bounded final parse for unprocessed records at focus-off. Specify truncation behavior and preserve grouped-count fallback.",
@@ -75,14 +160,14 @@
         "confidence": 75,
         "firstSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
         "id": "finding-e9f0f57678d5715b7e1ff7a70518bdd4",
-        "lastSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
         "ordinal": 5,
         "rIds": [
           "R1",
           "R3"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "not_fixed",
         "title": "Location: Replacement-parse policy and resource bounds"
       },
       {
@@ -91,14 +176,14 @@
         "confidence": 75,
         "firstSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
         "id": "finding-289bbeeaf8d7965cccf7f3ff66e30ff2",
-        "lastSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
         "ordinal": 6,
         "rIds": [
           "R9",
           "R10"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "title": "Location: Helpful/not-helpful feedback dialog"
       },
       {
@@ -107,13 +192,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
         "id": "finding-1adb674386a32e9445fb6775eef39762",
-        "lastSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
         "ordinal": 7,
         "rIds": [
           "R12"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "title": "Location: Claim that `omarchy-menu-select` is the Setup > Defaults > Agent mechanism"
       },
       {
@@ -122,7 +207,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
         "id": "finding-ca074f93d5c8cb07f4f1f45f4912cffe",
-        "lastSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
         "ordinal": 9,
         "rIds": [
           "R1",
@@ -134,8 +219,24 @@
           "R13"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "title": "Location: Verification plan and task acceptance tests"
+      },
+      {
+        "body": "Location: Detecting summary-display success before clearing counts. Current `notify()` returns no status and ignores the fallback `notify-send` return code. The plan requires clearing counts only after successful summary display and invoking grouped fallback on display failure, but does not plan the helper change needed to distinguish those outcomes. Make `notify()` return success or raise after both send paths fail, and test primary failure, fallback success, and total display failure.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "id": "finding-03d872b45d1277a1201ba1d18e3db365",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+        "ordinal": 15,
+        "rIds": [
+          "R3",
+          "R6"
+        ],
+        "severity": "P2",
+        "status": "open",
+        "title": "Location: Detecting summary-display success before clearing counts"
       },
       {
         "body": "Location: State-dir result storage and accessibility claim. Writing plaintext output to a predictable state-directory file does not make it inaccessible during focus. The plan specifies neither permissions, atomic publication, cleanup after focus-off, nor stale-result/session binding. A user or another local process can read the file directly, and a crash can leave sensitive notification-derived text behind for later sessions. Define the threat model and file lifecycle. Prefer runtime-only storage or an anonymous pipe; otherwise require mode `0600`, per-session identifiers, atomic rename, freshness validation, and deletion on focus-off, focus-on reset, cancellation, and startup recovery.",
@@ -143,29 +244,30 @@
         "confidence": 75,
         "firstSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
         "id": "finding-1d1d4cf11aa8b1ab6400444e598377ec",
-        "lastSeenReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71",
+        "lastSeenReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
         "ordinal": 8,
         "rIds": [
           "R2"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "title": "Location: State-dir result storage and accessibility claim"
       }
     ],
     "reviewKind": "plan",
-    "round": 1,
+    "round": 2,
     "schemaVersion": 1,
-    "sourceReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71"
+    "sourceReceiptId": "review-74ce4c60877fda57a4d2784f7287ca1e0cb2497b0bdd9124b6cc2d2aafef098d",
+    "supersedesReceiptId": "review-3ee0a214c89cfe4d62966d2e209b12e1ed1993fd198ec67cb765d5b5f7886f71"
   },
   "id": "fn-3-focus-mode-agent-notification-summary",
   "mode": "host",
   "model": "gpt-5.6-sol-high",
-  "review": "Review head: 611de3751acf19879cf5321b1e742fe8cbbe5031\n\nVerified checks:\n- Current Quattro commit `b686ed892d9c3020c3336203f6d34cc75b544e2b`: `omarchy default agent` reads and prints the configured id, or prints nothing when unset (https://github.com/basecamp/omarchy/blob/b686ed892d9c3020c3336203f6d34cc75b544e2b/bin/omarchy-default-agent#L15-L23).\n- The ten ids are complete and match both `omarchy-default-agent` (https://github.com/basecamp/omarchy/blob/b686ed892d9c3020c3336203f6d34cc75b544e2b/bin/omarchy-default-agent#L26-L40) and the menu rows (https://github.com/basecamp/omarchy/blob/b686ed892d9c3020c3336203f6d34cc75b544e2b/default/omarchy/omarchy-menu.jsonc#L137-L147).\n- Avoiding `omarchy agent prompt` is justified: it forwards to `omarchy-agent`, whose normal path launches `omarchy-launch-tui` and whose agent commands use unattended coding permissions (https://github.com/basecamp/omarchy/blob/b686ed892d9c3020c3336203f6d34cc75b544e2b/bin/omarchy-agent#L54-L115).\n- R13 is explicitly default-false and covered by task .1.\n- The task chain `.1 \u2192 .2 \u2192 .3` serializes all overlapping `distractions` and `focus.json` touches, while the epic depends on fn-2. No task-metadata dependency is missing within this plan.\n- `learn.omacom.io/2/the-omarchy-manual` identifies itself as the legacy Omarchy 3 manual. The current Quattro manual is https://omarchy.org/manual/.\n\nSeverity: P1\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/specs/fn-3-focus-mode-agent-notification-summary.md:32\nR-IDs: [R1, R3]\nLocation:\nThe asserted blocked-ping input contract and task .2 integration boundary.\n\nProblem:\nThe plan consumes `{app,title,body,at}` records that fn-2 does not produce. At the review head, fn-2 has no such API. Its current planned branch defines only `{app-label: count}` (https://github.com/DanielKillenberger/omarchy-distraction-space/blob/1034c134ca731f3f3e6896fc9d39a9faced13f42/.flow/specs/fn-2-focus-mode-distraction-notification.md#L81-L84) and explicitly discards individual banners (https://github.com/DanielKillenberger/omarchy-distraction-space/blob/1034c134ca731f3f3e6896fc9d39a9faced13f42/.flow/specs/fn-2-focus-mode-distraction-notification.md#L149). Notification events occur in `NotificationFilter.qml`, but fn-3 task .2 touches only `distractions`. The Python process therefore has neither notification content nor an event that can start its \u201cfirst ping\u201d parse. The downstream implementation will produce no useful summary.\n\nSuggestion:\nDefine a real cross-epic queue contract and producer ownership. Either extend fn-2\u2019s QML service to atomically append raw records and signal a summarizer, or add the QML/service work to fn-3 task .2 and its Touches. Reconcile this with fn-2\u2019s discard and no-reader constraints before implementation.\n\nSeverity: P1\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/specs/fn-3-focus-mode-agent-notification-summary.md:59\nR-IDs: [R4, R6]\nLocation:\nFocus-off ordering and grouped-count fallback.\n\nProblem:\nThe plan waits for the agent \u201cafter ... `disable_focus()`\u201d and then attempts to suppress fn-2\u2019s grouped notice. Fn-2 sends and clears that notice during the successful lift path (https://github.com/DanielKillenberger/omarchy-distraction-space/blob/1034c134ca731f3f3e6896fc9d39a9faced13f42/.flow/tasks/fn-2-focus-mode-distraction-notification.2.md#L13-L17). Once `disable_focus()` returns, the count may already be displayed and cleared. Success will show both count and summary; deferred summary failure may have no count left for R6 fallback.\n\nSuggestion:\nSpecify one focus-off state machine: lift mute, resolve the final parse, display the summary, and only then either clear counts silently on success or invoke fn-2\u2019s grouped-notice function on failure. Give fn-2 explicit `peek/clear/show_grouped` contracts rather than suppressing an already completed side effect.\n\nSeverity: P1\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/specs/fn-3-focus-mode-agent-notification-summary.md:38\nR-IDs: [R1, R2, R3, R11]\nLocation:\nTrust boundary for notification text and coding-agent execution.\n\nProblem:\nNotification bodies are attacker-controlled prompt input, but the plan launches full coding agents in an inherited working directory and assumes omitting explicit yolo flags makes them safe. That is false. OMP\u2019s built-in approval default is `yolo` (https://omp.sh/docs/approvals); Pi ships read/write/edit/bash tools and states \u201cNo permission popups\u201d (https://pi.dev/); current Ori defaults to a mode that approves every command ask (https://openrouter.ai/docs/guides/ori/changelog). A malicious chat notification can therefore prompt an agent to read secrets, edit files, or execute commands while focus mode runs invisibly.\n\nSuggestion:\nRequire and verify a tool-free invocation per agent, with an empty dedicated cwd, disabled project rules/plugins/hooks/MCP where supported, sanitized environment, resource limits, and no session persistence. Examples include Pi `--no-tools`, OMP `--no-tools --no-extensions --no-skills --no-rules`, and Claude restricted/tool-disabled flags. Exclude any agent for which a non-mutating contract cannot be enforced.\n\nSeverity: P1\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/specs/fn-3-focus-mode-agent-notification-summary.md:50\nR-IDs: [R8, R11]\nLocation:\nClosed headless argv table.\n\nProblem:\nThe id set is complete, but the argv table is not accurate or closed. Ori requires `ori code -p PROMPT` or `--prompt-file` and explicitly rejects a prompt without a flag (https://openrouter.ai/docs/guides/ori/eval). Pi\u2019s documented invocation is `pi -p PROMPT` (https://pi.dev/), not the unresolved placeholder in line 51. Copilot\u2019s documented clean pipeline output adds `-s`; without it stdout includes model/stats decoration (https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-programmatic-reference). Consequently, valid Ori/Pi selections can fail or launch incorrectly, and Copilot output can pollute the notification.\n\nSuggestion:\nReplace every row with an exact argument vector including prompt transport, clean-output flags, safety flags, and version assumptions. Use `ori code -p`, `pi -p`, and `copilot -p ... -s`; remove conditional prose from the supposedly closed table.\n\nSeverity: P1\nConfidence: 75\nClassification: introduced\nFile:Line: .flow/specs/fn-3-focus-mode-agent-notification-summary.md:57\nR-IDs: [R1, R3]\nLocation:\nReplacement-parse policy and resource bounds.\n\nProblem:\n\u201cIf the buffer grows ... a replacement parse may run\u201d is nondeterministic. Skipping replacement leaves the final summary based on the first notification; repeatedly replacing it permits unbounded paid agent calls as notifications arrive. There is no byte/token limit, debounce, per-session invocation budget, or final-delta rule. A noisy or malicious app can therefore create substantial API cost while still producing a stale summary.\n\nSuggestion:\nDefine deterministic coalescing: bounded records and bytes, one active process, a minimum debounce interval, a maximum invocation count, and one bounded final parse for unprocessed records at focus-off. Specify truncation behavior and preserve grouped-count fallback.\n\nSeverity: P1\nConfidence: 75\nClassification: introduced\nFile:Line: .flow/tasks/fn-3-focus-mode-agent-notification-summary.3.md:14\nR-IDs: [R9, R10]\nLocation:\nHelpful/not-helpful feedback dialog.\n\nProblem:\nA Zenity question modeled on `prompt_reason()` cannot reliably distinguish \u201cNot helpful\u201d from window cancellation: both normally return a nonzero/cancel result. The instruction that cancellation or rejection does not append can consequently discard every negative rating, making the ledger positively biased and violating R9.\n\nSuggestion:\nSpecify a three-state selection with distinct results\u2014Helpful, Not helpful, Cancel\u2014using `omarchy-menu-select`, a Zenity list/radiolist, or explicit extra-button exit codes. Only Cancel should skip the ledger entry.\n\nSeverity: P2\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/specs/fn-3-focus-mode-agent-notification-summary.md:36\nR-IDs: [R12]\nLocation:\nClaim that `omarchy-menu-select` is the Setup > Defaults > Agent mechanism.\n\nProblem:\n`omarchy-menu-select` uses the same `omarchy.menu` QML plugin, but it is not the same menu mechanism as Setup > Defaults > Agent. It sends `mode: \"select\"` and uses a tempfile handshake (https://github.com/basecamp/omarchy/blob/b686ed892d9c3020c3336203f6d34cc75b544e2b/bin/omarchy-menu-select#L70-L98). Setup > Defaults > Agent is a normal routed submenu with static checked rows and actions (https://github.com/basecamp/omarchy/blob/b686ed892d9c3020c3336203f6d34cc75b544e2b/default/omarchy/omarchy-menu.jsonc#L137-L147). It shares rendering, but not checked-state, routing, or action semantics.\n\nSuggestion:\nState precisely that the picker reuses the same visual plugin in select mode, satisfying \u201csame kind,\u201d but is not the Setup submenu itself. If exact parity is required, define current-selection/checkmark behavior explicitly.\n\nSeverity: P2\nConfidence: 75\nClassification: introduced\nFile:Line: .flow/specs/fn-3-focus-mode-agent-notification-summary.md:57\nR-IDs: [R2]\nLocation:\nState-dir result storage and accessibility claim.\n\nProblem:\nWriting plaintext output to a predictable state-directory file does not make it inaccessible during focus. The plan specifies neither permissions, atomic publication, cleanup after focus-off, nor stale-result/session binding. A user or another local process can read the file directly, and a crash can leave sensitive notification-derived text behind for later sessions.\n\nSuggestion:\nDefine the threat model and file lifecycle. Prefer runtime-only storage or an anonymous pipe; otherwise require mode `0600`, per-session identifiers, atomic rename, freshness validation, and deletion on focus-off, focus-on reset, cancellation, and startup recovery.\n\nSeverity: P2\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/specs/fn-3-focus-mode-agent-notification-summary.md:203\nR-IDs: [R1, R3, R4, R6, R9, R10, R13]\nLocation:\nVerification plan and task acceptance tests.\n\nProblem:\n`py_compile` plus interactive smoke commands cannot test process lifecycle, config atomicity, argv mapping, timeout/kill behavior, stale results, fallback ordering, or feedback persistence. The \u201cno in-repo test harness\u201d premise will also be stale when the required fn-2 epic lands: fn-2 task .2 explicitly adds and runs unit tests (https://github.com/DanielKillenberger/omarchy-distraction-space/blob/1034c134ca731f3f3e6896fc9d39a9faced13f42/.flow/tasks/fn-2-focus-mode-distraction-notification.2.md#L35-L42). Regressions in the core state machine could ship undetected.\n\nSuggestion:\nAdd mocked unit tests for all ten argv vectors, default/override validation, opt-in false, process timeout and process-group termination, stale-session rejection, summary-success count suppression, every R4/R6 fallback, and positive/negative/cancel ledger outcomes.\n\n<verdict>MAJOR_RETHINK</verdict>\n",
-  "review_reservation_id": "f38e467530814ff6b01c1b6f459748bb",
+  "review": "Prior finding #1: not-fixed\nPrior finding #2: fixed\nPrior finding #3: not-fixed\nPrior finding #4: fixed\nPrior finding #5: not-fixed\nPrior finding #6: fixed\nPrior finding #7: fixed\nPrior finding #8: fixed\nPrior finding #9: fixed\nReview head: c5e21de2cd635835c30d3eafba49db884d42cbba\n\nSeverity: P0\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/tasks/fn-3-focus-mode-agent-notification-summary.2.md:12\nR-IDs: [R1, R3, R4, R6, R14]\nLocation:\n`PingCapture.qml` integration with fn-2's planned `NotificationFilter.qml` service.\n\nProblem:\nOmarchy manifests provide one `entryPoints.service` path per plugin. Fn-2 already assigns that slot to `NotificationFilter.qml`; task .2 plans another service, `PingCapture.qml`, without touching or composing with the existing service. Replacing the entry point disables fn-2's mute/count service, while retaining it leaves capture unloaded. Either outcome prevents the required combined implementation.\n\nSuggestion:\nKeep one service entry point. Extend `NotificationFilter.qml` to perform capture in the same incoming-toast handler, or have it instantiate a capture child component. Add `NotificationFilter.qml` to `Files`/`Touches` and specify the composition explicitly.\n\nSeverity: P1\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/tasks/fn-3-focus-mode-agent-notification-summary.2.md:14\nR-IDs: [R1, R14, R15]\nLocation:\nQML-to-parser activation and process ownership.\n\nProblem:\nThe plan now produces JSONL, but it still defines no mechanism by which a new QML record reaches a Python process and starts the \u201cfirst record\u201d one-shot. Ordinary `distractions` commands exit immediately; only `listen()` is long-lived, and no file watcher, IPC, socket, signal, or capture subcommand is planned. A competent implementation can therefore capture records while never parsing in the background, or defer all work until focus-off, violating R1. Ownership of the child, debounce timer, session budget, and crash recovery is consequently also ambiguous.\n\nSuggestion:\nDefine one executable handoff: for example, make `listen()` own a record-notification channel and child state, or have the QML service invoke a dedicated session-aware `distractions` subcommand whose locks and state enforce R15. Specify startup and recovery behavior.\n\nSeverity: P1\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/specs/fn-3-focus-mode-agent-notification-summary.md:52\nR-IDs: [R1, R2, R11]\nLocation:\nThe offered agent table's claimed tool-free security contract.\n\nProblem:\nRemoving Ori, Pi, and Copilot resolves those specific unsafe paths, but three remaining vectors are not tool-free. `codex exec --sandbox read-only` still exposes file-reading and command tools; `grok -p` runs the coding agent with tools and configuration discovery; and `agy -p` documents enabled tools and permits workspace file operations according to effective settings. Empty cwd and an unspecified \u201csanitized environment\u201d do not remove those capabilities or prevent user configuration from weakening permissions. Attacker-controlled toast text can therefore cause reads, tool loops, or mutations despite R11's tool-free requirement.\n\nSuggestion:\nFor every offered row, specify flags/config isolation that removes all tools and ignores user/project hooks, rules, plugins, MCP, and session state. Drop any agent lacking a verifiable CLI-level no-tools contract. Verify every retained vector, not merely one offered argv.\n\nSeverity: P1\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/specs/fn-3-focus-mode-agent-notification-summary.md:64\nR-IDs: [R1, R15]\nLocation:\nDeterministic parse cost and resource bounds.\n\nProblem:\nThe new limits bound input, invocation count, concurrency, and wall time, but not stdout size, model turns for most rows, completion tokens, API spend, retries, memory, or file growth. A hostile prompt can produce or buffer unbounded output during the 60-second window, exhaust state storage or memory, and incur multiple model/tool turns. A timeout does not cap already-billed tokens. Thus R15's claimed deterministic cost/resource bound remains false.\n\nSuggestion:\nAdd a hard captured-output and stored-summary byte limit, process memory/file/process limits, and per-agent maximum turns/completion tokens or spend. Exclude vectors that cannot enforce these limits, and kill/fallback when any limit is crossed.\n\nSeverity: P1\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/tasks/fn-3-focus-mode-agent-notification-summary.2.md:18\nR-IDs: [R4, R6]\nLocation:\nFocus-off behavior when `lift_notification_block()` fails.\n\nProblem:\nThe state machine does not branch on lift success. It proceeds to show a summary and clear counts, or show the grouped notice, even when fn-2 reports that its mute remains active. Clearing counts after a summary or grouped notice then loses catch-up state while further notifications can remain blocked, producing the wrong R4/R6 outcome.\n\nSuggestion:\nRun the summary/grouped-count XOR only after a successful lift. On lift failure, retain counts, capture, and result state and define when lift and catch-up are retried.\n\nSeverity: P2\nConfidence: 100\nClassification: introduced\nFile:Line: .flow/tasks/fn-3-focus-mode-agent-notification-summary.2.md:18\nR-IDs: [R3, R6]\nLocation:\nDetecting summary-display success before clearing counts.\n\nProblem:\nCurrent `notify()` returns no status and ignores the fallback `notify-send` return code. The plan requires clearing counts only after successful summary display and invoking grouped fallback on display failure, but does not plan the helper change needed to distinguish those outcomes.\n\nSuggestion:\nMake `notify()` return success or raise after both send paths fail, and test primary failure, fallback success, and total display failure.\n\n<verdict>MAJOR_RETHINK</verdict>\n",
+  "review_reservation_id": "07e71039cdef4f869fed48272b62da66",
   "session_id": null,
   "spec": "host",
-  "timestamp": "2026-08-31T22:43:24Z",
+  "timestamp": "2026-08-31T23:01:50Z",
   "type": "plan_review",
   "verdict": "MAJOR_RETHINK"
 }
