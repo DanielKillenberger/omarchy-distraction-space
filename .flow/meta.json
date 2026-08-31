@@ -1,0 +1,16 @@
+{
+  "next_spec": 1,
+  "schema_version": 3,
+  "setup": {
+    "block_hashes": {
+      "AGENTS.md": {
+        "FLOW-NEXT": "0f0836ff07509e8422bbd3c6649f104abf5a800320bbb40a6f589b25188fa211"
+      },
+      "CLAUDE.md": {
+        "FLOW-NEXT": "0f0836ff07509e8422bbd3c6649f104abf5a800320bbb40a6f589b25188fa211"
+      }
+    }
+  },
+  "setup_date": "2026-08-31",
+  "setup_version": "4.10.2"
+}
