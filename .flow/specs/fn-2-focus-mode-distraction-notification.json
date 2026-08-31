@@ -10,10 +10,83 @@
   "id": "fn-2-focus-mode-distraction-notification",
   "impl_review_rounds": {},
   "next_task": 1,
-  "plan_review_rounds": 0,
-  "plan_review_status": "unknown",
-  "plan_reviewed_at": null,
+  "plan_review_rounds": 1,
+  "plan_review_status": "needs_work",
+  "plan_reviewed_at": "2026-08-31T22:25:55.970501Z",
   "ready": true,
+  "review_attempts": [
+    {
+      "artifact_sha256": "db684c01652e7d8da7ec9fe804be1bf7f7486a447b671a766cd706db53f305f8",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-f566a1165b1b56402e4af802e104efd4",
+            "classification": "introduced",
+            "findingId": "finding-f566a1165b1b56402e4af802e104efd4",
+            "firstSeenThisRound": true,
+            "severity": "P0",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-bffc540af9dbd00fab22d522bc9d1d9b",
+            "classification": "introduced",
+            "findingId": "finding-bffc540af9dbd00fab22d522bc9d1d9b",
+            "firstSeenThisRound": true,
+            "severity": "P0",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-95537f0030576d370378536b6fab6d37",
+            "classification": "introduced",
+            "findingId": "finding-95537f0030576d370378536b6fab6d37",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-d5d0477c20d345766e0d4192787f592e",
+            "classification": "introduced",
+            "findingId": "finding-d5d0477c20d345766e0d4192787f592e",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "defffe115f12af00cd42ee568b81c684644837b2",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 4911,
+      "output_sha256": "d36b01d874ec824be36eff9730f455ffef6ac40c5da63d39fdd880281089c0e9",
+      "reservation_id": "38d28d1622fc4328a46acdb3bb663756",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-08-31T22:25:55.390226Z",
+      "verdict": "MAJOR_RETHINK"
+    }
+  ],
+  "review_hash_epoch": {},
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "plan": 0
+  },
   "spec_path": ".flow/specs/fn-2-focus-mode-distraction-notification.md",
   "status": "open",
   "title": "Focus-mode distraction notification block",
@@ -28,5 +101,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-08-31T22:16:35.624209Z"
+  "updated_at": "2026-08-31T22:25:55.971375Z"
 }
