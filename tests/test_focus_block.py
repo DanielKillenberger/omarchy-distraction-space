@@ -133,6 +133,9 @@ class FakeBackend(focus_block.NetworkBackend):
     def write_upstreams(self, servers: list[str]) -> None:
         self.upstreams = list(servers)
 
+    def clear_runtime_files(self) -> None:
+        self.upstreams = []
+
     def reload_resolver(self, kind: str) -> None:
         if self.fail_on == "reload_dns":
             raise RuntimeError("reload failed")
@@ -460,11 +463,13 @@ class ApplyLiftTests(unittest.TestCase):
         )
         backend = FakeBackend(hosts=hosts, nft="table inet omarchy_focus { }")
         backend.resolved = focus_block.resolved_fragment(["youtube.com"])
+        backend.upstreams = ["1.1.1.1"]
         focus_block.lift_block(backend=backend, notify=False)
         self.assertNotIn("youtube.com", backend.hosts)
         self.assertIsNone(backend.nft)
         self.assertIsNone(backend.resolved)
         self.assertEqual(backend.stopped, 1)
+        self.assertEqual(backend.upstreams, [])
 
     def test_empty_active_list_does_not_install_empty_block(self):
         previous = "127.0.0.1 localhost\n"

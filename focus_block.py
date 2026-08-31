@@ -793,9 +793,14 @@ class NetworkBackend:
         privileged(["rm", "-f", str(RESOLV_BACKUP)])
 
     def capture_upstreams(self) -> list[str]:
-        existing = self.read_upstreams()
-        if existing:
-            return existing
+        live = self._live_upstreams()
+        if RESOLV_BACKUP.exists():
+            existing = self.read_upstreams()
+            if existing:
+                return existing
+        return live
+
+    def _live_upstreams(self) -> list[str]:
         servers: list[str] = []
         for path in (Path("/run/systemd/resolve/resolv.conf"), RESOLV_PATH):
             if not path.exists():
@@ -825,6 +830,11 @@ class NetworkBackend:
 
     def write_upstreams(self, servers: list[str]) -> None:
         privileged(["tee", str(SINKHOLE_UPSTREAMS)], stdin="".join(f"{item}\n" for item in servers))
+
+    def clear_runtime_files(self) -> None:
+        for path in (SINKHOLE_UPSTREAMS, SINKHOLE_SUFFIXES):
+            if path.exists():
+                privileged(["rm", "-f", str(path)])
 
     def reload_resolver(self, kind: str) -> None:
         if kind == "resolved":
@@ -1216,6 +1226,8 @@ def _lift_block_locked(backend: NetworkBackend, notify: bool) -> None:
             backend.reload_resolver("dnsmasq")
         backend.nft_delete()
         backend.stop_sinkhole()
+        if hasattr(backend, "clear_runtime_files"):
+            backend.clear_runtime_files()
     except Exception as exc:
         if hosts_written:
             try:
