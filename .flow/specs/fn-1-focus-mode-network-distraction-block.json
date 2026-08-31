@@ -9,7 +9,7 @@
   "depends_on_epics": [],
   "id": "fn-1-focus-mode-network-distraction-block",
   "impl_review_rounds": {
-    "fn-1-focus-mode-network-distraction-block.1": 5
+    "fn-1-focus-mode-network-distraction-block.1": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -478,10 +478,36 @@
       "task": "fn-1-focus-mode-network-distraction-block.1",
       "timestamp": "2026-08-31T22:46:26.841301Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "b543a4816cb570846bc51256f07e22547c2a5703ac95ff609421037f860a454a",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "88740e93d476e1b388f45c2bc076532e980ef140",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 700,
+      "output_sha256": "53f9a1eea6020e979ad44781eb5541393860ca3bad75d8da663c89eba3d4a8f6",
+      "reservation_id": "0f921acf3e964f5a893ba33a99c0bc36",
+      "round_consumed": true,
+      "scope": "impl:fn-1-focus-mode-network-distraction-block.1",
+      "superseded_by": null,
+      "task": "fn-1-focus-mode-network-distraction-block.1",
+      "timestamp": "2026-08-31T22:48:47.671627Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
-    "impl:fn-1-focus-mode-network-distraction-block.1": 1
+    "impl:fn-1-focus-mode-network-distraction-block.1": 2
   },
   "review_pending_rounds": {},
   "review_reservations": {},
@@ -502,5 +528,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-08-31T22:46:27.355457Z"
+  "updated_at": "2026-08-31T22:48:48.172102Z"
 }
