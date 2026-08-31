@@ -4,6 +4,8 @@ A named Hyprland workspace for chat and social apps, plus a **focus mode** that 
 
 Focus mode is on by default. Super+1–0, Super+Tab, and the workspace bar never land on the distraction space. Super+D is the only way in, and only after you turn focus mode off.
 
+While focus mode is on, the plugin also blocks the active distraction list at the network level: it sinkholes those hostnames in `/etc/hosts` (IPv4 and IPv6), drops their resolved addresses with an `nftables` table named `omarchy_focus`, and makes suffix DNS (for example `*.googlevideo.com`) fail through the resolver that is actually answering queries. On systemd-resolved it writes a drop-in that routes those suffixes to a local sinkhole and reloads resolved; on dnsmasq it writes `address=/suffix/0.0.0.0` plus `::` and reloads dnsmasq; otherwise it points `/etc/resolv.conf` at the sinkhole and uses the nameservers captured before apply as upstream. Apply refuses an empty expansion instead of installing an empty block. Apply or lift failures are reported and leave the previous network state in place; a failed apply does not turn focus on. `nft` is required. Permanent destinations still expand if the shipped defaults file is missing.
+
 ## Install
 
 Omarchy 4+, Hyprland, zenity.
@@ -56,6 +58,18 @@ Turning focus **on** is instant. Turning it **off** opens a zenity field; the re
 }
 ```
 
+Until you change it, the active network-block list is the shipped default: Telegram, Discord, WhatsApp, Signal, Google Messages, Facebook, Instagram, Threads, X, Reddit, TikTok, Snapchat, YouTube, Twitch, and Netflix. Bluesky, Pinterest, and Tumblr are in the catalog but not defaults — add them yourself if you want them.
+
+Edit the list without rebuilding the plugin. Product names from the catalog and extra hostnames are accepted; a rejected entry is ignored and the rest of the list still applies:
+
+```bash
+~/.config/omarchy/plugins/distraction-space/distractions destinations
+~/.config/omarchy/plugins/distraction-space/distractions destinations-add Bluesky
+~/.config/omarchy/plugins/distraction-space/distractions destinations-remove YouTube
+```
+
+`destinations-add` / `destinations-remove` write a `destinations` array into `~/.config/omarchy/focus.json`. Until that key exists, the plugin keeps using the shipped defaults.
+
 ## Commands
 
 ```bash
@@ -63,6 +77,9 @@ Turning focus **on** is instant. Turning it **off** opens a zenity field; the re
 ~/.config/omarchy/plugins/distraction-space/distractions focus
 ~/.config/omarchy/plugins/distraction-space/distractions focus-status
 ~/.config/omarchy/plugins/distraction-space/distractions log-path
+~/.config/omarchy/plugins/distraction-space/distractions destinations
+~/.config/omarchy/plugins/distraction-space/distractions destinations-add <name-or-host>
+~/.config/omarchy/plugins/distraction-space/distractions destinations-remove <name-or-host>
 ```
 
 ## License

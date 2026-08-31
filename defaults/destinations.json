@@ -1,0 +1,145 @@
+{
+  "default": [
+    "Telegram",
+    "Discord",
+    "WhatsApp",
+    "Signal",
+    "Google Messages",
+    "Facebook",
+    "Instagram",
+    "Threads",
+    "X",
+    "Reddit",
+    "TikTok",
+    "Snapchat",
+    "YouTube",
+    "Twitch",
+    "Netflix"
+  ],
+  "catalog": {
+    "Telegram": [
+      "telegram.org",
+      "telegram.me",
+      "t.me",
+      "telesco.pe",
+      "tdesktop.com",
+      "telegram-cdn.org",
+      "telegramcdn.org"
+    ],
+    "Discord": [
+      "discord.com",
+      "discordapp.com",
+      "discord.gg",
+      "discord.media",
+      "discordapp.net",
+      "discordcdn.com"
+    ],
+    "WhatsApp": [
+      "whatsapp.com",
+      "whatsapp.net",
+      "wa.me"
+    ],
+    "Signal": [
+      "signal.org",
+      "signal.art",
+      "whispersystems.org"
+    ],
+    "Google Messages": [
+      "messages.google.com"
+    ],
+    "Facebook": [
+      "facebook.com",
+      "fb.com",
+      "fb.me",
+      "facebook.net",
+      "fbcdn.net",
+      "messenger.com"
+    ],
+    "Instagram": [
+      "instagram.com",
+      "cdninstagram.com"
+    ],
+    "Threads": [
+      "threads.net",
+      "threads.com"
+    ],
+    "X": [
+      "x.com",
+      "twitter.com",
+      "t.co",
+      "twimg.com"
+    ],
+    "Reddit": [
+      "reddit.com",
+      "redditmedia.com",
+      "redditstatic.com",
+      "redd.it",
+      "reddituploads.com"
+    ],
+    "TikTok": [
+      "tiktok.com",
+      "tiktokcdn.com",
+      "tiktokv.com",
+      "musical.ly",
+      "byteoversea.com"
+    ],
+    "Snapchat": [
+      "snapchat.com",
+      "snap.com",
+      "sc-cdn.net"
+    ],
+    "YouTube": [
+      "youtube.com",
+      "youtu.be",
+      "youtube-nocookie.com",
+      "youtubekids.com",
+      "ytimg.com",
+      "googlevideo.com"
+    ],
+    "Twitch": [
+      "twitch.tv",
+      "twitchcdn.net",
+      "jtvnw.net",
+      "ttvnw.net",
+      "ext-twitch.tv"
+    ],
+    "Netflix": [
+      "netflix.com",
+      "nflxvideo.net",
+      "nflximg.net",
+      "nflxso.net",
+      "nflxext.com"
+    ],
+    "Bluesky": [
+      "bsky.app",
+      "bsky.social"
+    ],
+    "Pinterest": [
+      "pinterest.com",
+      "pinimg.com"
+    ],
+    "Tumblr": [
+      "tumblr.com",
+      "tmblr.co"
+    ],
+    "LinkedIn": [
+      "linkedin.com",
+      "licdn.com"
+    ],
+    "CNN": [
+      "cnn.com"
+    ],
+    "Yahoo": [
+      "yahoo.com"
+    ],
+    "Buzzfeed": [
+      "buzzfeed.com"
+    ],
+    "MySpace": [
+      "myspace.com"
+    ],
+    "Clubhouse": [
+      "clubhouse.com"
+    ]
+  }
+}
