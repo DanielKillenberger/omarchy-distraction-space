@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fn-3-focus-mode-agent-notification-summary</title>
+<style>
+:root {
+  --bg: #0c0b09; --panel: #14120e; --panel-2: #1a1712;
+  --line: #2c2719; --line-soft: #211d14;
+  --ink: #e8e2d4; --dim: #9a917c; --faint: #645d4c;
+  --amber: #ffb454; --amber-deep: #cc8b33;
+  --green: #87d96c; --red: #f07178; --cyan: #5ccfe6; --violet: #c9a7f5;
+  --mono: "Berkeley Mono", "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+body { font-family: var(--mono); font-size: 14px; line-height: 1.65; padding: 28px 36px 72px; }
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 999;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,180,84,0.012) 2px 4px),
+    radial-gradient(ellipse 120% 60% at 50% -10%, rgba(255,180,84,0.05), transparent 60%);
+}
+nav.rail {
+  position: sticky; top: 0; z-index: 20; display: flex; gap: 18px; flex-wrap: wrap;
+  padding: 10px 0 12px; background: rgba(12,11,9,0.86); backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line); margin: 0 0 28px;
+}
+nav.rail a { color: var(--faint); text-decoration: none; font-size: 11px; letter-spacing: .16em; text-transform: uppercase; }
+nav.rail a:hover { color: var(--amber); }
+.kicker { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--amber); margin: 0 0 10px; }
+.kicker .sep { color: var(--faint); }
+h1 { font-size: 28px; font-weight: 700; margin: 0 0 18px; letter-spacing: -0.02em; }
+h1 .id { color: var(--amber); }
+.dials { display: flex; flex-wrap: wrap; border: 1px solid var(--line); background: var(--panel); margin: 0 0 28px; }
+.dial { flex: 1 1 110px; padding: 14px 16px; border-right: 1px solid var(--line); }
+.dial:last-child { border-right: none; }
+.dial .v { font-size: 19px; font-weight: 700; }
+.dial .c { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin-top: 4px; }
+.tldr { font-family: var(--serif); font-size: 21px; line-height: 1.6; max-width: 920px; margin: 0 0 18px; }
+.tldr strong { color: var(--amber); font-weight: 600; }
+.tldr em { color: var(--cyan); font-style: italic; }
+.thesis { border: 1px solid var(--line); border-left: 3px solid var(--amber); background: var(--panel); padding: 14px 16px; margin: 0 0 32px; color: var(--dim); }
+.shead { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--line); margin: 36px 0 16px; padding-bottom: 8px; }
+.shead .num { color: var(--amber); font-size: 17px; }
+.shead .ttl { font-size: 17px; letter-spacing: .14em; text-transform: uppercase; }
+.shead .note { margin-left: auto; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+section { animation: rise .45s ease both; }
+section:nth-of-type(1) { animation-delay: .05s; }
+section:nth-of-type(2) { animation-delay: .10s; }
+section:nth-of-type(3) { animation-delay: .15s; }
+section:nth-of-type(4) { animation-delay: .20s; }
+section:nth-of-type(5) { animation-delay: .25s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+td { padding: 10px; border-bottom: 1px solid var(--line-soft); color: var(--dim); vertical-align: top; }
+tr:hover td { color: var(--ink); background: #1c170d; }
+.tagchip { display: inline-block; border: 1px solid var(--line); padding: 1px 7px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; }
+.tagchip.user { color: var(--green); border-color: #2a4a28; }
+.tagchip.paraphrase { color: var(--cyan); border-color: #1a3a42; }
+.tagchip.inferred { color: var(--red); border-color: #4a2224; }
+.archgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.archbox { border: 1px solid var(--line); background: var(--panel); padding: 14px 16px; }
+.archbox h3 { margin: 0 0 6px; font-size: 13px; color: var(--amber); }
+.archbox p { margin: 0; color: var(--dim); }
+.bounds { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.bounds ul { margin: 0; padding: 0 0 0 18px; }
+.bounds .is li::marker { content: "✓ "; color: var(--green); }
+.bounds .isnot li::marker { content: "✕ "; color: var(--red); }
+.bounds h3 { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin: 0 0 10px; }
+.dec { border: 1px solid var(--line); background: var(--panel); padding: 14px 16px; margin: 0 0 12px; }
+.dec .dtag { color: var(--amber); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+.dec .q { color: var(--green); font-style: italic; margin: 8px 0; }
+.parked { border: 1px solid var(--line); background: var(--panel); padding: 8px 0; }
+.parked li { color: var(--dim); margin: 6px 18px; }
+footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line); color: var(--dim); font-size: 13px; }
+.stamp { margin-top: 10px; border: 1px solid var(--line); background: var(--panel); padding: 8px 12px; color: var(--faint); font-size: 11px; letter-spacing: .06em; }
+@media (max-width: 760px) {
+  body { padding: 18px 14px 56px; }
+  .archgrid, .bounds { grid-template-columns: 1fr; }
+  .dial { border-right: none; border-bottom: 1px solid var(--line); }
+}
+@media print {
+  :root { --bg:#fff; --panel:#fafaf7; --panel-2:#f2f0ea; --line:#ccc7ba; --line-soft:#e2ded2;
+          --ink:#1a1812; --dim:#4a463c; --faint:#8a8678; --amber:#9a6a10; --amber-deep:#9a6a10;
+          --green:#2e7d32; --red:#b3261e; --cyan:#0a6e8a; --violet:#6a3fae; }
+  body::before { display: none; }
+  nav.rail { display: none; }
+  section { break-inside: avoid-page; animation: none; }
+  @page { size: A4; margin: 1.2cm; }
+}
+</style>
+</head>
+<body>
+<nav class="rail">
+  <a href="#thesis">Thesis</a>
+  <a href="#criteria">Criteria</a>
+  <a href="#architecture">Architecture</a>
+  <a href="#boundaries">Boundaries</a>
+  <a href="#parked">Parked</a>
+</nav>
+<p class="kicker">Spec lens <span class="sep">·</span> rewrite <span class="sep">·</span> 2026-08-31</p>
+<h1><span class="id">fn-3</span> Focus-mode agent notification summary</h1>
+<div class="dials">
+  <div class="dial"><div class="v">ready</div><div class="c">status</div></div>
+  <div class="dial"><div class="v">13</div><div class="c">R-IDs</div></div>
+  <div class="dial"><div class="v">opt-in</div><div class="c">consent</div></div>
+  <div class="dial"><div class="v">fn-2</div><div class="c">depends on</div></div>
+</div>
+<section id="thesis">
+  <div class="shead"><span class="num">01</span><span class="ttl">Thesis</span><span class="note">scope: business</span></div>
+  <p class="tldr">Agent summaries are <strong>off until you enable them</strong>. Then Omarchy’s default agent reads blocked pings in the background and you get <em>one important-things summary</em> at focus-off. Helpful / not-helpful feedback trains the next parse.</p>
+  <div class="thesis">An Omarchy default agent is not consent. Override uses Omarchy’s selector modal, limited to agents that can run a one-shot headless prompt.</div>
+</section>
+<section id="criteria">
+  <div class="shead"><span class="num">02</span><span class="ttl">Acceptance</span><span class="note">13 criteria</span></div>
+  <table>
+    <thead><tr><th>R-ID</th><th>Criterion</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>R1</td><td>Configured agent parses blocked pings in the background while focus is on.</td><td><span class="tagchip paraphrase">paraphrase</span></td></tr>
+      <tr><td>R2</td><td>Running parse stays inaccessible until focus-off.</td><td><span class="tagchip user">user</span></td></tr>
+      <tr><td>R3</td><td>Focus-off shows one important-things summary, not each ping.</td><td><span class="tagchip user">user</span></td></tr>
+      <tr><td>R4</td><td>No agent configured leaves the mute spec’s grouped count unchanged.</td><td><span class="tagchip paraphrase">paraphrase</span></td></tr>
+      <tr><td>R5</td><td>User can point the plugin at an existing agent without rebuild.</td><td><span class="tagchip paraphrase">paraphrase</span></td></tr>
+      <tr><td>R6</td><td>Agent-path failure still shows the grouped-count notice.</td><td><span class="tagchip inferred">inferred</span></td></tr>
+      <tr><td>R7</td><td>No override uses Omarchy’s default agent. No default → R4.</td><td><span class="tagchip user">user</span></td></tr>
+      <tr><td>R8</td><td>User can override to any agent Omarchy allows.</td><td><span class="tagchip user">user</span></td></tr>
+      <tr><td>R9</td><td>After a summary, mark helpful / not helpful and leave feedback.</td><td><span class="tagchip user">user</span></td></tr>
+      <tr><td>R10</td><td>Feedback ledger informs the next parse.</td><td><span class="tagchip user">user</span></td></tr>
+      <tr><td>R11</td><td>Override set is only headless-capable Omarchy agents.</td><td><span class="tagchip user">user</span></td></tr>
+      <tr><td>R12</td><td>Override picker is the same kind of selector modal Omarchy uses.</td><td><span class="tagchip user">user</span></td></tr>
+      <tr><td>R13</td><td>Summaries stay off until enabled in this plugin. Default agent is not consent.</td><td><span class="tagchip user">user</span></td></tr>
+    </tbody>
+  </table>
+</section>
+<section id="architecture">
+  <div class="shead"><span class="num">03</span><span class="ttl">Architecture</span><span class="note">scope: technical</span></div>
+  <div class="archgrid">
+    <div class="archbox"><h3>Opt-in</h3><p>Off until enabled in the plugin. Mute still owns block and grouped-count fallback.</p></div>
+    <div class="archbox"><h3>Agent</h3><p>Omarchy default, or an override from the same selector, headless-only.</p></div>
+    <div class="archbox"><h3>Ledger</h3><p>Helpful / not-helpful plus optional feedback is an input to the next parse.</p></div>
+  </div>
+</section>
+<section id="boundaries">
+  <div class="shead"><span class="num">04</span><span class="ttl">Boundaries</span><span class="note">scope: business</span></div>
+  <div class="bounds">
+    <div class="is">
+      <h3>Is</h3>
+      <ul>
+        <li>Opt-in agent summary after focus-off</li>
+        <li>Default agent, plus Omarchy-style override</li>
+        <li>Headless one-shot agents only</li>
+        <li>Feedback ledger for the next parse</li>
+      </ul>
+    </div>
+    <div class="isnot">
+      <h3>Is not</h3>
+      <ul>
+        <li>Mute or grouped count (fn-2)</li>
+        <li>Network block (fn-1)</li>
+        <li>Consent just because Omarchy has a default agent</li>
+        <li>A peek during focus, or a non-headless agent</li>
+      </ul>
+    </div>
+  </div>
+</section>
+<section id="parked">
+  <div class="shead"><span class="num">05</span><span class="ttl">Parked</span><span class="note">2 unknowns</span></div>
+  <ul class="parked">
+    <li>How ping text and the ledger reach the agent. Plan picks the mechanism.</li>
+    <li>Which current Omarchy agents qualify as headless. Plan checks each one.</li>
+  </ul>
+</section>
+<footer>
+  <p>Render lens, not record. Source: .flow/specs/fn-3-focus-mode-agent-notification-summary.md</p>
+  <div class="stamp">staleness stamp · spec updated_at 2026-08-31T22:23:59.094462Z · repo commit d31b8af · rendered 2026-08-31</div>
+</footer>
+</body>
+</html>
