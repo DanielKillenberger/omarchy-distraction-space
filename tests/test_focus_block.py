@@ -573,13 +573,60 @@ class ApplyLiftTests(unittest.TestCase):
             notify=False,
         )
         installed = backend.nft_applies[-1]
-        self.assertIn("203.0.113.10", installed)
-        self.assertIn("2001:db8::10", installed)
         v4, v6 = focus_block.parse_nft_sets(installed)
+        self.assertEqual(v4, [])
+        self.assertEqual(v6, [])
+
+    def test_reapply_does_not_keep_removed_destination_addrs(self):
+        previous_nft = (
+            "table inet omarchy_focus {\n"
+            "  set v4 { elements = { 198.51.100.1, 203.0.113.10 } }\n"
+            "  set v6 { elements = { 2001:db8::99 } }\n"
+            "}"
+        )
+        backend = FakeBackend(nft=previous_nft)
+        focus_block.apply_block(
+            backend=backend,
+            config={"destinations": ["YouTube"]},
+            notify=False,
+        )
+        v4, v6 = focus_block.parse_nft_sets(backend.nft_applies[-1])
         self.assertEqual(v4, ["203.0.113.10"])
         self.assertEqual(v6, ["2001:db8::10"])
-        self.assertNotIn("0.0.0.0", v4)
-        self.assertNotIn("::1", v6)
+        self.assertNotIn("198.51.100.1", v4)
+        self.assertNotIn("2001:db8::99", v6)
+
+    def test_dnsmasq_verify_failure_reloads_restored_dropin(self):
+        dropin = Path("/tmp/omarchy-focus-test-dnsmasq-rollback.conf")
+        previous = "127.0.0.1 localhost\n"
+        backend = FakeBackend(hosts=previous, nft="table inet omarchy_focus { old }", fail_on="verify")
+        backend.kind = "dnsmasq"
+        backend.dns_files = {str(dropin): "address=/old.example/0.0.0.0\n"}
+
+        def targets() -> list[Path]:
+            return [dropin]
+
+        def read_dns(path: Path) -> str | None:
+            return backend.dns_files.get(str(path))
+
+        def write_dns(path: Path, text: str | None) -> None:
+            if text is None:
+                backend.dns_files.pop(str(path), None)
+                return
+            backend.dns_files[str(path)] = text
+
+        backend.dns_targets = targets  # type: ignore[method-assign]
+        backend.read_dns = read_dns  # type: ignore[method-assign]
+        backend.write_dns = write_dns  # type: ignore[method-assign]
+        with self.assertRaises(focus_block.BlockError):
+            focus_block.apply_block(
+                backend=backend,
+                config={"destinations": ["YouTube"]},
+                notify=False,
+            )
+        self.assertEqual(backend.dns_files[str(dropin)], "address=/old.example/0.0.0.0\n")
+        self.assertGreaterEqual(backend.reloads, 2)
+        self.assertEqual(backend.hosts, previous)
 
     def test_resolv_path_without_upstreams_fails(self):
         previous = "127.0.0.1 localhost\n"

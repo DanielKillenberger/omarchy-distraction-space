@@ -1087,6 +1087,11 @@ def _apply_block_locked(
                 backend.write_dns(Path(path_text), previous_dns.get(path_text))
             except Exception:
                 pass
+        if dns_written:
+            try:
+                backend.reload_resolver("dnsmasq")
+            except Exception:
+                pass
         if resolved_written:
             try:
                 backend.write_resolved(previous_resolved)
@@ -1124,13 +1129,12 @@ def _apply_block_locked(
         captured = backend.capture_upstreams() if hasattr(backend, "capture_upstreams") else []
         if suffixes and kind == "resolv" and not captured:
             raise BlockError("no upstream DNS servers captured for unblocked names")
-        previous_v4, previous_v6 = parse_nft_sets(previous_nft)
         for host in hostnames:
             v4, v6 = backend.resolve(host, captured or None)
             ipv4.extend(item for item in v4 if usable_v4(item))
             ipv6.extend(item for item in v6 if usable_v6(item))
-        ipv4 = _unique(ipv4 + previous_v4)
-        ipv6 = _unique(ipv6 + previous_v6)
+        ipv4 = _unique(ipv4)
+        ipv6 = _unique(ipv6)
         ruleset = nft_ruleset(ipv4, ipv6)
 
         if suffixes and kind in {"resolved", "resolv"}:
