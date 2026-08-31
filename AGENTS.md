@@ -24,9 +24,9 @@ This project uses Flow-Next for ALL task tracking. `flowctl` comes from the flow
      Name the model ids YOUR harness and account actually serve - ask the
      harness for its list, then invoke one; ids change and vary per account. -->
 
-<!-- reviewer: <model>                  - anything grading work someone else
-     produced. Prefer a different family than the writer: a same-family review
-     is not an independent verdict. Advice, not enforcement. -->
+reviewer: gpt-5.6-sol-high
+<!-- implementer / scout lines stay commented. reviewer is the host pin for
+     review.backend host (bare only; model is not in the backend string). -->
 <!-- implementer: <model> at <effort>   - work handed to another harness (plan
      here, implement cheaper or faster there). Absent = the session model
      implements. -->
