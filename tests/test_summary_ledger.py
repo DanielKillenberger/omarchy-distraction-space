@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 import unittest
 from importlib.machinery import SourceFileLoader
@@ -151,6 +152,145 @@ class ReadmeTests(unittest.TestCase):
         self.assertIn('"summary_agent": null', text)
         self.assertIn("no history screen", section.lower())
         self.assertIn("no per-app notification toggle", section.lower())
+
+    def test_docs_describe_start_timer_and_close(self):
+        text = README.read_text()
+        self.assertIn("start dialog", text.lower())
+        self.assertIn("closing window", text.lower())
+        self.assertIn("session_close_ui", text)
+        self.assertIn('"session_start_ui": true', text)
+        manifest = (ROOT / "manifest.json").read_text()
+        self.assertIn("start popup", manifest)
+        self.assertIn("timer", manifest)
+        self.assertIn("closing window", manifest)
+        focus = (ROOT / "focus.json").read_text()
+        self.assertIn("session_close_ui", focus)
+        self.assertIn("session_close_eval", focus)
+
+
+class CloseDialogLedgerTests(LedgerHarness):
+    def test_helpful_on_close_dialog_appends_ledger_without_menu_select(self):
+        selected: list[str] = []
+
+        def track_menu(*args, **kwargs):
+            selected.append("menu")
+            return "Helpful"
+
+        with mock.patch.object(distractions, "menu_select", track_menu):
+            with mock.patch.object(distractions, "collect_summary_feedback") as collect:
+                self.assertTrue(distractions.append_ledger_entry(True, "from-close"))
+                collect.assert_not_called()
+        self.assertEqual(selected, [])
+        row = json.loads(distractions.summary_ledger_path().read_text().splitlines()[-1])
+        self.assertEqual(row["helpful"], True)
+        self.assertEqual(row["note"], "from-close")
+        self.assertNotIn("importance", row)
+
+    def test_close_dialog_reads_current_fields_on_helpful(self):
+        class FakeEntry:
+            def __init__(self, text):
+                self._text = text
+
+            def set_placeholder_text(self, text):
+                return None
+
+            def get_text(self):
+                return self._text
+
+        class FakeLabel:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def set_line_wrap(self, *_args):
+                return None
+
+            def set_selectable(self, *_args):
+                return None
+
+        added: list[object] = []
+
+        class FakeBox:
+            def set_spacing(self, *_args):
+                return None
+
+            def set_margin_top(self, *_args):
+                return None
+
+            def set_margin_bottom(self, *_args):
+                return None
+
+            def set_margin_start(self, *_args):
+                return None
+
+            def set_margin_end(self, *_args):
+                return None
+
+            def add(self, widget):
+                added.append(widget)
+
+        class FakeDialog:
+            def __init__(self, **kwargs):
+                self.box = FakeBox()
+
+            def set_default_size(self, *args):
+                return None
+
+            def add_button(self, *args):
+                return None
+
+            def get_content_area(self):
+                return self.box
+
+            def show_all(self):
+                return None
+
+            def run(self):
+                return 1
+
+            def destroy(self):
+                return None
+
+        class FakeGtk:
+            class ResponseType:
+                CANCEL = 0
+
+            Dialog = FakeDialog
+            Label = FakeLabel
+
+            class Entry:
+                created: list[FakeEntry] = []
+
+                def __init__(self, **kwargs):
+                    text = "hit it" if len(self.created) == 0 else "note-text"
+                    entry = FakeEntry(text)
+                    type(self).created.append(entry)
+                    self._entry = entry
+
+                def set_placeholder_text(self, text):
+                    self._entry.set_placeholder_text(text)
+
+                def get_text(self):
+                    return self._entry.get_text()
+
+        FakeGtk.Entry.created = []
+        fake_gi = mock.Mock()
+        fake_gi.require_version = mock.Mock()
+        fake_repo = mock.Mock()
+        fake_repo.Gtk = FakeGtk
+        with mock.patch.dict(sys.modules, {"gi": fake_gi, "gi.repository": fake_repo}):
+            outcome = distractions.prompt_focus_close(
+                purpose="ship it",
+                summary="Here's what you missed\nping",
+                ask_eval=True,
+                ask_feedback=True,
+            )
+        self.assertEqual(
+            outcome,
+            {"action": "helpful", "eval": "hit it", "note": "note-text"},
+        )
+        labels = [item.kwargs.get("label") for item in added if isinstance(item, FakeLabel)]
+        self.assertIn("ship it", labels)
+        self.assertIn("Here's what you missed\nping", labels)
 
 
 if __name__ == "__main__":

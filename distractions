@@ -2402,6 +2402,12 @@ def read_session_recap() -> dict | None:
     )
 
 
+def consume_session_recap() -> None:
+    path = session_recap_path()
+    if path.exists():
+        path.unlink()
+
+
 def persist_session_start(purpose: str, minutes: int) -> None:
     session_id = str(read_summary_control().get("session_id") or "")
     deadline = (
@@ -3241,19 +3247,46 @@ def mark_lift_fail_pending(pending: bool = True) -> dict:
         lock.close()
 
 
+def hosted_summary_copy(control: dict, result: dict, recap: dict | None) -> str | None:
+    if not agent_summaries_enabled() or not resolve_summary_agent():
+        return None
+    if control.get("parse_failed"):
+        return None
+    session = result.get("session_id")
+    if not isinstance(session, str) or not session:
+        return None
+    if session != control.get("session_id"):
+        return None
+    if recap is None or recap.get("session_id") != session:
+        return None
+    text = str(result.get("text") or "").strip()
+    if text:
+        return "Here's what you missed\n" + text
+    return "You didn't miss anything"
+
+
 def apply_summary_xor() -> str:
     mark_lift_fail_pending(False)
     control = read_summary_control()
     result = read_summary_result()
+    recap = read_session_recap()
+    hosted = hosted_summary_copy(control, result, recap)
+    close_ui = load_config().get("session_close_ui", True) is not False
+    if hosted is not None and close_ui:
+        return "hosted"
     text = str(result.get("text") or "").strip()
+    notify_body = ""
+    if text:
+        notify_body = _truncate_bytes(text, PARSE_NOTIFY_BODY_MAX)
+    elif hosted is not None:
+        notify_body = hosted
     if (
         agent_summaries_enabled()
         and resolve_summary_agent()
-        and text
+        and notify_body
         and result.get("session_id") == control.get("session_id")
     ):
-        body = _truncate_bytes(text, PARSE_NOTIFY_BODY_MAX)
-        if notify("Focus summary", body, timeout_ms=SUMMARY_NOTIFY_MS):
+        if notify("Focus summary", notify_body, timeout_ms=SUMMARY_NOTIFY_MS):
             clear_counts()
             result_path = summary_result_path()
             if result_path.exists():
@@ -4200,6 +4233,8 @@ def _disable_focus_locked(reason: str, *, timer: bool = False) -> None:
             except focus_block.BlockError:
                 pass
     disarm_session_deadline()
+    xor_skipped = False
+    xor_arm = ""
     if summaries_on:
         summarize_finish(leaving_session or None)
         if is_focus() or (
@@ -4208,9 +4243,10 @@ def _disable_focus_locked(reason: str, *, timer: bool = False) -> None:
         ):
             return
         if lift_notification_block(catchup=False):
-            apply_summary_xor()
+            xor_arm = apply_summary_xor()
         else:
             mark_lift_fail_pending()
+            xor_skipped = True
         with focus_block.network_lock():
             try:
                 lift_network_block()
@@ -4224,12 +4260,21 @@ def _disable_focus_locked(reason: str, *, timer: bool = False) -> None:
         ):
             return
         if lift_notification_block(catchup=False):
-            apply_summary_xor()
+            xor_arm = apply_summary_xor()
         else:
             mark_lift_fail_pending()
+            xor_skipped = True
     else:
         request_summary_finish(leaving_session or None)
         lift_notification_block()
+    hosted_copy = None
+    if xor_arm == "hosted":
+        hosted_copy = hosted_summary_copy(
+            read_summary_control(),
+            read_summary_result(),
+            read_session_recap(),
+        )
+    run_session_close_window(hosted_copy=hosted_copy, xor_skipped=xor_skipped)
     notify("Focus mode off", "Super+D opens the distraction space.")
 
 
@@ -4311,6 +4356,115 @@ def prompt_focus_start(*, ask_purpose: bool = True) -> tuple[str, int] | None:
         return purpose, parsed
     finally:
         dialog.destroy()
+
+
+def prompt_focus_close(
+    *,
+    purpose: str = "",
+    summary: str = "",
+    ask_eval: bool = True,
+    ask_feedback: bool = True,
+) -> dict | None:
+    import gi
+
+    gi.require_version("Gtk", "3.0")
+    from gi.repository import Gtk
+
+    response_helpful = 1
+    response_not_helpful = 2
+    dialog = Gtk.Dialog(title="Focus session")
+    dialog.set_default_size(520, -1)
+    dialog.add_button("Dismiss", Gtk.ResponseType.CANCEL)
+    if ask_feedback:
+        dialog.add_button("Not helpful", response_not_helpful)
+        dialog.add_button("Helpful", response_helpful)
+    box = dialog.get_content_area()
+    box.set_spacing(12)
+    box.set_margin_top(16)
+    box.set_margin_bottom(16)
+    box.set_margin_start(16)
+    box.set_margin_end(16)
+    if purpose:
+        purpose_label = Gtk.Label(label="Purpose", xalign=0)
+        purpose_value = Gtk.Label(label=purpose, xalign=0)
+        purpose_value.set_line_wrap(True)
+        box.add(purpose_label)
+        box.add(purpose_value)
+    if summary:
+        summary_value = Gtk.Label(label=summary, xalign=0)
+        summary_value.set_line_wrap(True)
+        summary_value.set_selectable(True)
+        box.add(summary_value)
+    eval_entry = None
+    if ask_eval:
+        eval_label = Gtk.Label(label="How well did you hit the purpose?", xalign=0)
+        eval_entry = Gtk.Entry()
+        eval_entry.set_placeholder_text("Optional")
+        box.add(eval_label)
+        box.add(eval_entry)
+    note_entry = None
+    if ask_feedback:
+        note_label = Gtk.Label(label="Optional note", xalign=0)
+        note_entry = Gtk.Entry()
+        note_entry.set_placeholder_text("Leave empty to skip")
+        box.add(note_label)
+        box.add(note_entry)
+    dialog.show_all()
+    try:
+        response = dialog.run()
+        eval_text = eval_entry.get_text() if eval_entry is not None else ""
+        note = note_entry.get_text() if note_entry is not None else ""
+        if response == response_helpful:
+            action = "helpful"
+        elif response == response_not_helpful:
+            action = "not_helpful"
+        else:
+            action = "dismiss"
+        return {"action": action, "eval": eval_text, "note": note}
+    finally:
+        dialog.destroy()
+
+
+_PROMPT_FOCUS_CLOSE_IMPL = prompt_focus_close
+
+
+def run_session_close_window(*, hosted_copy: str | None, xor_skipped: bool) -> None:
+    cfg = load_config()
+    if cfg.get("session_close_ui", True) is False:
+        return
+    recap = read_session_recap()
+    if recap is None:
+        return
+    current = getattr(sys.modules[__name__], "prompt_focus_close")
+    if current is _PROMPT_FOCUS_CLOSE_IMPL and "unittest" in sys.modules:
+        return
+    show_purpose = cfg.get("session_close_purpose", True) is not False
+    show_eval = cfg.get("session_close_eval", True) is not False
+    hosted = bool(hosted_copy) and not xor_skipped
+    summary = hosted_copy if hosted else ""
+    if not show_purpose and not show_eval and not hosted:
+        consume_session_recap()
+        return
+    outcome = current(
+        purpose=recap["purpose"] if show_purpose else "",
+        summary=summary,
+        ask_eval=show_eval,
+        ask_feedback=hosted,
+    )
+    if outcome is None:
+        outcome = {"action": "dismiss", "eval": "", "note": ""}
+    eval_text = " ".join(str(outcome.get("eval") or "").split())
+    if eval_text:
+        stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+        with log_path().open("a", encoding="utf-8") as handle:
+            handle.write(f"{stamp}  {eval_text}\n")
+    action = outcome.get("action")
+    if hosted and action in {"helpful", "not_helpful"}:
+        append_ledger_entry(action == "helpful", str(outcome.get("note") or ""))
+    consume_session_recap()
+    if hosted:
+        clear_counts()
+        _discard_summary_result()
 
 
 def collect_focus_start() -> tuple[str, int] | None:
