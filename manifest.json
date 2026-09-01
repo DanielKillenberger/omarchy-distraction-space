@@ -5,7 +5,7 @@
   "version": "1.3.0",
   "author": "Daniel Killenberger",
   "license": "MIT",
-  "description": "Lock a named distraction space until you leave focus mode with a written reason.",
+  "description": "Lock a named distraction space until you leave focus mode with a written reason. Mute those apps' banners and sounds while focused, then show one grouped count after you leave.",
   "homepage": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "repository": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "kinds": [
@@ -18,7 +18,7 @@
   },
   "barWidget": {
     "displayName": "Focus mode",
-    "description": "Lock the distraction space until you leave focus mode with a written reason.",
+    "description": "Lock the distraction space, mute its notifications while focused, and show a grouped count after you leave.",
     "category": "Status",
     "allowMultiple": false,
     "defaultSection": "center"

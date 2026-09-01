@@ -33,6 +33,8 @@ Item {
   property int bindAttempts: 0
   property var restoredQueue: []
   property bool restoredBusy: false
+  property var countQueue: []
+  property bool countBusy: false
 
   function localPath(url) {
     var value = String(url)
@@ -234,7 +236,26 @@ Item {
     suppressLive(originalId, timestamp)
   }
 
+  function enqueueCount(label) {
+    if (!label)
+      return false
+    root.countQueue = root.countQueue.concat([String(label)])
+    pumpCount()
+    return true
+  }
+
+  function pumpCount() {
+    if (root.countBusy || root.countQueue.length === 0)
+      return
+    var label = root.countQueue[0]
+    root.countQueue = root.countQueue.slice(1)
+    root.countBusy = true
+    countProc.command = [root.helperPath, "count-increment", label]
+    countProc.running = true
+  }
+
   function suppressLive(originalId, timestamp) {
+    var counted = false
     try {
       if (!root.notifications)
         return
@@ -242,7 +263,8 @@ Item {
       if (idx < 0)
         return
       var row = root.notifications.popupModel.get(idx)
-      if (!row || !memberLabelFor(row))
+      var label = memberLabelFor(row)
+      if (!row || !label)
         return
       if (root.notifications.isRestoredRow(row))
         return
@@ -264,8 +286,10 @@ Item {
           ref.dismiss()
       } catch (e) {
       }
+      counted = root.enqueueCount(label)
     } finally {
-      root.pendingOps = Math.max(0, root.pendingOps - 1)
+      if (!counted)
+        root.pendingOps = Math.max(0, root.pendingOps - 1)
     }
   }
 
@@ -386,6 +410,15 @@ Item {
     id: existsProc
     onExited: function (exitCode) {
       root.finishRestored(exitCode === 0)
+    }
+  }
+
+  Process {
+    id: countProc
+    onExited: function () {
+      root.pendingOps = Math.max(0, root.pendingOps - 1)
+      root.countBusy = false
+      root.pumpCount()
     }
   }
 

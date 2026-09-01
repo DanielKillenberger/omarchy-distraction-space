@@ -81,14 +81,18 @@ def dispatch(lua: str) -> None:
     subprocess.check_call(["hyprctl", "dispatch", lua])
 
 
-def notify(title: str, body: str = "", timeout_ms: int = 4000) -> None:
+def notify(title: str, body: str = "", timeout_ms: int = 4000) -> bool:
     cmd = ["omarchy-notification-send", "-u", "normal", "-t", str(timeout_ms), title]
     if body:
         cmd.append(body)
     try:
         subprocess.check_call(cmd)
+        return True
     except (subprocess.CalledProcessError, FileNotFoundError):
-        subprocess.call(["notify-send", "-t", str(timeout_ms), title, body])
+        try:
+            return subprocess.call(["notify-send", "-t", str(timeout_ms), title, body]) == 0
+        except FileNotFoundError:
+            return False
 
 
 def load_config() -> dict:
@@ -443,6 +447,83 @@ def write_json_atomic(path: Path, payload) -> None:
     tmp.replace(path)
 
 
+def count_path() -> Path:
+    return STATE_DIR / "distractions.notify-count.json"
+
+
+def count_lock_path() -> Path:
+    return STATE_DIR / "distractions.notify-count.lock"
+
+
+def _lock_count():
+    path = count_lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(path, "w")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def read_counts() -> dict[str, int]:
+    data = read_json(count_path(), {})
+    if not isinstance(data, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for key, value in data.items():
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            counts[str(key)] = number
+    return counts
+
+
+def write_counts_atomic(counts: dict[str, int]) -> None:
+    path = count_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(counts, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def increment_count(label: str) -> None:
+    name = str(label or "").strip()
+    if not name:
+        raise SystemExit("count-increment requires a label")
+    lock = _lock_count()
+    try:
+        counts = read_counts()
+        counts[name] = counts.get(name, 0) + 1
+        write_counts_atomic(counts)
+    finally:
+        lock.close()
+
+
+def format_grouped_notice(counts: dict[str, int]) -> tuple[str, str]:
+    lines = [f"{label} {counts[label]}" for label in sorted(counts) if counts[label] > 0]
+    return "While you were focused", "\n".join(lines)
+
+
+def send_catchup_notice() -> bool:
+    lock = _lock_count()
+    try:
+        counts = read_counts()
+        if not counts:
+            return True
+        title, body = format_grouped_notice(counts)
+        if not notify(title, body, timeout_ms=8000):
+            return False
+        path = count_path()
+        if path.exists():
+            path.unlink()
+        return True
+    finally:
+        lock.close()
+
+
 def muted_ids() -> list[int]:
     data = read_json(MUTED_PATH, [])
     if not isinstance(data, list):
@@ -727,6 +808,7 @@ def _lift_notification_block() -> bool:
             time.sleep(0.2)
         if not drained:
             raise RuntimeError("notification filter did not drain")
+        send_catchup_notice()
         return True
     except Exception as exc:
         notify(
@@ -1207,6 +1289,8 @@ def main() -> None:
             notify("Focus mode", str(exc))
             raise SystemExit(str(exc))
         print(removed)
+    elif command == "count-increment":
+        increment_count(" ".join(sys.argv[2:]).strip())
     elif command in {"install", "install-notifications"}:
         raise SystemExit(0 if install_notification_service() else 1)
     else:
