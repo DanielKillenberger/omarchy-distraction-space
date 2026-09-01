@@ -236,6 +236,18 @@ class QmlCountContractTests(unittest.TestCase):
         self.assertIn("exitCode !== 0", self.text)
         self.assertIn('return "error"', self.text)
 
+    def test_failed_increment_is_kept_until_persisted(self):
+        exited = self.text[self.text.find("id: countProc") : self.text.find("id: focusStatus")]
+        fail_return = exited.find("root.countFailed = true")
+        pending_drop = exited.find("pendingOps")
+        self.assertGreater(fail_return, 0)
+        self.assertGreater(pending_drop, fail_return)
+        self.assertIn("return", exited[fail_return:pending_drop])
+        armed = self.text[self.text.find("function setArmed") : self.text.find("function tryBind")]
+        self.assertNotIn("countFailed = false", armed)
+        self.assertIn("countLabel", armed)
+        self.assertIn("pumpCount", armed)
+
     def test_suppressed_rows_bypass_archive_and_history(self):
         self.assertIn("deletePopupFileFor", self.text)
         self.assertNotIn("dismissPopup", self.text)

@@ -185,7 +185,9 @@ Item {
     var became = next && !root.armed
     root.armed = next
     if (became) {
-      root.countFailed = false
+      root.countRetries = 0
+      if (root.countLabel)
+        root.pumpCount()
       root.scanExistingRows()
     }
   }
@@ -427,14 +429,18 @@ Item {
   Process {
     id: countProc
     onExited: function (exitCode) {
-      if (exitCode !== 0 && root.countRetries < root.countRetryLimit) {
-        root.countRetries += 1
+      if (exitCode !== 0) {
+        if (root.countRetries < root.countRetryLimit) {
+          root.countRetries += 1
+          root.countBusy = false
+          root.pumpCount()
+          return
+        }
+        root.countFailed = true
         root.countBusy = false
-        root.pumpCount()
         return
       }
-      if (exitCode !== 0)
-        root.countFailed = true
+      root.countFailed = false
       root.countLabel = ""
       root.pendingOps = Math.max(0, root.pendingOps - 1)
       root.countBusy = false
