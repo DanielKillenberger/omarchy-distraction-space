@@ -17,7 +17,6 @@ sys.path.insert(0, str(ROOT))
 from ds import feedback, hypr, listener, lock, net, setup, ui
 
 STUBS = (
-    "menu",
     "listen",
     "reload",
 )

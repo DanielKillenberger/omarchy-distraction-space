@@ -288,4 +288,4 @@ def menu():
 
 
 def cmd_menu(args):
-    raise NotImplementedError
+    return menu()

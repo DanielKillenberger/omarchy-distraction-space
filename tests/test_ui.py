@@ -258,6 +258,16 @@ class UiTests(unittest.TestCase):
         with self.assertRaises(ui.Unavailable):
             ui.prompt_reason(5)
 
+    def test_cli_menu_cancel_writes_nothing(self):
+        self.box.fake_bin("omarchy-menu-select", "import sys\nsys.exit(1)\n")
+        config.load()
+        before = self.box.config_file.read_bytes()
+        r = self.box.run("menu")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.box.config_file.read_bytes(), before)
+        self.assertFalse((self.box.state_dir / "lock.json").exists())
+        self.assertFalse((self.box.state_dir / "state.json").exists())
+
     def test_menu_actions_write_through_update_and_reload(self):
         src = (ROOT / "ds" / "ui.py").read_text(encoding="utf-8")
         self.assertIn("config.update", src)
