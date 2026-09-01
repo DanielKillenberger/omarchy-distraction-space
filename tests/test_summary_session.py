@@ -42,6 +42,13 @@ class SessionHarness(unittest.TestCase):
             mock.patch.object(distractions, "FOCUS_CONFIG_LOCK", self.runtime / "focus.json.lock"),
             mock.patch.object(distractions, "FOCUS_TRANSITION_LOCK", self.runtime / "focus-transition.lock"),
             mock.patch.object(distractions, "notify", lambda *args, **kwargs: True),
+            mock.patch.object(
+                distractions,
+                "prompt_focus_close",
+                return_value={"action": "dismiss", "eval": "", "note": ""},
+            ),
+            mock.patch.object(distractions, "collect_summary_feedback"),
+            mock.patch.object(distractions, "menu_select", return_value=""),
         ]
         for patch in self.patches:
             patch.start()

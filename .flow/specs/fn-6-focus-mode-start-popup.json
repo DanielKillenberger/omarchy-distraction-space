@@ -10,7 +10,8 @@
   "id": "fn-6-focus-mode-start-popup",
   "impl_review_rounds": {
     "fn-6-focus-mode-start-popup.1": 0,
-    "fn-6-focus-mode-start-popup.2": 0
+    "fn-6-focus-mode-start-popup.2": 0,
+    "fn-6-focus-mode-start-popup.3": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -671,11 +672,199 @@
       "task": "fn-6-focus-mode-start-popup.2",
       "timestamp": "2026-09-01T16:06:05.464978Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "d2a47d34b1d023166d82785a480814a6d35fd8607da073d05cb8594fc1a07e46",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-a4eaa86a44a3cbade7e41d8b6ef800fc",
+            "classification": "pre_existing",
+            "findingId": "finding-a4eaa86a44a3cbade7e41d8b6ef800fc",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-0eeccc6440af123b61418c31c85aadd4",
+            "classification": "introduced",
+            "findingId": "finding-0eeccc6440af123b61418c31c85aadd4",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-9739e868988f9a7050a2a3190ad44b9b",
+            "classification": "introduced",
+            "findingId": "finding-9739e868988f9a7050a2a3190ad44b9b",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "6b5e8a6dc6cfd13a70b34d564822f4d7a45a4929",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 2826,
+      "output_sha256": "5b7df04d6918768214055f7418c52878cb3d4c04364dd355ab672b3ec5cf3bf2",
+      "reservation_id": "53508266a0b648a5a01019714f35e366",
+      "round_consumed": true,
+      "scope": "impl:fn-6-focus-mode-start-popup.3",
+      "superseded_by": null,
+      "task": "fn-6-focus-mode-start-popup.3",
+      "timestamp": "2026-09-01T16:24:39.693186Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "6acbdfa5a0c20e2c9e7c93fa317526c7986bc83df3bbbde05a88265ac2c31b55",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-a4eaa86a44a3cbade7e41d8b6ef800fc",
+            "classification": "pre_existing",
+            "findingId": "finding-a4eaa86a44a3cbade7e41d8b6ef800fc",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-0eeccc6440af123b61418c31c85aadd4",
+            "classification": "introduced",
+            "findingId": "finding-0eeccc6440af123b61418c31c85aadd4",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-9739e868988f9a7050a2a3190ad44b9b",
+            "classification": "introduced",
+            "findingId": "finding-9739e868988f9a7050a2a3190ad44b9b",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-16ad25908def5bd3cc169931cbb041c0",
+            "classification": "introduced",
+            "findingId": "finding-16ad25908def5bd3cc169931cbb041c0",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1da25d99c389b90628e0feb95e239b5e57d746f5",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1465,
+      "output_sha256": "daf9d1105b1dc4bd6764e9cc9e76ee9d57d82d952df55e15fe10e9ca7410e5f9",
+      "reservation_id": "caf82f97f3194a139be1811a11a191b3",
+      "round_consumed": true,
+      "scope": "impl:fn-6-focus-mode-start-popup.3",
+      "superseded_by": null,
+      "task": "fn-6-focus-mode-start-popup.3",
+      "timestamp": "2026-09-01T16:35:41.957528Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "4247ad7fd921e60e65f6e7c226aaffbcdce76d6308d87755e56c383225741827",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-a4eaa86a44a3cbade7e41d8b6ef800fc",
+            "classification": "pre_existing",
+            "findingId": "finding-a4eaa86a44a3cbade7e41d8b6ef800fc",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-0eeccc6440af123b61418c31c85aadd4",
+            "classification": "introduced",
+            "findingId": "finding-0eeccc6440af123b61418c31c85aadd4",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-9739e868988f9a7050a2a3190ad44b9b",
+            "classification": "introduced",
+            "findingId": "finding-9739e868988f9a7050a2a3190ad44b9b",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-16ad25908def5bd3cc169931cbb041c0",
+            "classification": "introduced",
+            "findingId": "finding-16ad25908def5bd3cc169931cbb041c0",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "4d627d5ba8249ca2d9ee172c0ecfed074309a952",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 616,
+      "output_sha256": "3ba53f9c3cda89b49b53d759e2bca485b6002e0c78857cd30fb4c80cf022cd8e",
+      "reservation_id": "ee571b7f45e241f09cd9103e44cdf651",
+      "round_consumed": true,
+      "scope": "impl:fn-6-focus-mode-start-popup.3",
+      "superseded_by": null,
+      "task": "fn-6-focus-mode-start-popup.3",
+      "timestamp": "2026-09-01T16:44:06.526142Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-6-focus-mode-start-popup.1": 1,
     "impl:fn-6-focus-mode-start-popup.2": 1,
+    "impl:fn-6-focus-mode-start-popup.3": 1,
     "plan": 1,
     "plan#completion": 0
   },
@@ -684,6 +873,7 @@
   "review_transport_failures": {
     "impl:fn-6-focus-mode-start-popup.1": 0,
     "impl:fn-6-focus-mode-start-popup.2": 0,
+    "impl:fn-6-focus-mode-start-popup.3": 0,
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-6-focus-mode-start-popup.md",
@@ -700,5 +890,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T16:06:05.899124Z"
+  "updated_at": "2026-09-01T16:44:07.003573Z"
 }

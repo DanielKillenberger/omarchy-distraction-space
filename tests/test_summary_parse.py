@@ -42,6 +42,13 @@ class ParseHarness(unittest.TestCase):
             mock.patch.object(distractions, "PARSE_DEBOUNCE_S", 0.0),
             mock.patch.object(distractions, "PARSER_POLL_S", 0.02),
             mock.patch.object(distractions, "FINISH_WAIT_S", 0.4),
+            mock.patch.object(
+                distractions,
+                "prompt_focus_close",
+                return_value={"action": "dismiss", "eval": "", "note": ""},
+            ),
+            mock.patch.object(distractions, "collect_summary_feedback"),
+            mock.patch.object(distractions, "menu_select", return_value=""),
         ]
         for patch in self.patches:
             patch.start()
