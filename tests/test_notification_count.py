@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import tempfile
 import threading
 import unittest
@@ -83,6 +84,16 @@ class CountStoreTests(unittest.TestCase):
         self.assertFalse(distractions.count_path().exists())
 
 
+class NotifyTimeoutTests(unittest.TestCase):
+    def test_notify_helper_times_out_and_returns_false(self):
+        with mock.patch.object(
+            subprocess,
+            "check_call",
+            side_effect=subprocess.TimeoutExpired(cmd="omarchy-notification-send", timeout=1),
+        ):
+            self.assertFalse(distractions.notify("While you were focused", "Telegram 1"))
+
+
 class CatchupNoticeTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -158,6 +169,14 @@ class CatchupNoticeTests(unittest.TestCase):
         self.assertEqual(self.notices, [])
         self.assertFalse(distractions.count_path().exists())
 
+    def test_drain_error_is_lift_failure_and_preserves_counts(self):
+        self.seed_counts({"Telegram": 1})
+        self.disarm_out = "error"
+        self.drain_out = "error"
+        self.assertFalse(distractions.lift_notification_block())
+        self.assertEqual(distractions.read_counts(), {"Telegram": 1})
+        self.assertFalse(any(item[0] == "While you were focused" for item in self.notices))
+
     def test_drain_timeout_is_lift_failure_and_preserves_counts(self):
         self.seed_counts({"WhatsApp": 4})
         self.disarm_out = "draining"
@@ -213,6 +232,9 @@ class QmlCountContractTests(unittest.TestCase):
         self.assertIn("countQueue", self.text)
         self.assertIn("pendingOps", self.text)
         self.assertIn("countBusy", self.text)
+        self.assertIn("countFailed", self.text)
+        self.assertIn("exitCode !== 0", self.text)
+        self.assertIn('return "error"', self.text)
 
     def test_suppressed_rows_bypass_archive_and_history(self):
         self.assertIn("deletePopupFileFor", self.text)

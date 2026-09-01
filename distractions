@@ -41,6 +41,7 @@ PACTL_BIN = os.environ.get("DISTRACTIONS_PACTL", "pactl")
 PLUGIN_IPC = "distraction-space-notifications"
 PROC_WALK_DEPTH = 8
 APPLY_WAIT_S = 8.0
+NOTIFY_WAIT_S = 8.0
 GENERIC_BROWSER = {
     "google chrome",
     "google-chrome",
@@ -86,12 +87,17 @@ def notify(title: str, body: str = "", timeout_ms: int = 4000) -> bool:
     if body:
         cmd.append(body)
     try:
-        subprocess.check_call(cmd)
+        subprocess.check_call(cmd, timeout=NOTIFY_WAIT_S)
         return True
+    except subprocess.TimeoutExpired:
+        return False
     except (subprocess.CalledProcessError, FileNotFoundError):
         try:
-            return subprocess.call(["notify-send", "-t", str(timeout_ms), title, body]) == 0
-        except FileNotFoundError:
+            return subprocess.call(
+                ["notify-send", "-t", str(timeout_ms), title, body],
+                timeout=NOTIFY_WAIT_S,
+            ) == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
             return False
 
 
@@ -802,6 +808,8 @@ def _lift_notification_block() -> bool:
             drain_code, drain_out = plugin_call("drainState")
             if drain_code != 0:
                 raise RuntimeError(drain_out or "failed to read notification filter drain state")
+            if drain_out == "error":
+                raise RuntimeError("notification count increment failed")
             if drain_out == "drained":
                 drained = True
                 break

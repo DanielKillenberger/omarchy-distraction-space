@@ -35,6 +35,10 @@ Item {
   property bool restoredBusy: false
   property var countQueue: []
   property bool countBusy: false
+  property string countLabel: ""
+  property int countRetries: 0
+  property int countRetryLimit: 2
+  property bool countFailed: false
 
   function localPath(url) {
     var value = String(url)
@@ -180,8 +184,10 @@ Item {
   function setArmed(next) {
     var became = next && !root.armed
     root.armed = next
-    if (became)
+    if (became) {
+      root.countFailed = false
       root.scanExistingRows()
+    }
   }
 
   function tryBind() {
@@ -245,12 +251,17 @@ Item {
   }
 
   function pumpCount() {
-    if (root.countBusy || root.countQueue.length === 0)
+    if (root.countBusy)
       return
-    var label = root.countQueue[0]
-    root.countQueue = root.countQueue.slice(1)
+    if (!root.countLabel) {
+      if (root.countQueue.length === 0)
+        return
+      root.countLabel = root.countQueue[0]
+      root.countQueue = root.countQueue.slice(1)
+      root.countRetries = 0
+    }
     root.countBusy = true
-    countProc.command = [root.helperPath, "count-increment", label]
+    countProc.command = [root.helperPath, "count-increment", root.countLabel]
     countProc.running = true
   }
 
@@ -415,7 +426,16 @@ Item {
 
   Process {
     id: countProc
-    onExited: function () {
+    onExited: function (exitCode) {
+      if (exitCode !== 0 && root.countRetries < root.countRetryLimit) {
+        root.countRetries += 1
+        root.countBusy = false
+        root.pumpCount()
+        return
+      }
+      if (exitCode !== 0)
+        root.countFailed = true
+      root.countLabel = ""
       root.pendingOps = Math.max(0, root.pendingOps - 1)
       root.countBusy = false
       root.pumpCount()
@@ -463,9 +483,13 @@ Item {
     }
     function disarm(): string {
       root.setArmed(false)
+      if (root.countFailed)
+        return "error"
       return root.pendingOps === 0 ? "drained" : "draining"
     }
     function drainState(): string {
+      if (root.countFailed)
+        return "error"
       return (!root.armed && root.pendingOps === 0) ? "drained" : "busy"
     }
   }
