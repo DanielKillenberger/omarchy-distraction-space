@@ -5,12 +5,14 @@ from __future__ import annotations
 
 import json
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -338,6 +340,48 @@ class RenderTests(unittest.TestCase):
         self.assertTrue(focus_block._missing_table_text("Error: No such file or directory"))
         self.assertTrue(focus_block._missing_table_text("table inet omarchy_focus does not exist"))
         self.assertFalse(focus_block._missing_table_text("sudo: a password is required"))
+
+
+class PrivilegedOutputTests(unittest.TestCase):
+    argv = ["nft", "list", "table", "inet", "omarchy_focus"]
+
+    def _raise_bytes(self, stderr: bytes):
+        def fake_run(cmd, **_kwargs):
+            raise subprocess.CalledProcessError(1, cmd, output=b"", stderr=stderr)
+
+        return fake_run
+
+    def test_bytes_permission_denied_retries_then_blockerror(self):
+        calls: list[list[str]] = []
+        stderr = b"Error: Could not process rule: Operation not permitted\n"
+
+        def fake_run(cmd, **_kwargs):
+            calls.append(list(cmd))
+            raise subprocess.CalledProcessError(1, cmd, output=b"", stderr=stderr)
+
+        with patch("focus_block.subprocess.run", side_effect=fake_run):
+            with self.assertRaises(focus_block.BlockError) as raised:
+                focus_block.privileged(self.argv)
+        self.assertNotIsInstance(raised.exception, focus_block.MissingTable)
+        self.assertEqual(
+            calls,
+            [self.argv, ["pkexec", *self.argv], ["sudo", "-n", *self.argv]],
+        )
+        self.assertIn("Operation not permitted", str(raised.exception))
+
+    def test_bytes_missing_table_raises_missing_table(self):
+        stderr = b"Error: No such file or directory; table inet omarchy_focus does not exist\n"
+        with patch("focus_block.subprocess.run", side_effect=self._raise_bytes(stderr)):
+            with self.assertRaises(focus_block.MissingTable) as raised:
+                focus_block.privileged(self.argv)
+        self.assertIn("does not exist", str(raised.exception))
+
+    def test_empty_bytes_stderr_raises_blockerror(self):
+        with patch("focus_block.subprocess.run", side_effect=self._raise_bytes(b"")):
+            with self.assertRaises(focus_block.BlockError) as raised:
+                focus_block.privileged(self.argv)
+        self.assertNotIsInstance(raised.exception, focus_block.MissingTable)
+        self.assertIn("could not run", str(raised.exception).lower())
 
 
 class ApplyLiftTests(unittest.TestCase):

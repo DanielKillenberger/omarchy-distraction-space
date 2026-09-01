@@ -1,0 +1,99 @@
+{
+  "branch_name": "fn-5-focus-mode-enable-network-block-crash",
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-01T12:21:12.455195Z",
+  "created_at": "2026-09-01T12:02:24.068943Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
+  "depends_on_epics": [],
+  "id": "fn-5-focus-mode-enable-network-block-crash",
+  "impl_review_rounds": {
+    "fn-5-focus-mode-enable-network-block-crash.1": 0
+  },
+  "next_task": 1,
+  "plan_review_rounds": 0,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": null,
+  "ready": true,
+  "review_attempts": [
+    {
+      "artifact_sha256": "4cb683e91c954dce4a49c206469901f37fee35ef9ddf20c99fa58f293ad9444c",
+      "backend": "cursor",
+      "base_sha": "3e451bfcae8b7d322e0eb6bb51b3a3c6c1a790f2",
+      "counter_kind": "impl",
+      "failure_class": "dispatch_error",
+      "finalized": {
+        "digest": "not_applicable",
+        "receipt": "not_applicable",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "372010a98a53ae74e5a30380253094b8f51db918",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "outcome": "transport_failure",
+      "output_bytes": 51,
+      "output_sha256": "a373cada18fc31a0916e65305ff6296a21df1f1e3d36f224ec8a2f28c44ed0cb",
+      "reservation_id": "a33e44313fd9473585bc23726b09fa62",
+      "round_consumed": false,
+      "scope": "impl:fn-5-focus-mode-enable-network-block-crash.1",
+      "superseded_by": null,
+      "task": "fn-5-focus-mode-enable-network-block-crash.1",
+      "timestamp": "2026-09-01T12:13:10.800457Z",
+      "verdict": null
+    },
+    {
+      "artifact_sha256": "4cb683e91c954dce4a49c206469901f37fee35ef9ddf20c99fa58f293ad9444c",
+      "backend": "cursor",
+      "base_sha": "3e451bfcae8b7d322e0eb6bb51b3a3c6c1a790f2",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "372010a98a53ae74e5a30380253094b8f51db918",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 701,
+      "output_sha256": "e8ee71058495a886ac01496c05ae11446787cb4c208234d993348fca6557fddc",
+      "reservation_id": "40a4da6155794adfa1e89d1b6de989ee",
+      "round_consumed": true,
+      "scope": "impl:fn-5-focus-mode-enable-network-block-crash.1",
+      "superseded_by": null,
+      "task": "fn-5-focus-mode-enable-network-block-crash.1",
+      "timestamp": "2026-09-01T12:20:00.822364Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-5-focus-mode-enable-network-block-crash.1": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-5-focus-mode-enable-network-block-crash.1": 0
+  },
+  "spec_path": ".flow/specs/fn-5-focus-mode-enable-network-block-crash.md",
+  "status": "open",
+  "title": "Focus-mode enable network-block crash",
+  "tracker": {
+    "baseHashFlow": null,
+    "baseHashTracker": null,
+    "depRelations": [],
+    "id": null,
+    "identifier": null,
+    "lastSyncedAt": null,
+    "mergeBaseFlow": null,
+    "mergeBaseTracker": null,
+    "url": null
+  },
+  "updated_at": "2026-09-01T12:21:12.455205Z"
+}

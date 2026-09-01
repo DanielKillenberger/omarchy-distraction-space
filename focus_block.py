@@ -624,6 +624,14 @@ def _unique(items: list[str]) -> list[str]:
     return out
 
 
+def _command_output_text(value: object) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return str(value)
+
+
 def _missing_table_text(text: str) -> bool:
     lowered = text.lower()
     return "does not exist" in lowered or "no such file" in lowered
@@ -638,7 +646,7 @@ def privileged(argv: list[str], stdin: str | None = None, env: dict | None = Non
             return subprocess.run(
                 cmd,
                 input=stdin,
-                text=True if stdin is not None else None,
+                text=True,
                 capture_output=True,
                 check=True,
                 env=env,
@@ -648,7 +656,7 @@ def privileged(argv: list[str], stdin: str | None = None, env: dict | None = Non
             details.append(str(exc))
             continue
         except subprocess.CalledProcessError as exc:
-            detail = ((exc.stderr or exc.stdout or "")).strip()
+            detail = _command_output_text(exc.stderr or exc.stdout).strip()
             if _missing_table_text(detail):
                 raise MissingTable(detail or "nftables table does not exist") from exc
             last = exc
