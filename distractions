@@ -2427,6 +2427,66 @@ def persist_session_start(purpose: str, minutes: int) -> None:
     )
 
 
+def session_deadline_due(active: dict | None, *, wall_now: datetime | None = None) -> bool:
+    if active is None:
+        return False
+    raw = active.get("deadline")
+    if not isinstance(raw, str) or not raw:
+        return False
+    try:
+        deadline = datetime.fromisoformat(raw)
+    except ValueError:
+        return False
+    if deadline.tzinfo is None or deadline.utcoffset() is None:
+        return False
+    current = wall_now if wall_now is not None else datetime.now(timezone.utc).astimezone()
+    return deadline <= current
+
+
+def disarm_session_deadline() -> None:
+    path = session_active_path()
+    data = _read_session_json(path)
+    if not isinstance(data, dict):
+        if path.exists():
+            write_private_atomic(path, "{}\n")
+        return
+    data.pop("deadline", None)
+    write_private_atomic(path, json.dumps(data) + "\n")
+
+
+def _disable_log_message(*, reason: str = "", purpose: str = "", timer: bool = False) -> str:
+    if timer:
+        return f"{purpose}  timer" if purpose else "timer"
+    if purpose:
+        return f"{reason}  {purpose}"
+    return reason
+
+
+def spawn_focus_timer_off() -> None:
+    helper = str(Path(__file__).resolve())
+    subprocess.Popen(
+        [helper, "focus-timer-off"],
+        start_new_session=True,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        close_fds=True,
+    )
+
+
+_timer_off_launched = False
+
+
+def maybe_fire_session_timer() -> None:
+    global _timer_off_launched
+    if _timer_off_launched or not is_focus():
+        return
+    if not session_deadline_due(read_session_active()):
+        return
+    _timer_off_launched = True
+    spawn_focus_timer_off()
+
+
 def _open_exclusive_lock(path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     return open(path, "w")
@@ -4068,17 +4128,38 @@ def disable_focus(reason: str) -> None:
         raise SystemExit(
             f"reason must be at least {MIN_REASON} characters (got {len(reason)})"
         )
+    if not is_focus():
+        return
     lock = _lock_focus_transition()
     try:
+        if not is_focus():
+            return
         _disable_focus_locked(reason)
     finally:
         lock.close()
 
 
-def _disable_focus_locked(reason: str) -> None:
+def disable_focus_timer() -> None:
+    if not is_focus():
+        return
+    lock = _lock_focus_transition()
+    try:
+        if not is_focus():
+            return
+        if read_session_active() is None:
+            return
+        _disable_focus_locked("", timer=True)
+    finally:
+        lock.close()
+
+
+def _disable_focus_locked(reason: str, *, timer: bool = False) -> None:
+    active = read_session_active()
+    purpose = active["purpose"] if active and isinstance(active.get("purpose"), str) else ""
     stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    message = _disable_log_message(reason=reason, purpose=purpose, timer=timer)
     with log_path().open("a", encoding="utf-8") as handle:
-        handle.write(f"{stamp}  {reason}\n")
+        handle.write(f"{stamp}  {message}\n")
     summaries_on = agent_summaries_enabled()
     leaving_session = read_summary_control().get("session_id") or ""
     lift_fail_pending = bool(read_summary_control().get("lift_fail_pending"))
@@ -4089,6 +4170,7 @@ def _disable_focus_locked(reason: str) -> None:
                 lift_network_block()
             except focus_block.BlockError:
                 pass
+    disarm_session_deadline()
     if summaries_on:
         summarize_finish(leaving_session or None)
         if is_focus() or (
@@ -4302,6 +4384,7 @@ def listen() -> None:
             remaining = DNS_INTERVAL_S - (now() - last_tick)
             timeout = 1.0 if remaining > 1.0 else max(0.05, remaining)
             readable, _, _ = select.select([sock, reload_sock], [], [], timeout)
+            maybe_fire_session_timer()
             if is_focus():
                 refresh_focus_notification_block()
                 if on_distractions():
@@ -4354,6 +4437,8 @@ def main() -> None:
         if not reason and not sys.stdin.isatty():
             reason = sys.stdin.read().strip()
         disable_focus(reason)
+    elif command == "focus-timer-off":
+        disable_focus_timer()
     elif command == "focus-status":
         raise SystemExit(0 if is_focus() else 1)
     elif command == "agent-summaries":
