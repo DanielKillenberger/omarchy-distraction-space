@@ -2380,8 +2380,10 @@ def _session_record(data, required: tuple[str, ...]) -> dict | None:
         if not isinstance(deadline, str) or not deadline:
             return None
         try:
-            datetime.fromisoformat(deadline)
+            parsed = datetime.fromisoformat(deadline)
         except ValueError:
+            return None
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
             return None
     return data
 
@@ -4120,6 +4122,16 @@ def _disable_focus_locked(reason: str) -> None:
     notify("Focus mode off", "Super+D opens the distraction space.")
 
 
+def parse_session_minutes(raw) -> int | None:
+    try:
+        minutes = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    if minutes < SESSION_MINUTES_MIN or minutes > SESSION_MINUTES_MAX:
+        return None
+    return minutes
+
+
 def prompt_reason() -> str | None:
     try:
         result = subprocess.run(
@@ -4173,6 +4185,7 @@ def prompt_focus_start(*, ask_purpose: bool = True) -> tuple[str, int] | None:
     )
     minutes.set_value(SESSION_MINUTES_DEFAULT)
     minutes.set_numeric(True)
+    minutes.set_update_policy(Gtk.SpinButtonUpdatePolicy.IF_VALID)
     box.add(minutes_label)
     box.add(minutes)
     dialog.show_all()
@@ -4181,7 +4194,10 @@ def prompt_focus_start(*, ask_purpose: bool = True) -> tuple[str, int] | None:
         if response != Gtk.ResponseType.OK:
             return None
         purpose = purpose_entry.get_text() if purpose_entry is not None else ""
-        return purpose, int(minutes.get_value_as_int())
+        parsed = parse_session_minutes(minutes.get_text())
+        if parsed is None:
+            return None
+        return purpose, parsed
     finally:
         dialog.destroy()
 
@@ -4198,13 +4214,10 @@ def collect_focus_start() -> tuple[str, int] | None:
     purpose = " ".join(str(purpose).split())
     if not ask_purpose:
         purpose = ""
-    try:
-        minutes = int(minutes)
-    except (TypeError, ValueError):
+    minutes = parse_session_minutes(minutes)
+    if minutes is None:
         return None
     if ask_purpose and not purpose:
-        return None
-    if minutes < SESSION_MINUTES_MIN or minutes > SESSION_MINUTES_MAX:
         return None
     return purpose, minutes
 

@@ -187,6 +187,8 @@ class StartFlagTests(StartHarness):
             (active, {"purpose": 1, "deadline": "2026-09-01T12:00:00+00:00", "session_id": "s1"}),
             (active, {"purpose": "ok", "deadline": ["not", "iso"], "session_id": "s1"}),
             (active, {"purpose": "ok", "deadline": "not-iso", "session_id": "s1"}),
+            (active, {"purpose": "ok", "deadline": "2026-09-01", "session_id": "s1"}),
+            (active, {"purpose": "ok", "deadline": "2026-09-01T12:00:00", "session_id": "s1"}),
             (recap, {"purpose": 12, "session_id": "s1"}),
         )
         for path, payload in cases:
@@ -198,12 +200,116 @@ class StartFlagTests(StartHarness):
                 else:
                     self.assertIsNone(distractions.read_session_recap())
 
+    def test_aware_deadline_is_present(self):
+        path = distractions.session_active_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "purpose": "ok",
+                    "deadline": "2026-09-01T12:00:00+00:00",
+                    "session_id": "s1",
+                }
+            )
+        )
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        active = distractions.read_session_active()
+        self.assertEqual(active["session_id"], "s1")
+
     def test_invalid_utf8_active_is_absent(self):
         path = distractions.session_active_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(b'{"purpose": "\xff", "deadline": "2026-09-01T12:00:00+00:00", "session_id": "s1"}')
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
         self.assertIsNone(distractions.read_session_active())
+
+
+class MinutesParseTests(StartHarness):
+    def test_parse_session_minutes_refuses_out_of_range_and_raw_text(self):
+        self.assertEqual(distractions.parse_session_minutes(25), 25)
+        self.assertEqual(distractions.parse_session_minutes("1"), 1)
+        self.assertEqual(distractions.parse_session_minutes("240"), 240)
+        self.assertIsNone(distractions.parse_session_minutes(0))
+        self.assertIsNone(distractions.parse_session_minutes(241))
+        self.assertIsNone(distractions.parse_session_minutes("0"))
+        self.assertIsNone(distractions.parse_session_minutes("241"))
+        self.assertIsNone(distractions.parse_session_minutes("x"))
+
+    def test_prompt_uses_raw_text_not_clamped_spin_value(self):
+        class FakeSpin:
+            def __init__(self):
+                self.value_as_int = 1
+
+            def get_text(self):
+                return "0"
+
+            def get_value_as_int(self):
+                return self.value_as_int
+
+        class FakeDialog:
+            def __init__(self, **kwargs):
+                return None
+
+            def set_default_size(self, *args):
+                return None
+
+            def add_button(self, *args):
+                return None
+
+            def get_content_area(self):
+                return mock.Mock()
+
+            def show_all(self):
+                return None
+
+            def run(self):
+                return 1
+
+            def destroy(self):
+                return None
+
+        class FakeGtk:
+            class ResponseType:
+                CANCEL = 0
+                OK = 1
+
+            class SpinButtonUpdatePolicy:
+                IF_VALID = "if-valid"
+
+            Dialog = FakeDialog
+
+            class Label:
+                def __init__(self, **kwargs):
+                    pass
+
+            class Entry:
+                def set_placeholder_text(self, text):
+                    return None
+
+                def get_text(self):
+                    return "purpose"
+
+            @staticmethod
+            def SpinButton():
+                raise AssertionError("use new_with_range")
+
+            class _Spin:
+                @staticmethod
+                def new_with_range(*args):
+                    spin = FakeSpin()
+                    spin.set_value = lambda *_a: None
+                    spin.set_numeric = lambda *_a: None
+                    spin.set_update_policy = lambda *_a: None
+                    return spin
+
+            SpinButton = _Spin
+
+        fake_gi = mock.Mock()
+        fake_gi.require_version = mock.Mock()
+        fake_repo = mock.Mock()
+        fake_repo.Gtk = FakeGtk
+        with mock.patch.dict(sys.modules, {"gi": fake_gi, "gi.repository": fake_repo}):
+            self.assertIsNone(distractions.prompt_focus_start(ask_purpose=True))
 
 
 class StaleStartTests(StartHarness):
