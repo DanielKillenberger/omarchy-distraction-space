@@ -105,12 +105,42 @@ class ReservationAndBoundsTests(ParseHarness):
 
     def test_invocation_budget_is_three(self):
         self.ready_session()
-        rows = self.write_records("a")
         with mock.patch.object(distractions, "invoke_summary_agent", return_value="ok"):
-            for _ in range(3):
+            for seq in range(1, 4):
+                rows = [
+                    {
+                        "seq": seq,
+                        "app": "Telegram",
+                        "title": f"n{seq}",
+                        "body": "b",
+                        "at": "2026-09-01T00:00:00Z",
+                    }
+                ]
                 self.assertTrue(distractions.run_one_parse(rows, "sess-1"))
-            self.assertEqual(distractions.run_one_parse(rows, "sess-1"), "")
+            self.assertEqual(
+                distractions.run_one_parse(
+                    [
+                        {
+                            "seq": 4,
+                            "app": "Telegram",
+                            "title": "n4",
+                            "body": "b",
+                            "at": "2026-09-01T00:00:00Z",
+                        }
+                    ],
+                    "sess-1",
+                ),
+                "",
+            )
         self.assertEqual(distractions.read_summary_control()["invocations"], 3)
+
+    def test_reserve_rejects_already_consumed_records(self):
+        self.ready_session(last_consumed_seq=2, invocations=1)
+        rows = self.write_records("one", "two")
+        with mock.patch.object(distractions, "invoke_summary_agent") as invoke:
+            self.assertEqual(distractions.run_one_parse(rows, "sess-1"), "")
+            invoke.assert_not_called()
+        self.assertEqual(distractions.read_summary_control()["invocations"], 1)
 
     def test_stale_session_does_not_reserve_or_publish(self):
         self.ready_session()
@@ -186,7 +216,7 @@ class ReservationAndBoundsTests(ParseHarness):
             self.assertEqual(distractions.run_one_parse(rows, "sess-1"), "")
         self.assertFalse(distractions.summary_result_path().exists())
 
-    def test_stdout_is_capped_at_8kib(self):
+    def test_stdout_over_limit_is_rejected(self):
         huge = "x" * (distractions.PARSE_STDOUT_MAX + 50)
 
         def fake_popen(*args, **kwargs):
@@ -197,8 +227,8 @@ class ReservationAndBoundsTests(ParseHarness):
             return proc
 
         with mock.patch.object(subprocess, "Popen", fake_popen):
-            result = distractions._run_agent(["true"], cwd=Path(self.tmp.name), env={})
-        self.assertEqual(len(result.stdout), distractions.PARSE_STDOUT_MAX)
+            with self.assertRaises(distractions.SummaryAgentError):
+                distractions._run_agent(["true"], cwd=Path(self.tmp.name), env={})
 
 
 class SessionSpawnTests(ParseHarness):
@@ -435,6 +465,69 @@ class XorAndLiftTests(ParseHarness):
         source = Path(ROOT / "distractions").read_text()
         main = source[source.find("def main()") :]
         self.assertIn('"summarize-finish"', main)
+
+    def test_finish_signals_without_immediate_reap(self):
+        self.ready_session()
+        reaps: list[str] = []
+
+        def track_reap(control=None):
+            reaps.append("reap")
+
+        with mock.patch.object(distractions, "reap_summary_children", track_reap):
+            with mock.patch.object(distractions, "invoke_summary_agent") as invoke:
+                distractions.summarize_finish("sess-1")
+                invoke.assert_not_called()
+        self.assertEqual(reaps, ["reap"])
+        first = distractions.request_summary_finish("sess-1", reap=False)
+        self.assertTrue(first["finish_requested"])
+
+    def test_stale_finish_does_not_stop_current_session(self):
+        self.ready_session(session_id="live")
+        control = distractions.summarize_finish("old")
+        self.assertEqual(control["session_id"], "live")
+        self.assertFalse(control["finish_requested"])
+        self.assertTrue(control["session_ready"])
+
+    def test_parse_failure_notifies_before_grouped(self):
+        self.ready_session(parse_failed=True)
+        self.seed_counts({"Telegram": 1})
+        notices: list[str] = []
+
+        def fake_notify(title, body="", timeout_ms=4000):
+            notices.append(title)
+            return True
+
+        with mock.patch.object(distractions, "notify", fake_notify):
+            self.assertEqual(distractions.apply_summary_xor(), "grouped")
+        self.assertEqual(notices[0], "Focus mode")
+        self.assertIn("While you were focused", notices)
+
+    def test_summaries_off_after_lift_fail_uses_xor_cleanup(self):
+        self.cfg.write_text(json.dumps({"agent_summaries": False}) + "\n")
+        self.ready_session(lift_fail_pending=True, session_ready=False)
+        self.seed_result("obsolete")
+        order: list[str] = []
+
+        def track_lift(*, catchup=True):
+            order.append(f"lift:{catchup}")
+            return True
+
+        def track_xor():
+            order.append("xor")
+            return "grouped"
+
+        with mock.patch.object(distractions, "log_path", return_value=self.state / "log"):
+            with mock.patch.object(distractions, "lift_network_block"):
+                with mock.patch.object(distractions, "lift_notification_block", track_lift):
+                    with mock.patch.object(distractions, "apply_summary_xor", track_xor):
+                        with mock.patch.object(distractions, "notify", return_value=True):
+                            distractions.disable_focus("x" * 50)
+        self.assertEqual(order, ["lift:False", "xor"])
+
+    def test_rlimit_failure_fails_closed(self):
+        with mock.patch.object(resource, "setrlimit", side_effect=OSError("denied")):
+            with self.assertRaises(OSError):
+                distractions._apply_parse_rlimits()
 
 
 if __name__ == "__main__":

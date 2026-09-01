@@ -417,10 +417,10 @@ class ReviewFixTests(SessionHarness):
             order.append("flag")
             return real_set(value)
 
-        def track_finish():
+        def track_finish(*args, **kwargs):
             order.append("finish")
             self.assertFalse(distractions.is_focus())
-            return real_finish()
+            return real_finish(*args, **kwargs)
 
         with mock.patch.object(distractions, "set_focus", track_set):
             with mock.patch.object(distractions, "request_summary_finish", track_finish):

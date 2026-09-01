@@ -469,12 +469,58 @@ def _kill_process_group(proc: subprocess.Popen) -> None:
         return
     try:
         os.killpg(proc.pid, signal.SIGKILL)
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError, OSError):
         pass
     try:
         proc.kill()
-    except ProcessLookupError:
+    except (ProcessLookupError, PermissionError, OSError):
         pass
+
+
+def _apply_parse_rlimits() -> None:
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (PARSE_RLIMIT_AS, PARSE_RLIMIT_AS))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (PARSE_RLIMIT_FSIZE, PARSE_RLIMIT_FSIZE))
+        resource.setrlimit(resource.RLIMIT_NPROC, (PARSE_RLIMIT_NPROC, PARSE_RLIMIT_NPROC))
+    except (ValueError, OSError) as exc:
+        raise OSError(f"could not apply parse rlimits: {exc}") from exc
+
+
+def _as_bytes(value) -> bytes:
+    if value is None:
+        return b""
+    if isinstance(value, bytes):
+        return value
+    return str(value).encode()
+
+
+def _truncate_bytes(text: str, max_bytes: int) -> str:
+    raw = (text or "").encode()
+    if len(raw) <= max_bytes:
+        return text or ""
+    return raw[:max_bytes].decode("utf-8", "ignore")
+
+
+def _pump_bounded(src, limit: int) -> tuple[bytes, bool]:
+    buf = bytearray()
+    overflow = False
+    if src is None or not hasattr(src, "read"):
+        return b"", False
+    while True:
+        chunk = src.read(4096)
+        if not chunk:
+            break
+        data = _as_bytes(chunk)
+        room = limit - len(buf)
+        if room <= 0:
+            overflow = True
+            break
+        if len(data) > room:
+            buf.extend(data[:room])
+            overflow = True
+            break
+        buf.extend(data)
+    return bytes(buf), overflow
 
 
 def _run_agent(
@@ -485,14 +531,6 @@ def _run_agent(
     prompt: str | None = None,
 ) -> subprocess.CompletedProcess:
     stdin = subprocess.PIPE if prompt is not None else subprocess.DEVNULL
-    def apply_rlimits() -> None:
-        try:
-            resource.setrlimit(resource.RLIMIT_AS, (PARSE_RLIMIT_AS, PARSE_RLIMIT_AS))
-            resource.setrlimit(resource.RLIMIT_FSIZE, (PARSE_RLIMIT_FSIZE, PARSE_RLIMIT_FSIZE))
-            resource.setrlimit(resource.RLIMIT_NPROC, (PARSE_RLIMIT_NPROC, PARSE_RLIMIT_NPROC))
-        except (ValueError, OSError):
-            return
-
     proc = subprocess.Popen(
         argv,
         cwd=str(cwd),
@@ -500,25 +538,78 @@ def _run_agent(
         stdin=stdin,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True,
+        text=False,
         start_new_session=True,
-        preexec_fn=apply_rlimits,
+        preexec_fn=_apply_parse_rlimits,
     )
     _record_agent_pid(proc.pid)
+    overflow = False
     try:
-        stdout, stderr = proc.communicate(input=prompt, timeout=AGENT_CHILD_TIMEOUT_S)
+        stdout_pipe = getattr(proc, "stdout", None)
+        fileno = getattr(stdout_pipe, "fileno", None)
+        use_stream = False
+        if callable(fileno):
+            try:
+                use_stream = isinstance(fileno(), int)
+            except (OSError, TypeError, ValueError):
+                use_stream = False
+        if not use_stream:
+            stdout, stderr = proc.communicate(
+                input=None if prompt is None else _as_bytes(prompt),
+                timeout=AGENT_CHILD_TIMEOUT_S,
+            )
+            out_bytes = _as_bytes(stdout)
+            err_bytes = _as_bytes(stderr)
+            overflow = len(out_bytes) > PARSE_STDOUT_MAX or len(err_bytes) > PARSE_STDOUT_MAX
+        else:
+            deadline = time.monotonic() + AGENT_CHILD_TIMEOUT_S
+            if prompt is not None and proc.stdin is not None:
+                proc.stdin.write(prompt.encode())
+                proc.stdin.close()
+            out_holder: list[tuple[bytes, bool]] = []
+            err_holder: list[tuple[bytes, bool]] = []
+
+            def read_out() -> None:
+                out_holder.append(_pump_bounded(proc.stdout, PARSE_STDOUT_MAX))
+
+            def read_err() -> None:
+                err_holder.append(_pump_bounded(proc.stderr, PARSE_STDOUT_MAX))
+
+            readers = [
+                threading.Thread(target=read_out, daemon=True),
+                threading.Thread(target=read_err, daemon=True),
+            ]
+            for thread in readers:
+                thread.start()
+            remaining = deadline - time.monotonic()
+            for thread in readers:
+                thread.join(timeout=max(0.01, remaining))
+                remaining = deadline - time.monotonic()
+            if any(thread.is_alive() for thread in readers):
+                _kill_process_group(proc)
+                raise subprocess.TimeoutExpired(argv, AGENT_CHILD_TIMEOUT_S)
+            proc.wait(timeout=max(0.01, deadline - time.monotonic()))
+            out_bytes, out_over = out_holder[0] if out_holder else (b"", False)
+            err_bytes, err_over = err_holder[0] if err_holder else (b"", False)
+            overflow = out_over or err_over
     except subprocess.TimeoutExpired:
         _kill_process_group(proc)
         try:
-            stdout, stderr = proc.communicate(timeout=1)
+            proc.communicate(timeout=1)
         except subprocess.TimeoutExpired:
             _kill_process_group(proc)
-            stdout, stderr = proc.communicate()
+            proc.communicate()
         raise
     finally:
         _record_agent_pid(None)
+    if overflow:
+        _kill_process_group(proc)
+        raise SummaryAgentError("agent stdout exceeds bound")
     return subprocess.CompletedProcess(
-        argv, proc.returncode, (stdout or "")[:PARSE_STDOUT_MAX], stderr or ""
+        argv,
+        proc.returncode,
+        out_bytes.decode("utf-8", "replace"),
+        err_bytes.decode("utf-8", "replace"),
     )
 
 
@@ -1130,6 +1221,8 @@ def default_summary_control() -> dict:
         "lift_fail_pending": False,
         "parser_closed": False,
         "agent_pid": None,
+        "last_parse_at": 0.0,
+        "parse_failed": False,
     }
 
 
@@ -1333,15 +1426,22 @@ def mark_summary_session_ready(
         lock.close()
 
 
-def request_summary_finish() -> dict:
+def request_summary_finish(
+    expected_session: str | None = None,
+    *,
+    reap: bool = True,
+) -> dict:
     lock = _lock_summary_state()
     try:
         control = read_summary_control()
+        if expected_session and control.get("session_id") != expected_session:
+            return control
         control["finish_requested"] = True
         control["parser_active"] = False
         control["session_ready"] = False
         control["mute_applied_session"] = ""
-        reap_summary_children(control)
+        if reap:
+            reap_summary_children(control)
         write_summary_control(control)
         return control
     finally:
@@ -1581,7 +1681,7 @@ def read_summary_result() -> dict:
 def publish_summary_result(text: str, session_id: str) -> dict:
     payload = {
         "session_id": session_id,
-        "text": (text or "")[:PARSE_RESULT_MAX],
+        "text": _truncate_bytes(text or "", PARSE_RESULT_MAX),
     }
     lock = _lock_summary_result()
     try:
@@ -1614,10 +1714,16 @@ def reserve_parse_invocation(
                 return None
         elif not _parser_may_start(control, expected_session):
             return None
+        consumed = int(control.get("last_consumed_seq") or 0)
+        fresh = [row for row in records if int(row.get("seq") or 0) > consumed]
+        if not fresh:
+            return None
         control["invocations"] = int(control.get("invocations") or 0) + 1
-        if records:
-            control["last_consumed_seq"] = max(int(row.get("seq") or 0) for row in records)
-        write_summary_control(control)
+        control["last_consumed_seq"] = max(int(row.get("seq") or 0) for row in fresh)
+        control["last_parse_at"] = time.time()
+        persist = {key: value for key, value in control.items() if not str(key).startswith("_")}
+        write_summary_control(persist)
+        control["_prompt_records"] = fresh
         return control
     finally:
         lock.close()
@@ -1634,19 +1740,33 @@ def run_one_parse(
         return ""
     session_id = reserved.get("session_id") or ""
     agent = resolve_summary_agent()
+    prompt_records = reserved.get("_prompt_records") or records
     if not agent:
+        _mark_parse_failed()
         return ""
-    prompt = build_summary_prompt(records)
+    prompt = build_summary_prompt(prompt_records)
     try:
         raw = invoke_summary_agent(agent, prompt)
     except (SummaryAgentError, OSError, subprocess.TimeoutExpired):
         raw = ""
     if not raw:
+        _mark_parse_failed()
         return ""
     if read_summary_control().get("session_id") != session_id:
         return ""
     publish_summary_result(raw, session_id)
     return raw
+
+
+def _mark_parse_failed() -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        control["parse_failed"] = True
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
 
 
 def mark_lift_fail_pending(pending: bool = True) -> dict:
@@ -1662,15 +1782,16 @@ def mark_lift_fail_pending(pending: bool = True) -> dict:
 
 def apply_summary_xor() -> str:
     mark_lift_fail_pending(False)
+    control = read_summary_control()
     result = read_summary_result()
     text = str(result.get("text") or "").strip()
     if (
         agent_summaries_enabled()
         and resolve_summary_agent()
         and text
-        and result.get("session_id") == read_summary_control().get("session_id")
+        and result.get("session_id") == control.get("session_id")
     ):
-        body = text[:PARSE_NOTIFY_BODY_MAX]
+        body = _truncate_bytes(text, PARSE_NOTIFY_BODY_MAX)
         if notify("Focus summary", body, timeout_ms=SUMMARY_NOTIFY_MS):
             clear_counts()
             result_path = summary_result_path()
@@ -1678,33 +1799,52 @@ def apply_summary_xor() -> str:
                 result_path.unlink()
             return "summary"
         show_grouped_notice()
+        _discard_summary_result()
         return "grouped"
+    if control.get("parse_failed"):
+        notify("Focus mode", "Could not summarize blocked notifications.")
     show_grouped_notice()
+    _discard_summary_result()
     return "grouped"
 
 
+def _discard_summary_result() -> None:
+    result_path = summary_result_path()
+    if result_path.exists():
+        result_path.unlink()
+
+
 def summarize_finish(expected_session: str | None = None) -> dict:
-    request_summary_finish()
+    started = request_summary_finish(expected_session, reap=False)
+    if expected_session and started.get("session_id") != expected_session:
+        return started
     deadline = time.monotonic() + FINISH_WAIT_S
+    guard = None
     while time.monotonic() < deadline:
         guard = try_summarize_session_lock()
         if guard is not None:
-            guard.close()
             break
         time.sleep(0.2)
-    else:
+    if guard is None:
         reap_summary_children()
-    control = read_summary_control()
-    session_id = expected_session or control.get("session_id")
-    unseen = observe_ping_records(int(control.get("last_consumed_seq") or 0))
-    if (
-        unseen
-        and int(control.get("invocations") or 0) < PARSE_MAX_INVOCATIONS
-        and int(control.get("parser_restarts") or 0) < PARSER_RESTART_MAX
-    ):
-        run_one_parse(unseen, session_id, finishing=True)
-    request_summary_finish()
-    return read_summary_control()
+        guard = try_summarize_session_lock()
+    try:
+        control = read_summary_control()
+        if expected_session and control.get("session_id") != expected_session:
+            return control
+        session_id = expected_session or control.get("session_id")
+        unseen = observe_ping_records(int(control.get("last_consumed_seq") or 0))
+        if (
+            unseen
+            and int(control.get("invocations") or 0) < PARSE_MAX_INVOCATIONS
+            and int(control.get("parser_restarts") or 0) < PARSER_RESTART_MAX
+        ):
+            run_one_parse(unseen, session_id, finishing=True)
+        request_summary_finish(session_id, reap=True)
+        return read_summary_control()
+    finally:
+        if guard is not None:
+            guard.close()
 
 
 def cmd_summarize_finish() -> None:
@@ -1736,7 +1876,6 @@ def run_summarize_session(
             except ValueError:
                 return 0
         child: threading.Thread | None = None
-        last_started = 0.0
         while True:
             control = read_summary_control()
             if not _session_matches(control, expected_session) or should_stop_parser(control):
@@ -1746,13 +1885,9 @@ def run_summarize_session(
                 return 0
             last_seen = int(control.get("last_consumed_seq") or 0)
             unseen = observe_ping_records(last_seen)
-            now = time.monotonic()
-            if (
-                unseen
-                and child is None
-                and not once
-                and (last_started == 0.0 or (now - last_started) >= PARSE_DEBOUNCE_S)
-            ):
+            last_parse_at = float(control.get("last_parse_at") or 0)
+            debounce_ok = last_parse_at == 0.0 or (time.time() - last_parse_at) >= PARSE_DEBOUNCE_S
+            if unseen and child is None and not once and debounce_ok:
                 child = threading.Thread(
                     target=run_one_parse,
                     args=(list(unseen), expected_session),
@@ -1760,7 +1895,6 @@ def run_summarize_session(
                     daemon=True,
                 )
                 child.start()
-                last_started = now
             if child is not None and not child.is_alive():
                 child = None
             if once:
@@ -2550,6 +2684,7 @@ def disable_focus(reason: str) -> None:
     with log_path().open("a", encoding="utf-8") as handle:
         handle.write(f"{stamp}  {reason}\n")
     summaries_on = agent_summaries_enabled()
+    lift_fail_pending = bool(read_summary_control().get("lift_fail_pending"))
     with focus_block.network_lock():
         set_focus(False)
         if not summaries_on:
@@ -2568,6 +2703,12 @@ def disable_focus(reason: str) -> None:
                 lift_network_block()
             except focus_block.BlockError:
                 pass
+    elif lift_fail_pending:
+        request_summary_finish()
+        if lift_notification_block(catchup=False):
+            apply_summary_xor()
+        else:
+            mark_lift_fail_pending()
     else:
         request_summary_finish()
         lift_notification_block()

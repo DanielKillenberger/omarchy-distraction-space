@@ -1,0 +1,154 @@
+{
+  "findings": {
+    "backend": "host",
+    "headSha": "8cd7ac131bf69e429e5285a2a625e19c23390083",
+    "items": [
+      {
+        "body": "`summarize_finish()` immediately calls `request_summary_finish()`, which signals the active agent through `reap_summary_children()`. It therefore kills an in-flight parse before the required 60-second wait.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "id": "finding-088724752f40f350f74fe73162cb6aa9",
+        "lastSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "ordinal": 1,
+        "rIds": [
+          "R1",
+          "R3",
+          "R15"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Mark finishing without killing the child, wait up to 60 seconds, and kill the process group only after timeout. Keep immediate cancellation as a separate mid-session-disable path.",
+        "title": "`summarize_finish()` immediately calls `request_summary_finish()`, which signals the active agent through `reap_summary_children()`"
+      },
+      {
+        "body": "The final parse runs after releasing the singleton guard. Concurrent `summarize-finish` calls can both select the same unseen records before either reservation updates the cursor, spawning two children and replaying paid input.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "id": "finding-08bf7d10f9900022eca544a89af4ad18",
+        "lastSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "ordinal": 2,
+        "rIds": [
+          "R15"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Hold the parser singleton through final selection/reservation/invocation, and revalidate each record against `last_consumed_seq` under the state lock.",
+        "title": "The final parse runs after releasing the singleton guard"
+      },
+      {
+        "body": "`communicate()` buffers unlimited stdout/stderr, then stdout is sliced by characters. Over-limit output is accepted as a valid summary instead of killing the child and falling back. Result and notification limits are likewise character\u2014not byte\u2014limits.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "id": "finding-5e1869779106aa4b4d5927ef588fd54c",
+        "lastSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "ordinal": 3,
+        "rIds": [
+          "R6",
+          "R15"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Stream bounded bytes, kill the process group on overflow, reject that invocation, bound stderr, and enforce byte-based stored-result and notification truncation.",
+        "title": "`communicate()` buffers unlimited stdout/stderr, then stdout is sliced by characters"
+      },
+      {
+        "body": "The debounce timestamp exists only in parser-process memory. After a parser crash, `last_started` resets to zero and unseen records invoke immediately, bypassing the 20-second replacement debounce.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "id": "finding-5518b4a926a8d26334489068118f3875",
+        "lastSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "ordinal": 4,
+        "rIds": [
+          "R15"
+        ],
+        "severity": "P2",
+        "status": "open",
+        "suggestion": "Persist the last invocation timestamp atomically with reservation and honor its remaining debounce after restart.",
+        "title": "The debounce timestamp exists only in parser-process memory"
+      },
+      {
+        "body": "Invocation failures are collapsed to an empty result with no durable failure state. Focus-off treats them identically to summaries-off, no-agent, or empty-input cases, so users are never told that parsing failed.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "id": "finding-851ae7143b95948d6f76a7ed694bcedd",
+        "lastSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "ordinal": 5,
+        "rIds": [
+          "R1"
+        ],
+        "severity": "P2",
+        "status": "open",
+        "suggestion": "Persist a session-scoped parse-failure status and report it after successful lift before invoking the grouped fallback.",
+        "title": "Invocation failures are collapsed to an empty result with no durable failure state"
+      },
+      {
+        "body": "`expected_session` is validated only after `request_summary_finish()` has already stopped the current session. A delayed stale `summarize-finish --session \u2026` can terminate a newer session.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "id": "finding-3e6de2fd8482b128e9bbe1899f58f857",
+        "lastSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "ordinal": 6,
+        "rIds": [
+          "R1",
+          "R15"
+        ],
+        "severity": "P2",
+        "status": "open",
+        "suggestion": "Pass the expected session into the finish-state mutation and reject mismatches atomically before changing or signalling anything.",
+        "title": "`expected_session` is validated only after `request_summary_finish()` has already stopped the current session"
+      },
+      {
+        "body": "If summaries are disabled after a lift failure, the next successful summaries-off lift shows the grouped notice but never clears `lift_fail_pending`, ping text, or the retained result. Re-enabling later can surface an obsolete summary.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "id": "finding-fa4e2475c8e3a28ea992e216be2b25ef",
+        "lastSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "ordinal": 7,
+        "rIds": [
+          "R16"
+        ],
+        "severity": "P2",
+        "status": "open",
+        "suggestion": "Route a retained catch-up through the XOR cleanup after every successful lift, including the summaries-off grouped branch.",
+        "title": "If summaries are disabled after a lift failure, the next successful summaries-off lift shows the grouped notice but never clears `lift_fail_pending`, ping text, or the retained result"
+      },
+      {
+        "body": "Resource-limit failures are silently swallowed, allowing the agent to run without the required limits.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "id": "finding-f9a707dae1d3cb40dc5c0b13342d8fe9",
+        "lastSeenReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1",
+        "ordinal": 8,
+        "rIds": [
+          "R15"
+        ],
+        "severity": "P2",
+        "status": "open",
+        "suggestion": "Apply each limit safely and fail the spawn closed if any required bound cannot be enforced.",
+        "title": "Resource-limit failures are silently swallowed, allowing the agent to run without the required limits"
+      }
+    ],
+    "reviewKind": "implementation",
+    "round": 1,
+    "schemaVersion": 1,
+    "sourceReceiptId": "review-7769c5db92bce56c90e2602ca0e24306b262cb64b180fd319cd47b4944b587f1"
+  },
+  "id": "fn-3-focus-mode-agent-notification-summary.3",
+  "mode": "host",
+  "model": "gpt-5.6-sol-high",
+  "review": "## Findings\n\n### 1\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1687`\n- **R-IDs**: `[R1, R3, R15]`\n- **Problem**: `summarize_finish()` immediately calls `request_summary_finish()`, which signals the active agent through `reap_summary_children()`. It therefore kills an in-flight parse before the required 60-second wait.\n- **Suggestion**: Mark finishing without killing the child, wait up to 60 seconds, and kill the process group only after timeout. Keep immediate cancellation as a separate mid-session-disable path.\n\n### 2\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1705`\n- **R-IDs**: `[R15]`\n- **Problem**: The final parse runs after releasing the singleton guard. Concurrent `summarize-finish` calls can both select the same unseen records before either reservation updates the cursor, spawning two children and replaying paid input.\n- **Suggestion**: Hold the parser singleton through final selection/reservation/invocation, and revalidate each record against `last_consumed_seq` under the state lock.\n\n### 3\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:521`\n- **R-IDs**: `[R6, R15]`\n- **Problem**: `communicate()` buffers unlimited stdout/stderr, then stdout is sliced by characters. Over-limit output is accepted as a valid summary instead of killing the child and falling back. Result and notification limits are likewise character\u2014not byte\u2014limits.\n- **Suggestion**: Stream bounded bytes, kill the process group on overflow, reject that invocation, bound stderr, and enforce byte-based stored-result and notification truncation.\n\n### 4\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1739`\n- **R-IDs**: `[R15]`\n- **Problem**: The debounce timestamp exists only in parser-process memory. After a parser crash, `last_started` resets to zero and unseen records invoke immediately, bypassing the 20-second replacement debounce.\n- **Suggestion**: Persist the last invocation timestamp atomically with reservation and honor its remaining debounce after restart.\n\n### 5\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1642`\n- **R-IDs**: `[R1]`\n- **Problem**: Invocation failures are collapsed to an empty result with no durable failure state. Focus-off treats them identically to summaries-off, no-agent, or empty-input cases, so users are never told that parsing failed.\n- **Suggestion**: Persist a session-scoped parse-failure status and report it after successful lift before invoking the grouped fallback.\n\n### 6\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1687`\n- **R-IDs**: `[R1, R15]`\n- **Problem**: `expected_session` is validated only after `request_summary_finish()` has already stopped the current session. A delayed stale `summarize-finish --session \u2026` can terminate a newer session.\n- **Suggestion**: Pass the expected session into the finish-state mutation and reject mismatches atomically before changing or signalling anything.\n\n### 7\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:2572`\n- **R-IDs**: `[R16]`\n- **Problem**: If summaries are disabled after a lift failure, the next successful summaries-off lift shows the grouped notice but never clears `lift_fail_pending`, ping text, or the retained result. Re-enabling later can surface an obsolete summary.\n- **Suggestion**: Route a retained catch-up through the XOR cleanup after every successful lift, including the summaries-off grouped branch.\n\n### 8\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:493`\n- **R-IDs**: `[R15]`\n- **Problem**: Resource-limit failures are silently swallowed, allowing the agent to run without the required limits.\n- **Suggestion**: Apply each limit safely and fail the spawn closed if any required bound cannot be enforced.\n\n## Requirements coverage\n\n| R-ID | Status |\n|---|---|\n| R1 | Not addressed |\n| R3 | Partial |\n| R4 | Met |\n| R6 | Partial |\n| R15 | Not addressed |\n| R16 | Partial |\n\nUnaddressed R-IDs: R1, R3, R6, R15, R16\n\n<verdict>NEEDS_WORK</verdict>\n",
+  "review_reservation_id": "3f8364634acc4100899d421527bac35f",
+  "session_id": null,
+  "spec": "host",
+  "timestamp": "2026-09-01T09:30:22Z",
+  "type": "impl_review",
+  "verdict": "NEEDS_WORK"
+}
