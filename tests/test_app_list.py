@@ -218,6 +218,15 @@ class AppListTests(unittest.TestCase):
             self.mod.window_rule_name("???"),
         )
 
+    def test_print_expand_does_not_replace_last_good(self):
+        applied = self.expand_apply()
+        last = json.loads(self.last_good.read_text())
+        self.assertEqual(applied, last)
+        self.user.write_text(json.dumps([{"name": "CustomApp", "class": "app.custom"}]))
+        printed = json.loads(self.print_expand())
+        self.assertEqual(printed[0]["name"], "CustomApp")
+        self.assertEqual(json.loads(self.last_good.read_text()), last)
+
     def test_print_expand_runs_without_hyprland(self):
         env = os.environ.copy()
         env["HOME"] = str(self.home)

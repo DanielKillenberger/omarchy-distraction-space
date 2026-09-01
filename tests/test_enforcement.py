@@ -295,6 +295,18 @@ class EnforcementTests(unittest.TestCase):
         self.assertEqual(last["argv"], ["replace", "ds"])
         self.assertIn("203.0.113.4", last["stdin"])
 
+    def test_reload_network_failure_replies_error(self):
+        self.wrapper.write_text("#!/bin/sh\nexit 1\n")
+        self.wrapper.chmod(0o755)
+        self.write_list([self.site_row()])
+        left, right = socket.socketpair()
+        thread = threading.Thread(target=self.mod.handle_reload_conn, args=(left,))
+        thread.start()
+        right.sendall(b"reload\n")
+        self.assertTrue(right.recv(64).startswith(b"error"))
+        thread.join(timeout=4)
+        right.close()
+
     def test_reload_apply_failure_replies_error(self):
         self.write_list([self.telegram_row()])
         self.mod.bootstrap_enforcement()

@@ -286,7 +286,6 @@ def print_expand(
         print("[]")
         return
     expanded = expand_entries(raw)
-    save_last_good_expand(expanded, last_good_path)
     print(json.dumps(expanded, indent=2))
 
 
@@ -776,6 +775,10 @@ class NetworkWorker:
         self.skipped_periodic = 0
         self._thread: threading.Thread | None = None
         self._submit_lock = threading.Lock()
+        self._done = threading.Condition()
+        self._inflight_gen: int | None = None
+        self._results: dict[int, bool] = {}
+        self._pending = 0
 
     def start(self) -> None:
         if self.started:
@@ -809,11 +812,17 @@ class NetworkWorker:
         if reason == "periodic" and (self.inflight or not self.queue.empty()):
             self.skipped_periodic += 1
             return False
-        self.queue.put(("resolve", self.generation))
+        with self._done:
+            self.queue.put(("resolve", self.generation))
+            self._pending += 1
+            self._done.notify_all()
         return True
 
     def request_flush(self) -> None:
-        self.queue.put(("flush", self.generation))
+        with self._done:
+            self.queue.put(("flush", self.generation))
+            self._pending += 1
+            self._done.notify_all()
 
     def wait_idle(self, timeout: float = 4.0) -> None:
         deadline = time.time() + timeout
@@ -823,40 +832,79 @@ class NetworkWorker:
             time.sleep(0.01)
         raise TimeoutError("network worker did not go idle")
 
+    def wait_current_apply(self, gen: int, timeout: float = 8.0) -> bool:
+        """Wait for this generation's nft apply, or skip if a stale job is in flight."""
+        deadline = time.time() + timeout
+        with self._done:
+            while True:
+                if gen in self._results:
+                    return self._results[gen]
+                if self._inflight_gen is not None and self._inflight_gen != gen:
+                    return True
+                if self._inflight_gen is None and self._pending == 0:
+                    return True
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    return True
+                self._done.wait(timeout=min(0.05, remaining))
+
+    def _finish(self, gen: int, ok: bool) -> None:
+        with self._done:
+            self._results[gen] = ok
+            self._pending = max(0, self._pending - 1)
+            self.inflight = False
+            self._inflight_gen = None
+            self._done.notify_all()
+
     def _loop(self) -> None:
         while True:
             job = self.queue.get()
             if job is None:
                 return
             kind, gen = job
-            self.inflight = True
+            with self._done:
+                self.inflight = True
+                self._inflight_gen = gen
+            ok = False
             try:
-                self._run(kind, gen)
+                ok = self._run(kind, gen)
             finally:
-                self.inflight = False
+                self._finish(gen, ok)
 
-    def _run(self, kind: str, gen: int) -> None:
+    def _run(self, kind: str, gen: int) -> bool:
+        applied = True
+
+        def network_ok(ok: bool) -> bool:
+            if ok or not Path(NFT_WRAPPER).is_file():
+                return True
+            return False
+
         if kind == "resolve":
             with _state_lock:
                 hosts = listed_hosts()
                 last_good = load_addrs_last_good()
             addrs = resolve_hosts(hosts, last_good)
             def submit_resolve() -> None:
+                nonlocal applied
                 if on_distractions():
                     return
                 if not hosts:
-                    flush_ds()
+                    applied = network_ok(flush_ds())
                     return
-                replace_ds(addrs)
+                applied = network_ok(replace_ds(addrs))
 
-            self._submit_if_current(gen, submit_resolve)
-            return
+            if not self._submit_if_current(gen, submit_resolve):
+                return True
+            return applied
         def submit_flush() -> None:
+            nonlocal applied
             if not on_distractions() and listed_hosts():
                 return
-            flush_ds()
+            applied = network_ok(flush_ds())
 
-        self._submit_if_current(gen, submit_flush)
+        if not self._submit_if_current(gen, submit_flush):
+            return True
+        return applied
 
 
 def ensure_net_worker() -> NetworkWorker:
@@ -930,7 +978,10 @@ def handle_reload_conn(conn: socket.socket) -> None:
             return
         _last_on_space = None
         sync_network_to_workspace()
-        conn.sendall(b"ok\n")
+        if _net.wait_current_apply(_net.generation):
+            conn.sendall(b"ok\n")
+        else:
+            conn.sendall(b"error\n")
     except OSError:
         try:
             conn.sendall(b"error\n")
@@ -1247,7 +1298,9 @@ def listen() -> None:
             for ready in readable:
                 if ready is reload_sock:
                     conn, _unused = reload_sock.accept()
-                    handle_reload_conn(conn)
+                    threading.Thread(
+                        target=handle_reload_conn, args=(conn,), daemon=True
+                    ).start()
                     continue
                 chunk = sock.recv(4096)
                 if not chunk:

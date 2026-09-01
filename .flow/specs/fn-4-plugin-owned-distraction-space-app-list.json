@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-4-plugin-owned-distraction-space-app-list",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "needs_work",
+  "completion_reviewed_at": "2026-09-01T12:07:41.499342Z",
   "created_at": "2026-09-01T08:16:33.079310Z",
   "default_impl": null,
   "default_review": null,
@@ -14,7 +14,7 @@
     "fn-4-plugin-owned-distraction-space-app-list.3": 0
   },
   "next_task": 1,
-  "plan_review_rounds": 0,
+  "plan_review_rounds": 1,
   "plan_review_status": "ship",
   "plan_reviewed_at": "2026-09-01T10:05:20.580628Z",
   "ready": false,
@@ -1804,6 +1804,81 @@
       "task": "fn-4-plugin-owned-distraction-space-app-list.3",
       "timestamp": "2026-09-01T11:55:29.326128Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "541ec53b2a8bb193e04f3167130ce647aa377025988625866006691a7d4bb9a3",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": "missing_verdict",
+      "finalized": {
+        "digest": "not_applicable",
+        "receipt": "not_applicable",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "3f421ab2e6ab435cd3e9c3353208e9eeddfe1d43",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "transport_failure",
+      "output_bytes": 280,
+      "output_sha256": "abc1462ffb7be622d2d678def70a1973a61966e2d45895e6f353baf45a754dac",
+      "reservation_id": "18b4ecd65e1b44ea8e94bd22ebd26449",
+      "round_consumed": false,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T12:03:26.774162Z",
+      "verdict": null
+    },
+    {
+      "artifact_sha256": "541ec53b2a8bb193e04f3167130ce647aa377025988625866006691a7d4bb9a3",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-d4061a2b0ee175d5617ac605e8609d97",
+            "classification": "introduced",
+            "findingId": "finding-d4061a2b0ee175d5617ac605e8609d97",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-2cc95dddb3c42a44aef0cfb5aa2c8d69",
+            "classification": "introduced",
+            "findingId": "finding-2cc95dddb3c42a44aef0cfb5aa2c8d69",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "3f421ab2e6ab435cd3e9c3353208e9eeddfe1d43",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "verdict",
+      "output_bytes": 3494,
+      "output_sha256": "7276f2493d740d7882f2b9abfd9f02f532f3d990aeafd6c5ebf1af747656ba91",
+      "reservation_id": "6d95510facf047048f1e8ff2730576c4",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T12:07:41.109648Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -1816,6 +1891,7 @@
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "completion": 0,
     "impl:fn-4-plugin-owned-distraction-space-app-list.1": 0,
     "impl:fn-4-plugin-owned-distraction-space-app-list.2": 0,
     "impl:fn-4-plugin-owned-distraction-space-app-list.3": 0,
@@ -1835,5 +1911,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T11:55:29.703760Z"
+  "updated_at": "2026-09-01T12:07:41.499880Z"
 }
