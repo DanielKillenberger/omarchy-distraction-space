@@ -107,6 +107,44 @@ Edit the list without rebuilding the plugin. Product names from the catalog and 
 
 `destinations-add` / `destinations-remove` write a `destinations` array into `~/.config/omarchy/focus.json`. Until that key exists, the plugin keeps using the shipped defaults.
 
+### What gets blocked, and what only gets moved
+
+Two independent things happen to an app on the list: its windows are moved to
+the distraction space, and its addresses are dropped from the network. Those
+are separate, and messaging apps deliberately only get the first.
+
+| | Windows moved | Network blocked off-space |
+|---|---|---|
+| Telegram, Discord, WhatsApp, Signal, Google Messages | yes | **no** |
+| X | yes | yes |
+| Facebook, Instagram, Threads, Reddit, TikTok, Snapchat, YouTube, Twitch, Netflix | no | yes |
+
+The network block is keyed to the **active** workspace, not to where a window
+lives. An app parked on the distraction space loses its connection the moment
+you look at any other workspace. For a time-sink that is the point. For a
+messaging client it is not: those hold one long-lived socket, so they sit
+disconnected nearly all the time and only reconnect while you happen to be
+looking at them. WhatsApp Web recovers so poorly from this that it shows a
+"retry connecting" banner until you retry by hand.
+
+The window rule already keeps a messaging app out of your way. Dropping its
+packets on top of that does not reduce distraction, it just loses messages.
+
+Focus mode is unaffected. It builds its list from its own catalog and still
+blocks these hosts at both DNS and IP level while it is on, so the hard block
+is intact where it matters.
+
+To go back to blocking a messaging app's network, give it hosts in
+`~/.config/omarchy/app-list.json` -- no code change needed:
+
+```json
+{
+  "name": "WhatsApp",
+  "class": "^chrome-web\\.whatsapp\\.com__.*$",
+  "hosts": ["web.whatsapp.com"]
+}
+```
+
 ### Keeping a host reachable
 
 The network block drops packets by address. A blocked host and a host you want

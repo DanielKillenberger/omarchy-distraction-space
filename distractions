@@ -222,18 +222,29 @@ DNS_INTERVAL_S = 30.0
 WORKSPACE_EFFECT = f"{REF} silent"
 
 # Class matchers are the exclusive-window set. Hosts are independently optional.
+#
+# Messaging apps ship with a class and no hosts. The window rule is what keeps
+# them out of the way; the off-space IP block adds nothing on top of that and
+# costs message delivery, because it is keyed to the ACTIVE workspace. A client
+# parked on the distraction space loses its socket the moment you look at any
+# other workspace, and a messaging client holds one long-lived socket -- so it
+# sits disconnected almost permanently. WhatsApp Web recovers so poorly that it
+# shows a "retry connecting" banner until you retry by hand.
+#
+# Focus mode is unaffected: it builds its list from focus_block's own catalog
+# and still blocks these hosts at DNS and IP level while it is on.
 EXPAND_MAP: dict[str, dict] = {
     "Telegram": {
         "class": "org.telegram.desktop",
-        "hosts": ["web.telegram.org"],
+        "hosts": [],
     },
     "Discord": {
         "class": r"^chrome-discord\.com__.*$",
-        "hosts": ["discord.com", "www.discord.com"],
+        "hosts": [],
     },
     "WhatsApp": {
         "class": r"^chrome-web\.whatsapp\.com__.*$",
-        "hosts": ["web.whatsapp.com"],
+        "hosts": [],
     },
     "X": {
         "class": r"^chrome-x\.com__.*$",
@@ -261,11 +272,11 @@ EXPAND_MAP: dict[str, dict] = {
     },
     "Signal": {
         "class": r"^signal$",
-        "hosts": ["signal.org", "www.signal.org"],
+        "hosts": [],
     },
     "Google Messages": {
         "class": r"^chrome-messages\.google\.com__.*$",
-        "hosts": ["messages.google.com"],
+        "hosts": [],
     },
     "Facebook": {"hosts": ["facebook.com", "www.facebook.com"]},
     "Instagram": {"hosts": ["instagram.com", "www.instagram.com"]},

@@ -31,10 +31,14 @@ SHIPPED_NAMES = [
     "Twitch",
     "Netflix",
 ]
+# Messaging apps are windowed but NOT host-blocked: the window rule keeps them
+# out of the way, while the off-space IP block would sever their long-lived
+# socket every time the active workspace changes.
+MESSAGING = ("Telegram", "Discord", "WhatsApp", "Signal", "Google Messages")
 WINDOWED = {
-    "Telegram": ("org.telegram.desktop", ["web.telegram.org"]),
-    "Discord": (r"^chrome-discord\.com__.*$", ["discord.com", "www.discord.com"]),
-    "WhatsApp": (r"^chrome-web\.whatsapp\.com__.*$", ["web.whatsapp.com"]),
+    "Telegram": ("org.telegram.desktop", []),
+    "Discord": (r"^chrome-discord\.com__.*$", []),
+    "WhatsApp": (r"^chrome-web\.whatsapp\.com__.*$", []),
     "X": (
         r"^chrome-x\.com__.*$",
         [
@@ -57,11 +61,8 @@ WINDOWED = {
             "platform.twitter.com",
         ],
     ),
-    "Signal": (r"^signal$", ["signal.org", "www.signal.org"]),
-    "Google Messages": (
-        r"^chrome-messages\.google\.com__.*$",
-        ["messages.google.com"],
-    ),
+    "Signal": (r"^signal$", []),
+    "Google Messages": (r"^chrome-messages\.google\.com__.*$", []),
 }
 HOSTS_ONLY = {
     "Facebook": ["facebook.com", "www.facebook.com"],
@@ -261,6 +262,49 @@ class AppListTests(unittest.TestCase):
         rows = json.loads(result.stdout)
         self.assertEqual([row["name"] for row in rows], SHIPPED_NAMES)
         self.assertNotIn("hyprctl", result.stderr)
+
+
+
+class MessagingDefaultsTests(unittest.TestCase):
+    """Messaging apps ship corralled but reachable; time-sinks stay blocked."""
+
+    def setUp(self) -> None:
+        self.mod = load_mod()
+
+    def test_messaging_apps_are_windowed_but_not_host_blocked(self) -> None:
+        for name in MESSAGING:
+            row = self.mod.EXPAND_MAP[name]
+            self.assertTrue(row.get("class"), f"{name} lost its window rule")
+            self.assertEqual(row.get("hosts"), [], f"{name} would be IP-blocked")
+
+    def test_time_sinks_keep_their_host_block(self) -> None:
+        # X in particular: it is a time-sink, not a messaging app, and its block
+        # is what the keep-reachable carve-out exists to protect Grok from.
+        for name in ("X", "Reddit", "YouTube", "Netflix", "Facebook"):
+            hosts = self.mod.EXPAND_MAP[name].get("hosts") or []
+            self.assertTrue(hosts, f"{name} unexpectedly lost its host block")
+        self.assertIn("x.com", self.mod.EXPAND_MAP["X"]["hosts"])
+
+    def test_no_messaging_host_reaches_the_off_space_block(self) -> None:
+        rows = [{"name": name} for name in SHIPPED_NAMES]
+        hosts = self.mod.listed_hosts(
+            [dict(r, **self.mod.EXPAND_MAP[r["name"]]) for r in rows]
+        )
+        for needle in ("whatsapp", "telegram", "discord", "signal.org", "messages.google"):
+            self.assertFalse(
+                [h for h in hosts if needle in h],
+                f"{needle} still reaches the IP block",
+            )
+        self.assertIn("x.com", hosts)
+
+    def test_a_user_can_restore_the_block_from_config_alone(self) -> None:
+        # The old behaviour must stay reachable without a code change.
+        row = {
+            "name": "WhatsApp",
+            "class": r"^chrome-web\.whatsapp\.com__.*$",
+            "hosts": ["web.whatsapp.com"],
+        }
+        self.assertEqual(self.mod.listed_hosts([row]), ["web.whatsapp.com"])
 
 
 if __name__ == "__main__":
