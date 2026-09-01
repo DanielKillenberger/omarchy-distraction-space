@@ -40,6 +40,7 @@ class SessionHarness(unittest.TestCase):
             mock.patch.object(distractions, "SUMMARY_STATE_LOCK", self.runtime / "summary-state.lock"),
             mock.patch.object(distractions, "SUMMARIZE_SESSION_LOCK", self.runtime / "summarize-session.lock"),
             mock.patch.object(distractions, "FOCUS_CONFIG_LOCK", self.runtime / "focus.json.lock"),
+            mock.patch.object(distractions, "FOCUS_TRANSITION_LOCK", self.runtime / "focus-transition.lock"),
             mock.patch.object(distractions, "notify", lambda *args, **kwargs: True),
         ]
         for patch in self.patches:

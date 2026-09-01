@@ -112,6 +112,7 @@ SUMMARY_STATE_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distract
 SUMMARIZE_SESSION_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summarize-session.lock"
 SUMMARY_RESULT_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summary-result.lock"
 SUMMARY_LEDGER_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summary-ledger.lock"
+FOCUS_TRANSITION_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.focus-transition.lock"
 CAPTURE_LOCK_TIMEOUT_S = 0.25
 PING_JSONL_MAX_BYTES = 64 * 1024
 PARSER_RESTART_MAX = 2
@@ -1272,6 +1273,12 @@ def try_summarize_session_lock():
     except BlockingIOError:
         handle.close()
         return None
+    return handle
+
+
+def _lock_focus_transition():
+    handle = _open_exclusive_lock(FOCUS_TRANSITION_LOCK)
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
     return handle
 
 
@@ -2720,17 +2727,21 @@ def refresh_focus_notification_block() -> bool:
 
 
 def enable_focus() -> None:
-    prepare_summary_session()
-    with focus_block.network_lock():
-        try:
-            apply_network_block()
-        except focus_block.BlockError:
-            return
-        set_focus(True)
-        if on_distractions():
-            hide()
-    refresh_focus_notification_block()
-    notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
+    lock = _lock_focus_transition()
+    try:
+        prepare_summary_session()
+        with focus_block.network_lock():
+            try:
+                apply_network_block()
+            except focus_block.BlockError:
+                return
+            set_focus(True)
+            if on_distractions():
+                hide()
+        refresh_focus_notification_block()
+        notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
+    finally:
+        lock.close()
 
 
 def disable_focus(reason: str) -> None:
@@ -2739,6 +2750,14 @@ def disable_focus(reason: str) -> None:
         raise SystemExit(
             f"reason must be at least {MIN_REASON} characters (got {len(reason)})"
         )
+    lock = _lock_focus_transition()
+    try:
+        _disable_focus_locked(reason)
+    finally:
+        lock.close()
+
+
+def _disable_focus_locked(reason: str) -> None:
     stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     with log_path().open("a", encoding="utf-8") as handle:
         handle.write(f"{stamp}  {reason}\n")

@@ -118,6 +118,7 @@ class CatchupNoticeTests(unittest.TestCase):
             mock.patch.object(distractions, "FOCUS", self.state / "distractions.focus"),
             mock.patch.object(distractions, "MUTED_PATH", self.state / "distractions.muted.json"),
             mock.patch.object(distractions, "NOTIFY_LOCK", self.runtime / "notify.lock"),
+            mock.patch.object(distractions, "FOCUS_TRANSITION_LOCK", self.runtime / "focus-transition.lock"),
             mock.patch.object(distractions, "WATCHER_REQUEST", self.runtime / "request.json"),
             mock.patch.object(distractions, "WATCHER_STATUS", self.runtime / "status.json"),
             mock.patch.object(distractions, "APPLY_WAIT_S", 0.35),

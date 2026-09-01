@@ -38,6 +38,7 @@ class ParseHarness(unittest.TestCase):
             mock.patch.object(distractions, "SUMMARY_RESULT_LOCK", self.runtime / "summary-result.lock"),
             mock.patch.object(distractions, "SUMMARY_LEDGER_LOCK", self.runtime / "summary-ledger.lock"),
             mock.patch.object(distractions, "FOCUS_CONFIG_LOCK", self.runtime / "focus.json.lock"),
+            mock.patch.object(distractions, "FOCUS_TRANSITION_LOCK", self.runtime / "focus-transition.lock"),
             mock.patch.object(distractions, "PARSE_DEBOUNCE_S", 0.0),
             mock.patch.object(distractions, "PARSER_POLL_S", 0.02),
             mock.patch.object(distractions, "FINISH_WAIT_S", 0.4),
@@ -644,6 +645,51 @@ class XorAndLiftTests(ParseHarness):
         control = distractions._mark_parse_failed("old")
         self.assertFalse(control.get("parse_failed"))
         self.assertFalse(distractions.read_summary_control().get("parse_failed"))
+
+    def test_enable_waits_for_disable_transition_lock(self):
+        self.ready_session()
+        order: list[str] = []
+        release = threading.Event()
+
+        def slow_finish(session=None):
+            order.append("finish")
+            release.wait(2)
+            return {}
+
+        def track_enable_prepare():
+            order.append("enable")
+            return distractions.read_summary_control()
+
+        with mock.patch.object(distractions, "log_path", return_value=self.state / "log"):
+            with mock.patch.object(distractions, "summarize_finish", slow_finish):
+                with mock.patch.object(distractions, "lift_notification_block", return_value=True):
+                    with mock.patch.object(distractions, "apply_summary_xor", return_value="grouped"):
+                        with mock.patch.object(distractions, "lift_network_block"):
+                            with mock.patch.object(distractions, "notify", return_value=True):
+                                worker = threading.Thread(
+                                    target=distractions.disable_focus,
+                                    args=("x" * 50,),
+                                )
+                                worker.start()
+                                deadline = time.monotonic() + 2
+                                while time.monotonic() < deadline and "finish" not in order:
+                                    time.sleep(0.01)
+                                with mock.patch.object(
+                                    distractions, "prepare_summary_session", track_enable_prepare
+                                ):
+                                    with mock.patch.object(distractions, "apply_network_block"):
+                                        with mock.patch.object(distractions, "on_distractions", return_value=False):
+                                            with mock.patch.object(
+                                                distractions, "apply_notification_block", return_value=True
+                                            ):
+                                                starter = threading.Thread(target=distractions.enable_focus)
+                                                starter.start()
+                                                time.sleep(0.1)
+                                                self.assertEqual(order, ["finish"])
+                                                release.set()
+                                                worker.join(timeout=2)
+                                                starter.join(timeout=2)
+        self.assertEqual(order, ["finish", "enable"])
 
     def test_disable_aborts_when_session_rotates(self):
         self.ready_session(session_id="leave-me")
