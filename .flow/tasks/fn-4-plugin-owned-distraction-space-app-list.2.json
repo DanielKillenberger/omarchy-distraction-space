@@ -1,0 +1,16 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-01T08:49:25.940572Z",
+  "depends_on": [
+    "fn-4-plugin-owned-distraction-space-app-list.1"
+  ],
+  "id": "fn-4-plugin-owned-distraction-space-app-list.2",
+  "priority": null,
+  "spec": "fn-4-plugin-owned-distraction-space-app-list",
+  "spec_path": ".flow/tasks/fn-4-plugin-owned-distraction-space-app-list.2.md",
+  "status": "todo",
+  "title": "Apply exclusive windows, always-on site block, and intercept banner",
+  "updated_at": "2026-09-01T10:04:29.159142Z"
+}
