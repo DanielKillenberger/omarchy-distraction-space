@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -20,6 +21,48 @@ CONFIG_PATH = Path.home() / ".config/omarchy/focus.json"
 FOCUS = STATE_DIR / "distractions.focus"
 LISTEN_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.listen.lock"
 DEFAULT_LOG = STATE_DIR / "focus-disable.log"
+PLUGIN_DIR = Path(__file__).resolve().parent
+APP_LIST_DEFAULTS = PLUGIN_DIR / "app-list-defaults.json"
+LAST_GOOD_EXPAND_NAME = "distraction-apps.last-good.json"
+
+# Class matchers match hypr/windows.lua. Hosts are independently optional.
+EXPAND_MAP: dict[str, dict] = {
+    "Telegram": {
+        "class": "org.telegram.desktop",
+        "hosts": ["web.telegram.org"],
+    },
+    "Discord": {
+        "class": r"^chrome-discord\.com__.*$",
+        "hosts": ["discord.com", "www.discord.com"],
+    },
+    "WhatsApp": {
+        "class": r"^chrome-web\.whatsapp\.com__.*$",
+        "hosts": ["web.whatsapp.com"],
+    },
+    "X": {
+        "class": r"^chrome-x\.com__.*$",
+        "hosts": ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
+    },
+    "Signal": {
+        "class": r"^signal$",
+        "hosts": ["signal.org", "www.signal.org"],
+    },
+    "Google Messages": {
+        "class": r"^chrome-messages\.google\.com__.*$",
+        "hosts": ["messages.google.com"],
+    },
+    "Facebook": {"hosts": ["facebook.com", "www.facebook.com"]},
+    "Instagram": {"hosts": ["instagram.com", "www.instagram.com"]},
+    "Threads": {"hosts": ["threads.net", "www.threads.net"]},
+    "Reddit": {"hosts": ["reddit.com", "www.reddit.com"]},
+    "TikTok": {"hosts": ["tiktok.com", "www.tiktok.com"]},
+    "Snapchat": {"hosts": ["snapchat.com", "www.snapchat.com"]},
+    "YouTube": {
+        "hosts": ["youtube.com", "www.youtube.com", "youtu.be", "m.youtube.com"],
+    },
+    "Twitch": {"hosts": ["twitch.tv", "www.twitch.tv"]},
+    "Netflix": {"hosts": ["netflix.com", "www.netflix.com"]},
+}
 
 
 def hyprctl(*args: str) -> str:
@@ -59,6 +102,171 @@ def log_path() -> Path:
     path = Path(os.path.expanduser(str(raw)))
     path.parent.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def app_list_path() -> Path:
+    return Path.home() / ".config/omarchy/app-list.json"
+
+
+def last_good_expand_path() -> Path:
+    state = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy"
+    return state / LAST_GOOD_EXPAND_NAME
+
+
+def sanitize_product(name: str) -> str:
+    return "".join(ch for ch in name.lower() if ch.isalnum())
+
+
+def window_rule_name(name: str) -> str:
+    return f"omarchy-ds-{sanitize_product(name)}"
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f".{path.name}.tmp")
+    tmp.write_text(text, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _read_json_list(path: Path) -> list | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, list) else None
+
+
+def _entry_name(entry: object) -> str | None:
+    if not isinstance(entry, dict):
+        return None
+    name = entry.get("name")
+    if not isinstance(name, str):
+        return None
+    name = name.strip()
+    return name or None
+
+
+def _entry_class(entry: dict, mapped: dict | None) -> str | None:
+    raw = entry.get("class")
+    if isinstance(raw, str) and raw.strip():
+        return raw.strip()
+    mapped_class = (mapped or {}).get("class")
+    if isinstance(mapped_class, str) and mapped_class:
+        return mapped_class
+    return None
+
+
+def _entry_hosts(entry: dict, mapped: dict | None) -> list[str]:
+    raw = entry.get("hosts")
+    if isinstance(raw, list):
+        return [host.strip() for host in raw if isinstance(host, str) and host.strip()]
+    mapped_hosts = (mapped or {}).get("hosts") or []
+    return [host for host in mapped_hosts if isinstance(host, str) and host]
+
+
+def expand_entries(entries: list) -> list[dict]:
+    accepted: list[tuple[str, str | None, list[str]]] = []
+    seen: set[str] = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        name = _entry_name(entry)
+        if name is None or name in seen:
+            continue
+        seen.add(name)
+        mapped = EXPAND_MAP.get(name)
+        klass = _entry_class(entry, mapped)
+        hosts = _entry_hosts(entry, mapped)
+        if mapped is None and not klass and not hosts:
+            continue
+        accepted.append((name, klass, hosts))
+    slugs: dict[str, list[str]] = {}
+    for name, _klass, _hosts in accepted:
+        slugs.setdefault(sanitize_product(name), []).append(name)
+    colliding = {
+        name
+        for names in slugs.values()
+        if len(names) > 1
+        for name in names
+    }
+    expanded = []
+    for name, klass, hosts in accepted:
+        if name in colliding:
+            continue
+        expanded.append({"name": name, "class": klass, "hosts": hosts})
+    return expanded
+
+
+def load_last_good_expand(path: Path | None = None) -> list[dict]:
+    target = path or last_good_expand_path()
+    rows = _read_json_list(target)
+    if rows is None:
+        return []
+    return [row for row in rows if isinstance(row, dict)]
+
+
+def save_last_good_expand(rows: list[dict], path: Path | None = None) -> None:
+    target = path or last_good_expand_path()
+    _atomic_write(target, json.dumps(rows, indent=2) + "\n")
+
+
+def prepare_app_list(
+    user_path: Path | None = None,
+    defaults_path: Path | None = None,
+) -> list | None:
+    """Load the user list. Missing file copies shipped defaults.
+
+    Returns the raw JSON list, or None when a present file is invalid
+    (caller keeps last-good expand). A missing defaults file starts empty.
+    """
+    user = user_path or app_list_path()
+    defaults = defaults_path or APP_LIST_DEFAULTS
+    if user.exists():
+        rows = _read_json_list(user)
+        if rows is None:
+            notify(
+                "Distraction list",
+                "The app list file is invalid and was left unchanged.",
+            )
+            return None
+        return rows
+    shipped = _read_json_list(defaults) if defaults.exists() else None
+    if shipped is None:
+        notify(
+            "Distraction list",
+            "Shipped app list defaults are missing. Starting with an empty list.",
+        )
+        return []
+    user.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(defaults, user)
+    return shipped
+
+
+def app_list_for_apply(
+    user_path: Path | None = None,
+    defaults_path: Path | None = None,
+    last_good_path: Path | None = None,
+) -> list[dict]:
+    raw = prepare_app_list(user_path=user_path, defaults_path=defaults_path)
+    if raw is None:
+        return load_last_good_expand(last_good_path)
+    expanded = expand_entries(raw)
+    save_last_good_expand(expanded, last_good_path)
+    return expanded
+
+
+def print_expand(
+    user_path: Path | None = None,
+    defaults_path: Path | None = None,
+    last_good_path: Path | None = None,
+) -> None:
+    raw = prepare_app_list(user_path=user_path, defaults_path=defaults_path)
+    if raw is None:
+        print("[]")
+        return
+    expanded = expand_entries(raw)
+    save_last_good_expand(expanded, last_good_path)
+    print(json.dumps(expanded, indent=2))
 
 
 def current() -> dict:
@@ -286,6 +494,8 @@ def main() -> None:
         raise SystemExit(0 if is_focus() else 1)
     elif command == "log-path":
         print(log_path())
+    elif command == "print-expand":
+        print_expand()
     else:
         raise SystemExit(f"unknown command: {command}")
 
