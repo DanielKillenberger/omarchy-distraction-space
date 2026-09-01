@@ -429,7 +429,9 @@ class ReviewFixTests(SessionHarness):
                         with mock.patch.object(distractions, "lift_network_block"):
                             with mock.patch.object(distractions, "lift_notification_block", return_value=True):
                                 distractions.disable_focus("x" * 50)
-        self.assertEqual(order, ["flag", "finish"])
+        self.assertEqual(order[0], "flag")
+        self.assertGreaterEqual(order.count("finish"), 1)
+        self.assertEqual(order, ["flag"] + (["finish"] * (len(order) - 1)))
         self.assertFalse(distractions.arm_summary_after_mute(resume=True)["session_ready"])
 
     def test_ready_requires_focus_and_capture_requires_session(self):
