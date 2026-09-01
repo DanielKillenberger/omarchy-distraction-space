@@ -61,15 +61,21 @@ class TimerHarness(unittest.TestCase):
     def wall_now(self) -> datetime:
         return datetime.now(timezone.utc).astimezone()
 
-    def write_active(self, purpose: str, deadline, session_id: str = "sess-1") -> None:
+    def write_active(
+        self,
+        purpose: str,
+        deadline,
+        session_id: str = "sess-1",
+        activation: str | None = None,
+    ) -> None:
         if isinstance(deadline, datetime):
             deadline = deadline.isoformat(timespec="seconds")
+        payload = {"purpose": purpose, "deadline": deadline, "session_id": session_id}
+        if activation is not None:
+            payload["activation"] = activation
         distractions.write_private_atomic(
             distractions.session_active_path(),
-            json.dumps(
-                {"purpose": purpose, "deadline": deadline, "session_id": session_id}
-            )
-            + "\n",
+            json.dumps(payload) + "\n",
         )
 
     def write_recap(self, purpose: str, session_id: str = "sess-1") -> None:
@@ -169,6 +175,28 @@ class TimerDisableTests(TimerHarness):
             distractions.request_focus_toggle()
         self.assertTrue(distractions.is_focus())
         self.assertEqual(distractions.read_session_active()["session_id"], "sess-b")
+        self.assertIn("timer", self.log_text())
+        self.assertNotIn("x" * distractions.MIN_REASON, self.log_text())
+
+    def test_stale_handoff_reused_id_same_deadline_is_noop(self):
+        deadline = self.wall_now() - timedelta(minutes=5)
+        self.write_active("session a", deadline, "sess-reuse", activation="act-a")
+        self.write_recap("session a", "sess-reuse")
+
+        def confirm_reused_identity():
+            distractions.disable_focus_timer()
+            distractions.set_focus(True)
+            self.write_active("session b", deadline, "sess-reuse", activation="act-b")
+            self.write_recap("session b", "sess-reuse")
+            return "x" * distractions.MIN_REASON
+
+        with mock.patch.object(distractions, "prompt_reason", confirm_reused_identity):
+            distractions.request_focus_toggle()
+        self.assertTrue(distractions.is_focus())
+        active = distractions.read_session_active()
+        self.assertEqual(active["session_id"], "sess-reuse")
+        self.assertEqual(active["activation"], "act-b")
+        self.assertEqual(active["purpose"], "session b")
         self.assertIn("timer", self.log_text())
         self.assertNotIn("x" * distractions.MIN_REASON, self.log_text())
 

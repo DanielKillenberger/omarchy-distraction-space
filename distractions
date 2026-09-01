@@ -2414,6 +2414,7 @@ def persist_session_start(purpose: str, minutes: int) -> None:
                 "purpose": purpose,
                 "deadline": deadline,
                 "session_id": session_id,
+                "activation": uuid.uuid4().hex,
             }
         )
         + "\n",
@@ -2474,10 +2475,10 @@ def spawn_focus_timer_off() -> None:
     )
 
 
-_timer_off_launched_for: tuple[str, str] | None = None
+_timer_off_launched_for: tuple[str, ...] | None = None
 
 
-def _timer_off_identity(active: dict | None) -> tuple[str, str] | None:
+def _timer_off_identity(active: dict | None) -> tuple[str, ...] | None:
     if not active:
         return None
     session_id = active.get("session_id")
@@ -2486,7 +2487,10 @@ def _timer_off_identity(active: dict | None) -> tuple[str, str] | None:
         return None
     if not isinstance(deadline, str) or not deadline:
         return None
-    return (session_id, deadline)
+    activation = active.get("activation")
+    if not isinstance(activation, str):
+        activation = ""
+    return (session_id, deadline, activation)
 
 
 def maybe_fire_session_timer() -> None:
