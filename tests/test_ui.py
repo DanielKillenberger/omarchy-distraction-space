@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -357,6 +358,79 @@ class UiTests(unittest.TestCase):
         self.assertEqual(cfg["lock"]["default_minutes"], before)
         self.assertEqual(cfg["summary"]["command"], "auto")
         self.assertTrue(self._notices())
+
+    def _qlen(self, path):
+        if not path.exists():
+            return 0
+        return len(json.loads(path.read_text(encoding="utf-8") or "[]"))
+
+    def _two_menus_while_locked(self, ops, marker):
+        queues, procs = [], []
+        holder = self.box.hold_config_lock(marker=marker)
+        try:
+            for i in range(2):
+                q = self.box.runtime / f"{marker}-{i}.q"
+                q.write_text(json.dumps(list(ops)), encoding="utf-8")
+                queues.append(q)
+                procs.append(self.box.popen(
+                    "menu",
+                    extra_env={
+                        "DS_SELECT_Q": str(q),
+                        "DS_CONFIG_LOCK_TIMEOUT": "8",
+                    },
+                ))
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                if all(self._qlen(q) <= 2 for q in queues):
+                    break
+                time.sleep(0.02)
+        finally:
+            holder.kill()
+            holder.wait(timeout=5)
+        for p in procs:
+            _out, err = p.communicate(timeout=30)
+            self.assertEqual(p.returncode, 0, err)
+
+    def test_concurrent_bool_and_cycle_mutations_both_land(self):
+        config.load()
+        self.assertTrue(self._cfg()["mute_sounds"])
+        self.assertEqual(self._cfg()["hold_notifications"], "off-space")
+        # Settings is root index 3; mute_sounds is settings index 3; Back is 17.
+        self._two_menus_while_locked(
+            [["index", 3], ["index", 3], ["index", 17], ["cancel"]],
+            "hold-bool",
+        )
+        self.assertTrue(self._cfg()["mute_sounds"])
+        self._two_menus_while_locked(
+            [["index", 3], ["index", 5], ["index", 17], ["cancel"]],
+            "hold-cycle",
+        )
+        self.assertEqual(self._cfg()["hold_notifications"], "never")
+
+    def test_unlock_row_skips_prompt_when_reason_min_chars_zero(self):
+        from ds import lock
+        config.load()
+        config.update(lambda c: config.set_value(c, "lock.reason_min_chars", 0))
+        self.assertEqual(lock.lock(25, "deep work"), 0)
+        self.assertTrue(lock.is_locked())
+        self._sq(["index", 0])
+        with patch("ds.ui.prompt_reason", side_effect=AssertionError("prompt must not run")):
+            self.assertEqual(ui.menu(), 0)
+        self.assertFalse(lock.is_locked())
+        self.assertEqual(self._calls("input"), [])
+
+    def test_menu_invalid_config_notices_without_traceback(self):
+        self.box.config_file.write_text("{nope", encoding="utf-8")
+        self.assertEqual(ui._settings(), 1)
+        self.assertEqual(ui._edit_list(), 1)
+        r = self.box.run("menu")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertNotIn("Traceback", r.stdout)
+        self.assertTrue(self._notices())
+        with patch("ds.config.load", side_effect=OSError("EACCES")):
+            self.assertEqual(ui.menu(), 1)
+            self.assertEqual(ui._lock_action(False), 1)
 
     def test_bar_widget_state_fixture_and_idle_when_missing(self):
         qml = (ROOT / "BarWidget.qml").read_text(encoding="utf-8")

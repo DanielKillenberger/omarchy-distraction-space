@@ -135,6 +135,11 @@ def _locked():
         return False
 
 
+def _cfg_error(exc):
+    notify("Invalid config", str(exc))
+    return 1
+
+
 def _mutate(fn):
     try:
         config.update(fn)
@@ -148,50 +153,53 @@ def _mutate(fn):
 
 
 def _edit_list():
-    products = set(catalog.names())
-    while True:
-        cfg = config.load()
-        listed = [config.display_name(e) for e in cfg["list"]]
-        rows, acts = [], []
-        for name in catalog.names():
-            rows.append(_row(CHECK if name in listed else UNCHECK, name))
-            acts.append(("t", name))
-        for e in cfg["list"]:
-            name = config.display_name(e)
-            if name in products:
+    try:
+        products = set(catalog.names())
+        while True:
+            cfg = config.load()
+            listed = [config.display_name(e) for e in cfg["list"]]
+            rows, acts = [], []
+            for name in catalog.names():
+                rows.append(_row(CHECK if name in listed else UNCHECK, name))
+                acts.append(("t", name))
+            for e in cfg["list"]:
+                name = config.display_name(e)
+                if name in products:
+                    continue
+                rows.append(_row(CHECK, name))
+                acts.append(("t", name))
+            rows += [_row("", "Add a site or app…"), _row("", "Back")]
+            acts += [("a", None), ("b", None)]
+            i = select("Edit list", rows)
+            if i is None or acts[i][0] == "b":
+                return
+            kind, name = acts[i]
+            if kind == "a":
+                raw = input("Site or app")
+                if not raw:
+                    continue
+                try:
+                    entry = config.parse_add_entry(raw.strip())
+                except config.Invalid as e:
+                    notify("Invalid", str(e))
+                    continue
+
+                def add(cfg, entry=entry):
+                    if not any(config.display_name(x) == config.display_name(entry) for x in cfg["list"]):
+                        cfg["list"].append(entry)
+
+                _mutate(add)
                 continue
-            rows.append(_row(CHECK, name))
-            acts.append(("t", name))
-        rows += [_row("", "Add a site or app…"), _row("", "Back")]
-        acts += [("a", None), ("b", None)]
-        i = select("Edit list", rows)
-        if i is None or acts[i][0] == "b":
-            return
-        kind, name = acts[i]
-        if kind == "a":
-            raw = input("Site or app")
-            if not raw:
-                continue
-            try:
-                entry = config.parse_add_entry(raw.strip())
-            except config.Invalid as e:
-                notify("Invalid", str(e))
-                continue
 
-            def add(cfg, entry=entry):
-                if not any(config.display_name(x) == config.display_name(entry) for x in cfg["list"]):
-                    cfg["list"].append(entry)
+            def tog(cfg, name=name):
+                if any(config.display_name(e) == name for e in cfg["list"]):
+                    cfg["list"] = [e for e in cfg["list"] if config.display_name(e) != name]
+                else:
+                    cfg["list"].append(name)
 
-            _mutate(add)
-            continue
-
-        def tog(cfg, name=name):
-            if any(config.display_name(e) == name for e in cfg["list"]):
-                cfg["list"] = [e for e in cfg["list"] if config.display_name(e) != name]
-            else:
-                cfg["list"].append(name)
-
-        _mutate(tog)
+            _mutate(tog)
+    except (config.Invalid, OSError) as e:
+        return _cfg_error(e)
 
 
 def _fmt(cfg, key):
@@ -206,51 +214,66 @@ def _fmt(cfg, key):
 
 
 def _settings():
-    while True:
-        cfg = config.load()
-        rows = [_row("", spec[1], "edit" if spec[0] == "list" else _fmt(cfg, spec[1])) for spec in _SETTINGS]
-        rows.append(_row("", "Back"))
-        i = select("Settings", rows)
-        if i is None or i >= len(_SETTINGS):
-            return
-        spec = _SETTINGS[i]
-        kind, key = spec[0], spec[1]
-        if kind == "bool":
-            cur = config.get(cfg, key)
-            _mutate(lambda c, key=key, cur=cur: config.set_value(c, key, not cur))
-        elif kind == "cycle":
-            opts = spec[2]
-            cur = config.get(cfg, key)
-            nxt = opts[(opts.index(cur) + 1) % len(opts)] if cur in opts else opts[0]
-            _mutate(lambda c, key=key, nxt=nxt: config.set_value(c, key, nxt))
-        elif kind == "cmd":
-            nxt = "off" if config.get(cfg, key) == "auto" else "auto"
-            _mutate(lambda c, nxt=nxt: config.set_value(c, "summary.command", nxt))
-        elif kind == "int":
-            raw = input(key)
-            if raw is None:
-                continue
-            try:
-                n = int(raw.strip())
-                if n < 0:
-                    raise ValueError
-            except (TypeError, ValueError):
-                notify("Invalid value", f"{key} must be an integer ≥ 0")
-                continue
-            _mutate(lambda c, key=key, n=n: config.set_value(c, key, n))
-        elif kind == "list":
-            _edit_list()
-        else:
-            notify("Read-only", f"Use: distractions config set {key} <json>")
+    try:
+        while True:
+            cfg = config.load()
+            rows = [_row("", spec[1], "edit" if spec[0] == "list" else _fmt(cfg, spec[1])) for spec in _SETTINGS]
+            rows.append(_row("", "Back"))
+            i = select("Settings", rows)
+            if i is None or i >= len(_SETTINGS):
+                return
+            spec = _SETTINGS[i]
+            kind, key = spec[0], spec[1]
+            if kind == "bool":
+                _mutate(lambda c, key=key: config.set_value(c, key, not config.get(c, key)))
+            elif kind == "cycle":
+                opts = spec[2]
+
+                def cycle(c, key=key, opts=opts):
+                    cur = config.get(c, key)
+                    nxt = opts[(opts.index(cur) + 1) % len(opts)] if cur in opts else opts[0]
+                    config.set_value(c, key, nxt)
+
+                _mutate(cycle)
+            elif kind == "cmd":
+                _mutate(lambda c: config.set_value(
+                    c, "summary.command", "off" if config.get(c, "summary.command") == "auto" else "auto",
+                ))
+            elif kind == "int":
+                raw = input(key)
+                if raw is None:
+                    continue
+                try:
+                    n = int(raw.strip())
+                    if n < 0:
+                        raise ValueError
+                except (TypeError, ValueError):
+                    notify("Invalid value", f"{key} must be an integer ≥ 0")
+                    continue
+                _mutate(lambda c, key=key, n=n: config.set_value(c, key, n))
+            elif kind == "list":
+                if _edit_list():
+                    return 1
+            else:
+                notify("Read-only", f"Use: distractions config set {key} <json>")
+    except (config.Invalid, OSError) as e:
+        return _cfg_error(e)
 
 
 def _lock_action(locked):
     from ds import lock
-    if locked:
-        reason = prompt_reason(config.get(config.load(), "lock.reason_min_chars"))
-        return None if reason is None else lock.unlock(reason)
-    picked = prompt_lock(config.load())
-    return None if picked is None else lock.lock(*picked)
+    try:
+        cfg = config.load()
+        if locked:
+            min_chars = config.get(cfg, "lock.reason_min_chars")
+            if min_chars == 0:
+                return lock.unlock("")
+            reason = prompt_reason(min_chars)
+            return None if reason is None else lock.unlock(reason)
+        picked = prompt_lock(cfg)
+        return None if picked is None else lock.lock(*picked)
+    except (config.Invalid, OSError) as e:
+        return _cfg_error(e)
 
 
 def menu():
@@ -279,12 +302,16 @@ def menu():
                 from ds import lock
                 return (lock.leave() if on else lock.enter()) or 0
             if i == 2:
-                _edit_list()
+                if _edit_list():
+                    return 1
             elif i == 3:
-                _settings()
+                if _settings():
+                    return 1
     except Unavailable:
         notify("Menu unavailable", "omarchy-menu-select is missing.")
         return 1
+    except (config.Invalid, OSError) as e:
+        return _cfg_error(e)
 
 
 def cmd_menu(args):
