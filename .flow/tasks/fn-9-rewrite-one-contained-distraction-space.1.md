@@ -17,9 +17,11 @@ Create `ds/` with `config.py` (schema without any start-locked key, defaults, at
 - `status --json` prints the documented shape without a listener.
 - Every stubbed command exits 2 with "not yet"; `python3 -m unittest discover tests` passes.
 ## Done summary
-TBD
+Foundation for the rewrite: the `ds/` package with `config.py` (schema, defaults, flocked `update()`, dot-key get/set, migration from `app-list.json` and `focus.json`), `catalog.py` (shipped `catalog.json` and expansion into `{name, classes, hosts, senders, audio}` with the automatic PWA class), `state.py` (state, lock, expansion shapes, XDG paths, live `status --json`), the thin `distractions` dispatcher holding the final command table (stubs exit 2 with "not yet"), contracted stubs for every wave-2 module, `tests/harness.py`, and 39 tests. The fifteen legacy test files were removed in this task rather than in task 8 because they load the replaced `distractions` script and would fail the suite from this commit on. Implemented by cursor-agent (cursor-grok-4.6-high) in an isolated worktree; the conductor committed and integrated.
 
+stage: impl-review - ran [round 1 NEEDS_WORK (5 findings fixed in 7bb3046), round 2 SHIP] (model: gpt-5.6-sol-high via cursor)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 90c791f84d2eaaaa8a3a2f6d660b7153e38d76f9, 7bb304637cf7bfd1a1641142b2c7ce51cf75976f
+- Tests: python3 -m unittest discover tests
 - PRs:
