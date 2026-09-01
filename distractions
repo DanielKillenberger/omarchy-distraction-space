@@ -3948,9 +3948,11 @@ def _sudoers_principal(uid: int) -> str:
 
 
 def _reject_sudoers_principal(name: str) -> None:
-    if not name or name == "ALL" or name.startswith("%") or name == "__INSTALL_USER__":
+    if not name or name == "ALL" or name == "__INSTALL_USER__":
         raise _SetupClosed(f"refusing sudoers principal {name!r}")
-    if any(ch.isspace() or ch == "," for ch in name):
+    if name.startswith(("%", "+", "#", "!")):
+        raise _SetupClosed(f"refusing sudoers principal {name!r}")
+    if any(ch.isspace() or ch in ",:=()" for ch in name):
         raise _SetupClosed(f"refusing sudoers principal {name!r}")
 
 
@@ -4055,8 +4057,17 @@ def _pin_or_create_ancestors(
             except FileNotFoundError:
                 if not create:
                     raise _SetupClosed(f"missing dest directory: {name}")
-                os.mkdir(name, 0o755, dir_fd=parent_fd)
-                pinned.created.append(name)
+                pending = name
+                try:
+                    os.mkdir(name, 0o755, dir_fd=parent_fd)
+                    pinned.created.append(name)
+                    pending = None
+                finally:
+                    if pending:
+                        try:
+                            os.rmdir(name, dir_fd=parent_fd)
+                        except OSError:
+                            pass
                 st = os.lstat(name, dir_fd=parent_fd)
             if stat.S_ISLNK(st.st_mode):
                 raise _SetupClosed(f"refusing symlink ancestor: {name}")
@@ -4214,14 +4225,14 @@ def _stage_replace_wrapper(
 ) -> None:
     tmp_name = f".{dest_name}.tmp.{os.getpid()}"
     flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC
-    fd = os.open(tmp_name, flags, 0o755, dir_fd=pinned.parent_fd)
+    fd = None
     try:
+        fd = os.open(tmp_name, flags, 0o755, dir_fd=pinned.parent_fd)
         os.fchmod(fd, 0o755)
         os.write(fd, data)
         os.fsync(fd)
-    finally:
         os.close(fd)
-    try:
+        fd = None
         if _read_nofollow(pinned.parent_fd, tmp_name) != data:
             raise _SetupClosed("staged wrapper bytes did not match the shipped helper")
         try:
@@ -4235,6 +4246,11 @@ def _stage_replace_wrapper(
         if not _trusted_file(st, trusted_uid):
             raise _SetupClosed("replaced wrapper is not a trusted regular file")
     finally:
+        if fd is not None:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
         if tmp_name:
             try:
                 os.unlink(tmp_name, dir_fd=pinned.parent_fd)
@@ -4280,6 +4296,7 @@ def _commit_grant(
     trusted_uid: int,
     fs_root: Path,
     grant_committed: list[bool] | None = None,
+    before_rename=None,
 ) -> None:
     name = sudoers_path.name
     tmp_name = f".{name}.tmp.{os.getpid()}"
@@ -4312,6 +4329,8 @@ def _commit_grant(
             raise _SetupClosed(
                 (check.stderr or check.stdout or "visudo rejected the grant").strip()
             )
+        if before_rename is not None:
+            before_rename()
         os.rename(tmp_name, name, src_dir_fd=pinned.parent_fd, dst_dir_fd=pinned.parent_fd)
         tmp_name = ""
         if grant_committed is not None:
@@ -4408,8 +4427,16 @@ def _privileged_install(
             os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
             dir_fd=pinned.parent_fd,
         )
-        _revalidate_chain(pinned, wrapper_dest, data, trusted_uid, fs_root, wrapper_fd)
-        _commit_grant(sudoers_path, body, trusted_uid, fs_root, grant_committed)
+        _commit_grant(
+            sudoers_path,
+            body,
+            trusted_uid,
+            fs_root,
+            grant_committed,
+            before_rename=lambda: _revalidate_chain(
+                pinned, wrapper_dest, data, trusted_uid, fs_root, wrapper_fd
+            ),
+        )
     except _SetupClosed:
         if not grant_committed and not _grant_body_matches(
             sudoers_path, body, trusted_uid, fs_root

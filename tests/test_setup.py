@@ -150,7 +150,7 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(name.startswith("%"))
 
     def test_principal_rejects_reserved_names(self):
-        for name in ("", "ALL", "%wheel", "__INSTALL_USER__", "a b"):
+        for name in ("", "ALL", "%wheel", "+ops", "#0", "!root", "ops:adm", "__INSTALL_USER__", "a b"):
             with self.subTest(name=name):
                 with self.assertRaises(self.mod._SetupClosed):
                     self.mod._reject_sudoers_principal(name)
