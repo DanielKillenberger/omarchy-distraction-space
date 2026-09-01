@@ -5,10 +5,16 @@ from __future__ import annotations
 
 import json
 import os
+import queue
+import re
+import select
 import shutil
 import socket
 import subprocess
 import sys
+import threading
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,6 +30,15 @@ DEFAULT_LOG = STATE_DIR / "focus-disable.log"
 PLUGIN_DIR = Path(__file__).resolve().parent
 APP_LIST_DEFAULTS = PLUGIN_DIR / "app-list-defaults.json"
 LAST_GOOD_EXPAND_NAME = "distraction-apps.last-good.json"
+RULES_PENDING_NAME = "omarchy-ds-rules.pending.json"
+RULES_LAST_GOOD_NAME = "omarchy-ds-rules.last-good.json"
+ADDRS_LAST_GOOD_NAME = "omarchy-ds-addrs.last-good.json"
+NFT_WRAPPER = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
+BANNER_TITLE = "Consciously choose to view this in your distraction space"
+BANNER_DEBOUNCE_S = 30
+DNS_TIMEOUT_S = 2.0
+DNS_INTERVAL_S = 30.0
+WORKSPACE_EFFECT = f"{REF} silent"
 
 # Class matchers match hypr/windows.lua. Hosts are independently optional.
 EXPAND_MAP: dict[str, dict] = {
@@ -78,13 +93,16 @@ def dispatch(lua: str) -> None:
 
 
 def notify(title: str, body: str = "", timeout_ms: int = 4000) -> None:
-    cmd = ["omarchy-notification-send", "-u", "normal", "-t", str(timeout_ms), title]
+    primary = ["omarchy-notification-send", "-u", "normal", "-t", str(timeout_ms), title]
     if body:
-        cmd.append(body)
-    try:
-        subprocess.check_call(cmd)
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        subprocess.call(["notify-send", "-t", str(timeout_ms), title, body])
+        primary.append(body)
+    fallback = ["notify-send", "-t", str(timeout_ms), title, body]
+    for cmd in (primary, fallback):
+        try:
+            subprocess.check_call(cmd)
+            return
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            continue
 
 
 def load_config() -> dict:
@@ -267,6 +285,571 @@ def print_expand(
     expanded = expand_entries(raw)
     save_last_good_expand(expanded, last_good_path)
     print(json.dumps(expanded, indent=2))
+
+
+def state_dir() -> Path:
+    return Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy"
+
+
+def rules_pending_path() -> Path:
+    return state_dir() / RULES_PENDING_NAME
+
+
+def rules_last_good_path() -> Path:
+    return state_dir() / RULES_LAST_GOOD_NAME
+
+
+def addrs_last_good_path() -> Path:
+    return state_dir() / ADDRS_LAST_GOOD_NAME
+
+
+def reload_sock_path() -> Path:
+    return Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.reload.sock"
+
+
+def now() -> float:
+    return time.monotonic()
+
+
+def class_matches(pattern: str, value: str) -> bool:
+    if pattern.startswith("^"):
+        return re.fullmatch(pattern, value) is not None
+    return pattern == value
+
+
+def _read_json_object(path: Path) -> dict | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def load_rule_registry(path: Path) -> dict[str, dict]:
+    raw = _read_json_object(path)
+    if raw is None:
+        return {}
+    return {key: value for key, value in raw.items() if isinstance(key, str) and isinstance(value, dict)}
+
+
+def save_rule_registry(path: Path, rows: dict[str, dict]) -> None:
+    _atomic_write(path, json.dumps(rows, indent=2) + "\n")
+
+
+def clear_rule_registry(path: Path) -> None:
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+
+
+def load_addrs_last_good() -> dict[str, list[str]]:
+    raw = _read_json_object(addrs_last_good_path())
+    if raw is None:
+        return {}
+    out: dict[str, list[str]] = {}
+    for host, addrs in raw.items():
+        if isinstance(host, str) and isinstance(addrs, list):
+            out[host] = [addr for addr in addrs if isinstance(addr, str) and addr]
+    return out
+
+
+def save_addrs_last_good(rows: dict[str, list[str]]) -> None:
+    _atomic_write(addrs_last_good_path(), json.dumps(rows, indent=2) + "\n")
+
+
+def desired_rule_map(expanded: list[dict]) -> dict[str, dict]:
+    out: dict[str, dict] = {}
+    for row in expanded:
+        klass = row.get("class")
+        name = row.get("name")
+        if not klass or not isinstance(name, str):
+            continue
+        rule = window_rule_name(name)
+        out[rule] = {
+            "class": klass,
+            "workspace": WORKSPACE_EFFECT,
+            "enabled": True,
+            "product": name,
+        }
+    return out
+
+
+def set_named_rule(name: str, klass: str, workspace: str, enabled: bool) -> None:
+    hyprctl("keyword", f"windowrule[{name}]:match:class {klass}")
+    hyprctl("keyword", f"windowrule[{name}]:workspace {workspace}")
+    hyprctl("keyword", f"windowrule[{name}]:enable {'true' if enabled else 'false'}")
+
+
+def disable_named_rule(name: str) -> None:
+    hyprctl("keyword", f"windowrule[{name}]:enable false")
+
+
+def rollback_named_rule_batch(
+    created: list[str],
+    updated: list[str],
+    last_good: dict[str, dict],
+) -> None:
+    for name in created:
+        try:
+            disable_named_rule(name)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            continue
+    for name in updated:
+        props = last_good.get(name) or {}
+        try:
+            set_named_rule(
+                name,
+                str(props.get("class") or ""),
+                str(props.get("workspace") or WORKSPACE_EFFECT),
+                bool(props.get("enabled", True)),
+            )
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            continue
+
+
+def apply_named_rules(expanded: list[dict]) -> bool:
+    desired = desired_rule_map(expanded)
+    last_good = load_rule_registry(rules_last_good_path())
+    old_pending = load_rule_registry(rules_pending_path())
+    save_rule_registry(rules_pending_path(), desired)
+    created: list[str] = []
+    updated: list[str] = []
+    try:
+        for name, props in desired.items():
+            if name in last_good:
+                updated.append(name)
+            else:
+                created.append(name)
+            set_named_rule(name, props["class"], props["workspace"], True)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        rollback_named_rule_batch(created, updated, last_good)
+        notify(
+            "Distraction list",
+            "Window rules could not be updated and were rolled back.",
+        )
+        return False
+    leftovers = (set(last_good) | set(old_pending)) - set(desired)
+    failed_disable: list[str] = []
+    for name in leftover_order(leftovers):
+        try:
+            disable_named_rule(name)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            failed_disable.append(name)
+    if failed_disable:
+        still = []
+        for name in failed_disable:
+            try:
+                disable_named_rule(name)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                still.append(name)
+        if still:
+            notify(
+                "Distraction list",
+                "Some removed window rules could not be disabled and will be retried.",
+            )
+            merged = dict(desired)
+            for name in still:
+                merged[name] = last_good.get(name) or old_pending.get(name) or {
+                    "enabled": True
+                }
+            save_rule_registry(rules_last_good_path(), merged)
+            return True
+    save_rule_registry(rules_last_good_path(), desired)
+    clear_rule_registry(rules_pending_path())
+    return True
+
+
+def leftover_order(names: set[str]) -> list[str]:
+    return sorted(names)
+
+
+def load_for_enforcement() -> tuple[str, list[dict]]:
+    raw = prepare_app_list()
+    if raw is None:
+        return "corrupt", load_last_good_expand()
+    return "ok", expand_entries(raw)
+
+
+def listed_hosts(expanded: list[dict] | None = None) -> list[str]:
+    rows = _active_expand if expanded is None else expanded
+    hosts: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        for host in row.get("hosts") or []:
+            if host not in seen:
+                seen.add(host)
+                hosts.append(host)
+    return hosts
+
+
+def match_listed_client(client: dict) -> dict | None:
+    klass = str(client.get("class") or "")
+    for row in list(_active_expand):
+        pattern = row.get("class")
+        if isinstance(pattern, str) and pattern and class_matches(pattern, klass):
+            return row
+    return None
+
+
+def client_on_space(client: dict) -> bool:
+    workspace = client.get("workspace")
+    if isinstance(workspace, dict):
+        return is_distraction(workspace)
+    return False
+
+
+def norm_addr(address: str) -> str:
+    value = address.strip().lower()
+    if value.startswith("0x"):
+        hex_part = value[2:].lstrip("0") or "0"
+        return "0x" + hex_part
+    return value
+
+
+def client_by_address(address: str) -> dict | None:
+    wanted = norm_addr(address)
+    for client in hyprctl_json("clients"):
+        if norm_addr(str(client.get("address") or "")) == wanted:
+            return client
+    return None
+
+
+def silent_move(address: str) -> None:
+    dispatch(f"movetoworkspacesilent {REF},address:{address}")
+
+
+def maybe_banner(product: str) -> None:
+    stamp = now()
+    last = _banner_at.get(product, 0.0)
+    if stamp - last < BANNER_DEBOUNCE_S:
+        return
+    _banner_at[product] = stamp
+    notify(BANNER_TITLE, product)
+
+
+def scan_existing_clients(*, notify_banner: bool) -> None:
+    for client in hyprctl_json("clients"):
+        row = match_listed_client(client)
+        if row is None:
+            continue
+        if client_on_space(client):
+            continue
+        silent_move(str(client.get("address") or ""))
+        if notify_banner:
+            maybe_banner(str(row["name"]))
+
+
+def handle_openwindow(address: str) -> None:
+    client = client_by_address(address)
+    if client is None:
+        return
+    row = match_listed_client(client)
+    if row is None:
+        return
+    if not client_on_space(client):
+        silent_move(str(client.get("address") or address))
+    if on_distractions():
+        return
+    maybe_banner(str(row["name"]))
+
+
+def handle_movewindow(address: str) -> None:
+    client = client_by_address(address)
+    if client is None:
+        return
+    row = match_listed_client(client)
+    if row is None:
+        return
+    if client_on_space(client):
+        return
+    silent_move(str(client.get("address") or address))
+    if on_distractions():
+        return
+    maybe_banner(str(row["name"]))
+
+
+def process_socket2_line(line: str) -> None:
+    text = line.strip()
+    if not text:
+        return
+    event, _, payload = text.partition(">>")
+    if event == "openwindow":
+        handle_openwindow(payload.split(",", 1)[0])
+    elif event in {"movewindow", "movewindowv2"}:
+        handle_movewindow(payload.split(",", 1)[0])
+    elif event in {"workspace", "workspacev2"}:
+        sync_network_to_workspace()
+
+
+def resolve_host(host: str, timeout: float = DNS_TIMEOUT_S) -> list[str]:
+    def lookup() -> list[str]:
+        infos = socket.getaddrinfo(host, None)
+        addrs = {info[4][0] for info in infos if info[4]}
+        return sorted(addrs)
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(lookup)
+        return future.result(timeout=timeout)
+
+
+def resolve_hosts(hosts: list[str], last_good: dict[str, list[str]]) -> dict[str, list[str]]:
+    merged: dict[str, list[str]] = {}
+    for host in hosts:
+        try:
+            merged[host] = resolve_host(host)
+        except Exception:
+            if host in last_good:
+                merged[host] = list(last_good[host])
+    return merged
+
+
+def sudo_nft(command: str, stdin_text: str = "") -> int:
+    try:
+        proc = subprocess.run(
+            ["sudo", "-n", NFT_WRAPPER, command, "ds"],
+            input=stdin_text,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        note_network_unavailable()
+        return 127
+    if proc.returncode != 0:
+        note_network_unavailable()
+    return proc.returncode
+
+
+def note_network_unavailable() -> None:
+    global _network_skip_notified
+    if _network_skip_notified:
+        return
+    _network_skip_notified = True
+    notify(
+        "Distraction sites",
+        "Network block is unavailable (missing install). Window placement still runs.",
+    )
+
+
+def wrapper_present() -> bool:
+    if Path(NFT_WRAPPER).is_file():
+        return True
+    note_network_unavailable()
+    return False
+
+
+def replace_ds(addrs_by_host: dict[str, list[str]]) -> bool:
+    if not wrapper_present():
+        return False
+    lines: list[str] = []
+    for host in sorted(addrs_by_host):
+        lines.extend(addrs_by_host[host])
+    text = "\n".join(lines)
+    if text:
+        text += "\n"
+    if sudo_nft("replace", text) != 0:
+        return False
+    save_addrs_last_good(addrs_by_host)
+    return True
+
+
+def flush_ds() -> bool:
+    if not wrapper_present():
+        return False
+    return sudo_nft("flush") == 0
+
+
+class NetworkWorker:
+    def __init__(self) -> None:
+        self.queue: queue.Queue[tuple[str, int] | None] = queue.Queue()
+        self.generation = 0
+        self.inflight = False
+        self.started = False
+        self.skipped_periodic = 0
+        self._thread: threading.Thread | None = None
+
+    def start(self) -> None:
+        if self.started:
+            return
+        self.started = True
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        if not self.started:
+            return
+        self.queue.put(None)
+        if self._thread is not None:
+            self._thread.join(timeout=2)
+        self.started = False
+        self._thread = None
+
+    def bump(self) -> int:
+        self.generation += 1
+        return self.generation
+
+    def request_resolve(self, reason: str) -> bool:
+        if reason == "periodic" and (self.inflight or not self.queue.empty()):
+            self.skipped_periodic += 1
+            return False
+        self.queue.put(("resolve", self.generation))
+        return True
+
+    def request_flush(self) -> None:
+        self.queue.put(("flush", self.generation))
+
+    def wait_idle(self, timeout: float = 4.0) -> None:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.queue.empty() and not self.inflight:
+                return
+            time.sleep(0.01)
+        raise TimeoutError("network worker did not go idle")
+
+    def _loop(self) -> None:
+        while True:
+            job = self.queue.get()
+            if job is None:
+                return
+            kind, gen = job
+            self.inflight = True
+            try:
+                self._run(kind, gen)
+            finally:
+                self.inflight = False
+
+    def _run(self, kind: str, gen: int) -> None:
+        if kind == "resolve":
+            with _state_lock:
+                hosts = listed_hosts()
+                last_good = load_addrs_last_good()
+            addrs = resolve_hosts(hosts, last_good)
+            if gen != self.generation:
+                return
+            if on_distractions():
+                return
+            if not hosts:
+                flush_ds()
+                return
+            replace_ds(addrs)
+            return
+        if gen != self.generation:
+            return
+        if not on_distractions() and listed_hosts():
+            return
+        flush_ds()
+
+
+def ensure_net_worker() -> NetworkWorker:
+    _net.start()
+    return _net
+
+
+def sync_network_to_workspace() -> None:
+    global _last_on_space
+    ensure_net_worker()
+    on_space = on_distractions()
+    if on_space == _last_on_space:
+        return
+    _last_on_space = on_space
+    _net.bump()
+    if on_space or not listed_hosts():
+        _net.request_flush()
+        return
+    _net.request_resolve("workspace")
+
+
+def maybe_dns_tick() -> bool:
+    if on_distractions():
+        return False
+    ensure_net_worker()
+    return _net.request_resolve("periodic")
+
+
+def apply_enforcement(expanded: list[dict], *, mutate_rules: bool) -> bool:
+    global _active_expand
+    if not mutate_rules:
+        with _state_lock:
+            _active_expand = expanded
+        return True
+    if not apply_named_rules(expanded):
+        return False
+    with _state_lock:
+        _active_expand = expanded
+    save_last_good_expand(expanded)
+    return True
+
+
+def bootstrap_enforcement() -> None:
+    global _last_on_space
+    _last_on_space = None
+    ensure_net_worker()
+    status, expanded = load_for_enforcement()
+    apply_enforcement(expanded, mutate_rules=(status == "ok"))
+    scan_existing_clients(notify_banner=False)
+    sync_network_to_workspace()
+
+
+def handle_reload_conn(conn: socket.socket) -> None:
+    global _last_on_space
+    try:
+        conn.recv(1024)
+        status, expanded = load_for_enforcement()
+        if status == "corrupt":
+            conn.sendall(b"error\n")
+            return
+        apply_enforcement(expanded, mutate_rules=True)
+        _last_on_space = None
+        sync_network_to_workspace()
+        conn.sendall(b"ok\n")
+    except OSError:
+        try:
+            conn.sendall(b"error\n")
+        except OSError:
+            pass
+    finally:
+        try:
+            conn.close()
+        except OSError:
+            pass
+
+
+def request_reload() -> bool:
+    path = reload_sock_path()
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.connect(str(path))
+        sock.sendall(b"reload\n")
+        reply = sock.recv(64)
+        return reply.startswith(b"ok")
+    except OSError:
+        notify(
+            "Distraction list",
+            "The listener is not running. Enforcement was left unchanged.",
+        )
+        return False
+    finally:
+        sock.close()
+
+
+def reset_runtime_state() -> None:
+    global _active_expand, _banner_at, _last_on_space, _network_skip_notified, _net
+    _active_expand = []
+    _banner_at = {}
+    _last_on_space = None
+    _network_skip_notified = False
+    if _net.started:
+        _net.stop()
+    _net = NetworkWorker()
+
+
+_state_lock = threading.Lock()
+_active_expand: list[dict] = []
+_banner_at: dict[str, float] = {}
+_last_on_space: bool | None = None
+_network_skip_notified = False
+_net = NetworkWorker()
 
 
 def current() -> dict:
@@ -460,12 +1043,49 @@ def listen() -> None:
     if is_focus() and on_distractions():
         hide()
 
+    bootstrap_enforcement()
+
+    reload_path = reload_sock_path()
+    try:
+        reload_path.unlink()
+    except FileNotFoundError:
+        pass
+    reload_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    reload_sock.bind(str(reload_path))
+    reload_sock.listen(4)
+
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(str(sock_path))
-    with sock.makefile("r") as events:
-        for _line in events:
+    last_tick = now()
+    buf = ""
+    try:
+        while True:
+            remaining = DNS_INTERVAL_S - (now() - last_tick)
+            timeout = 1.0 if remaining > 1.0 else max(0.05, remaining)
+            readable, _, _ = select.select([sock, reload_sock], [], [], timeout)
             if is_focus() and on_distractions():
                 hide()
+            if now() - last_tick >= DNS_INTERVAL_S:
+                last_tick = now()
+                maybe_dns_tick()
+            for ready in readable:
+                if ready is reload_sock:
+                    conn, _unused = reload_sock.accept()
+                    handle_reload_conn(conn)
+                    continue
+                chunk = sock.recv(4096)
+                if not chunk:
+                    return
+                buf += chunk.decode("utf-8", errors="replace")
+                while "\n" in buf:
+                    line, buf = buf.split("\n", 1)
+                    process_socket2_line(line)
+    finally:
+        reload_sock.close()
+        try:
+            reload_path.unlink()
+        except FileNotFoundError:
+            pass
 
 
 def main() -> None:
@@ -496,6 +1116,8 @@ def main() -> None:
         print(log_path())
     elif command == "print-expand":
         print_expand()
+    elif command == "reload":
+        raise SystemExit(0 if request_reload() else 1)
     else:
         raise SystemExit(f"unknown command: {command}")
 
