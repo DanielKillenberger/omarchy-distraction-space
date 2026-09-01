@@ -12,7 +12,7 @@
   "id": "fn-3-focus-mode-agent-notification-summary",
   "impl_review_rounds": {
     "fn-3-focus-mode-agent-notification-summary.1": 0,
-    "fn-3-focus-mode-agent-notification-summary.2": 4
+    "fn-3-focus-mode-agent-notification-summary.2": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -2383,6 +2383,7 @@
   ],
   "review_hash_epoch": {
     "impl:fn-3-focus-mode-agent-notification-summary.1": 1,
+    "impl:fn-3-focus-mode-agent-notification-summary.2": 1,
     "plan": 3,
     "plan#completion": 2
   },
@@ -2407,5 +2408,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T08:51:55.693727Z"
+  "updated_at": "2026-09-01T09:00:00.418228Z"
 }
