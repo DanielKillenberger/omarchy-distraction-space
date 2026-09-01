@@ -38,7 +38,10 @@ CLAUDE_MIN_VERSION = (2, 1, 248)
 MENU_SELECT_BIN = os.environ.get("DISTRACTIONS_MENU_SELECT", "omarchy-menu-select")
 GROK_AUTH_SOURCE = Path.home() / ".grok" / "auth.json"
 CLAUDE_CREDENTIAL_SOURCE = Path.home() / ".claude" / ".credentials.json"
-CLAUDE_AUTH_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
+CLAUDE_API_BUNDLE = ("ANTHROPIC_API_KEY",)
+CLAUDE_GATEWAY_BUNDLE = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
+CLAUDE_OAUTH_BUNDLE = ("CLAUDE_CODE_OAUTH_TOKEN",)
+FOCUS_CONFIG_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.focus.json.lock"
 GROK_CANARY_FILE = Path("/etc/hostname")
 GROK_CANARY_MARK = "FOCUS_GROK_CANARY_PWNED"
 GROK_PROOF_OK = "UNAVAILABLE"
@@ -186,6 +189,13 @@ def load_config() -> dict:
     return data
 
 
+def _lock_focus_config():
+    FOCUS_CONFIG_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(FOCUS_CONFIG_LOCK, "w")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
 def write_focus_config(data: dict) -> None:
     if not isinstance(data, dict):
         raise ValueError("rejected focus config")
@@ -214,13 +224,18 @@ def write_focus_config(data: dict) -> None:
 
 
 def update_focus_config(**changes) -> bool:
+    lock = None
     try:
+        lock = _lock_focus_config()
         merged = dict(load_config())
         merged.update(changes)
         write_focus_config(merged)
         return True
     except (ValueError, OSError, TypeError):
         return False
+    finally:
+        if lock is not None:
+            lock.close()
 
 
 def agent_summaries_enabled(config: dict | None = None) -> bool:
@@ -271,7 +286,7 @@ def menu_select(prompt: str, options: list[str]) -> str | None:
             text=True,
             check=False,
         )
-    except FileNotFoundError:
+    except OSError:
         notify("Focus mode", "Agent picker could not open; previous setting kept.")
         return None
     if result.returncode != 0:
@@ -473,24 +488,33 @@ def prepare_grok_home() -> Path:
         raise
 
 
-def prepare_claude_home(cwd: Path) -> None:
+def prepare_claude_home(config_dir: Path) -> None:
     if not CLAUDE_CREDENTIAL_SOURCE.is_file():
         return
-    dest_dir = cwd / ".claude"
+    dest_dir = config_dir / ".claude"
     dest_dir.mkdir(mode=0o700, exist_ok=True)
     dest = dest_dir / ".credentials.json"
     dest.write_bytes(CLAUDE_CREDENTIAL_SOURCE.read_bytes())
     os.chmod(dest, 0o600)
 
 
-def claude_invoke_env(cwd: Path) -> dict[str, str]:
+def _apply_closed_bundle(env: dict[str, str], keys: tuple[str, ...], *, require_all: bool = False) -> None:
+    values = {key: os.environ.get(key) for key in keys}
+    present = {key: value for key, value in values.items() if value}
+    if not present:
+        return
+    if require_all and len(present) != len(keys):
+        return
+    env.update(present)
+
+
+def claude_invoke_env(cwd: Path, config_dir: Path) -> dict[str, str]:
     env = _agent_base_env()
     env["HOME"] = str(cwd)
-    env["CLAUDE_CONFIG_DIR"] = str(cwd / ".claude")
-    for key in CLAUDE_AUTH_ENV:
-        value = os.environ.get(key)
-        if value:
-            env[key] = value
+    env["CLAUDE_CONFIG_DIR"] = str(config_dir / ".claude")
+    _apply_closed_bundle(env, CLAUDE_API_BUNDLE)
+    _apply_closed_bundle(env, CLAUDE_GATEWAY_BUNDLE, require_all=True)
+    _apply_closed_bundle(env, CLAUDE_OAUTH_BUNDLE)
     return env
 
 
@@ -504,13 +528,28 @@ def inspect_grok_config(home: Path) -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def grok_home_isolated(home: Path) -> bool:
+    if not home.is_dir():
+        return False
+    allowed = {"auth.json", "config.toml"}
+    names = {entry.name for entry in home.iterdir()}
+    return "config.toml" in names and names <= allowed
+
+
 def grok_bounds_honored(cfg: dict) -> bool:
     models = cfg.get("models") if isinstance(cfg.get("models"), dict) else {}
+    cli = cfg.get("cli") if isinstance(cfg.get("cli"), dict) else {}
+    features = cfg.get("features") if isinstance(cfg.get("features"), dict) else {}
+    permission = cfg.get("permission") if isinstance(cfg.get("permission"), dict) else {}
     return (
         models.get("default") == "grok-4.6"
         and models.get("allowed_models") == ["grok-4.6"]
         and models.get("max_completion_tokens") == 512
         and models.get("max_retries") == 0
+        and cli.get("auto_update") is False
+        and features.get("write_file") is False
+        and features.get("tool_search") is False
+        and "Bash(*)" in list(permission.get("deny") or [])
     )
 
 
@@ -551,9 +590,10 @@ def invoke_claude(prompt: str) -> str:
     if not claude_version_ok(version):
         raise SummaryAgentError(f"claude version {version or 'unknown'} is below 2.1.248")
     cwd = _empty_workdir("focus-claude-cwd-")
+    config_dir = _empty_workdir("focus-claude-config-")
     try:
-        prepare_claude_home(cwd)
-        env = claude_invoke_env(cwd)
+        prepare_claude_home(config_dir)
+        env = claude_invoke_env(cwd, config_dir)
         try:
             result = _run_agent(claude_argv(), cwd=cwd, env=env, prompt=prompt)
         except FileNotFoundError:
@@ -569,6 +609,7 @@ def invoke_claude(prompt: str) -> str:
         return out
     finally:
         _cleanup_dir(cwd)
+        _cleanup_dir(config_dir)
 
 
 def invoke_grok(prompt: str) -> str:
@@ -577,7 +618,7 @@ def invoke_grok(prompt: str) -> str:
     try:
         home = prepare_grok_home()
         cwd = _empty_workdir("focus-grok-cwd-")
-        if not grok_bounds_honored(inspect_grok_config(home)):
+        if not grok_home_isolated(home) or not grok_bounds_honored(inspect_grok_config(home)):
             raise SummaryAgentError("grok private config bounds rejected")
         env = grok_invoke_env(home, cwd)
         try:

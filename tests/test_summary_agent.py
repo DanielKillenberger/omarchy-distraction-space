@@ -116,6 +116,24 @@ class ConfigWriteTests(unittest.TestCase):
         self.assertIsNone(json.loads(self.cfg.read_text())["summary_agent"])
         self.assertFalse((self.cfg.parent / (self.cfg.name + ".tmp")).exists())
 
+    def test_update_takes_exclusive_config_lock(self):
+        import fcntl
+
+        flags: list[int] = []
+        real = fcntl.flock
+
+        def track(fd, mode):
+            flags.append(mode)
+            return real(fd, mode)
+
+        with mock.patch.object(fcntl, "flock", track):
+            self.assertTrue(distractions.update_focus_config(summary_agent="grok"))
+            self.assertTrue(distractions.update_focus_config(agent_summaries=True))
+        self.assertGreaterEqual(flags.count(fcntl.LOCK_EX), 2)
+        data = json.loads(self.cfg.read_text())
+        self.assertEqual(data["summary_agent"], "grok")
+        self.assertIs(data["agent_summaries"], True)
+
 
 class PickerTests(unittest.TestCase):
     def setUp(self):
@@ -151,6 +169,10 @@ class PickerTests(unittest.TestCase):
             distractions.cmd_agent_summaries()
         self.assertEqual(self.cfg.read_text(), before)
         self.assertGreaterEqual(len(self.notices), 2)
+        with mock.patch.object(subprocess, "run", side_effect=PermissionError("denied")):
+            distractions.cmd_summary_agent()
+        self.assertEqual(self.cfg.read_text(), before)
+        self.assertTrue(any("could not open" in body for _title, body, _timeout in self.notices))
         with mock.patch.object(
             subprocess,
             "run",
@@ -206,8 +228,16 @@ class ClaudeVectorTests(unittest.TestCase):
         captured: dict = {}
 
         def fake_popen(argv, **kwargs):
-            captured["env"] = kwargs.get("env") or {}
+            env = kwargs.get("env") or {}
+            home = Path(env.get("HOME", ""))
+            config_dir = Path(env.get("CLAUDE_CONFIG_DIR", ""))
+            captured["env"] = env
             captured["cwd"] = kwargs.get("cwd")
+            captured["home_names"] = [p.name for p in home.iterdir()] if home.exists() else []
+            captured["cred"] = (config_dir / ".credentials.json").is_file()
+            captured["cwd_has_claude"] = (home / ".claude").exists()
+            captured["home"] = str(home)
+            captured["config_dir"] = str(config_dir)
             proc = mock.Mock()
             proc.pid = 4242
             proc.returncode = 0
@@ -225,10 +255,42 @@ class ClaudeVectorTests(unittest.TestCase):
                     with mock.patch.object(subprocess, "Popen", fake_popen):
                         self.assertEqual(distractions.invoke_claude("hello"), "ok")
         self.assertEqual(captured["env"]["ANTHROPIC_API_KEY"], "sk-test")
-        home = Path(captured["env"]["HOME"])
-        self.assertEqual(captured["env"]["CLAUDE_CONFIG_DIR"], str(home / ".claude"))
-        self.assertTrue((home / ".claude" / ".credentials.json").exists() or not home.exists())
-        self.assertFalse(home.exists())
+        self.assertNotEqual(captured["home"], captured["config_dir"])
+        self.assertNotEqual(captured["home"], str(Path(captured["config_dir"]).parent))
+        self.assertEqual(captured["home_names"], [])
+        self.assertFalse(captured["cwd_has_claude"])
+        self.assertTrue(captured["cred"])
+
+    def test_claude_gateway_bundle_is_all_or_nothing(self):
+        captured: dict = {}
+
+        def fake_popen(argv, **kwargs):
+            captured["env"] = kwargs.get("env") or {}
+            proc = mock.Mock()
+            proc.pid = 1
+            proc.returncode = 0
+            proc.communicate.return_value = ("ok\n", "")
+            return proc
+
+        def fake_version(cmd, **kwargs):
+            return subprocess.CompletedProcess(cmd, 0, stdout="2.1.248\n", stderr="")
+
+        with mock.patch.object(subprocess, "run", fake_version):
+            with mock.patch.object(subprocess, "Popen", fake_popen):
+                with mock.patch.dict(os.environ, {"ANTHROPIC_AUTH_TOKEN": "tok"}, clear=False):
+                    os.environ.pop("ANTHROPIC_BASE_URL", None)
+                    distractions.invoke_claude("hello")
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", captured["env"])
+        with mock.patch.object(subprocess, "run", fake_version):
+            with mock.patch.object(subprocess, "Popen", fake_popen):
+                with mock.patch.dict(
+                    os.environ,
+                    {"ANTHROPIC_AUTH_TOKEN": "tok", "ANTHROPIC_BASE_URL": "https://gw.example"},
+                    clear=False,
+                ):
+                    distractions.invoke_claude("hello")
+        self.assertEqual(captured["env"]["ANTHROPIC_AUTH_TOKEN"], "tok")
+        self.assertEqual(captured["env"]["ANTHROPIC_BASE_URL"], "https://gw.example")
 
 
 class GrokVectorTests(unittest.TestCase):

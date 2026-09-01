@@ -1,7 +1,7 @@
 {
   "findings": {
     "backend": "host",
-    "headSha": "fd1b14633b8c869a1509b25f4113d06a31a8d5f9",
+    "headSha": "569b43d0e3ef91efab8233e6a36ea8b7c1b23943",
     "items": [
       {
         "body": "`invoke_claude()` replaces `HOME` with an empty directory while `_agent_base_env()` removes `ANTHROPIC_API_KEY`, OAuth tokens, and related variables. On Omarchy/Linux, Claude credentials normally live in `~/.claude/.credentials.json`, so an already authenticated Claude installation cannot authenticate. The mocked test does not exercise this.",
@@ -9,14 +9,14 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-9fee359c4f78e1f0f3697fec30e56f4a",
-        "lastSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "ordinal": 1,
         "rIds": [
           "R5",
           "R11"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "not_fixed",
         "suggestion": "Use a private Claude config directory containing only copied credentials, or pass through supported authentication variables while retaining the empty working directory and no-session controls.",
         "title": "`invoke_claude()` replaces `HOME` with an empty directory while `_agent_base_env()` removes `ANTHROPIC_API_KEY`, OAuth tokens, and related variables"
       },
@@ -26,15 +26,48 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-b90c8cb09c4ad02be1e41dc66ef9112c",
-        "lastSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "ordinal": 2,
         "rIds": [
           "R11"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "not_fixed",
         "suggestion": "Gate Grok use on validation of its effective configuration in the same isolated environment, execute the canary, and require an explicit refusal such as exactly `UNAVAILABLE`.",
         "title": "`invoke_summary_agent()` calls `invoke_grok()` directly, bypassing `prove_grok()`"
+      },
+      {
+        "body": "Stored Linux credentials and three token variables are now supported, but associated authentication configuration is discarded. For example, `ANTHROPIC_AUTH_TOKEN` is preserved while `ANTHROPIC_BASE_URL` is removed, potentially sending a gateway token to the default endpoint. Bedrock, Vertex, Foundry, profiles, federation, and credential-helper authentication are also unusable.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "id": "finding-cbb4ff586c46785cbad4f2c8f55fec19",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "ordinal": 7,
+        "rIds": [
+          "R5",
+          "R11"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Forward complete, closed authentication bundles\u2014including their endpoint/provider selectors\u2014or fail unsupported authentication modes without forwarding partial credentials.",
+        "title": "Stored Linux credentials and three token variables are now supported, but associated authentication configuration is discarded"
+      },
+      {
+        "body": "Invocation now requires the canary\u2019s exact refusal, but `grok_bounds_honored()` only reparses the TOML the plugin itself wrote. It does not establish that the installed Grok loaded or honored `max_completion_tokens = 512` and `max_retries = 0`. The canary only exercises file/shell access.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "id": "finding-279c9ac9a6d3c7f75adffea110c7bc2c",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "ordinal": 8,
+        "rIds": [
+          "R11"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Validate effective settings through a Grok-supported capability or observable request metadata, and fail closed when the installed version cannot prove both bounds.",
+        "title": "Invocation now requires the canary\u2019s exact refusal, but `grok_bounds_honored()` only reparses the TOML the plugin itself wrote"
       },
       {
         "body": "`start_new_session=True` creates a process group, but `subprocess.run(..., timeout=...)` kills only the direct process. Descendants can survive, continue consuming resources, or keep captured pipes open and prevent timeout cleanup.",
@@ -42,13 +75,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-455deec1055974072d9f7de462473d80",
-        "lastSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "ordinal": 3,
         "rIds": [
           "R11"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Use `Popen`, and on timeout explicitly kill the process group with `os.killpg()`, then drain and wait for it.",
         "title": "`start_new_session=True` creates a process group, but `subprocess"
       },
@@ -58,14 +91,14 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-96e28a96f2fa237f557b3f3eec777a20",
-        "lastSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "ordinal": 4,
         "rIds": [
           "R7",
           "R8"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Resolve the default only when `override is None`; reject the empty string like every other unsupported value.",
         "title": "`summary_agent=\"\"` falls through to Omarchy-default resolution"
       },
@@ -75,15 +108,65 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-4fba17c52c904a1c1a2d3eb44437af2b",
-        "lastSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "ordinal": 6,
         "rIds": [
           "R11"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Wrap preparation internally and remove `home` on every exception before re-raising.",
         "title": "If copying/chmodding `auth"
+      },
+      {
+        "body": "`prepare_claude_home(cwd)` places `.claude/.credentials.json` inside the directory subsequently used as the agent\u2019s working directory. This violates the dedicated-empty-cwd requirement and puts credentials directly beneath the agent cwd.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "id": "finding-4131b0deb634e2d119c86c5bd3eeca72",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "ordinal": 9,
+        "rIds": [
+          "R11"
+        ],
+        "severity": "P2",
+        "status": "open",
+        "suggestion": "Use separate temporary directories for the empty cwd and private Claude configuration.",
+        "title": "`prepare_claude_home(cwd)` places `"
+      },
+      {
+        "body": "Unique temporary files fixed the prior collision, but `update_focus_config()` still performs an unlocked read-modify-write. Concurrent picker processes can lose one another\u2019s changes. A stale summary-agent update can restore `agent_summaries: true` after another process writes `Off`.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "id": "finding-c2324c40d711c1eadfa501991d654288",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "ordinal": 10,
+        "rIds": [
+          "R5",
+          "R8",
+          "R13"
+        ],
+        "severity": "P2",
+        "status": "open",
+        "suggestion": "Lock the complete load/merge/validate/replace transaction.",
+        "title": "Unique temporary files fixed the prior collision, but `update_focus_config()` still performs an unlocked read-modify-write"
+      },
+      {
+        "body": "`menu_select()` catches only `FileNotFoundError`. Other launch failures such as `PermissionError` or executable-format errors propagate and terminate without notifying the user.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "id": "finding-68af507bbd801b6ba69d94129628e21b",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "ordinal": 11,
+        "rIds": [
+          "R12"
+        ],
+        "severity": "P2",
+        "status": "open",
+        "suggestion": "Catch `OSError` for picker launch failures and retain the existing notification behavior.",
+        "title": "`menu_select()` catches only `FileNotFoundError`"
       },
       {
         "body": "All writers use `focus.json.tmp`. Concurrent commands can open the same inode, overwrite one another, leave trailing bytes, or make one rename fail after the other moves the shared file. The resulting object need not match either requested update.",
@@ -91,31 +174,32 @@
         "confidence": 75,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-3e9cb48767ac21d315add1459ac88c32",
-        "lastSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "lastSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "ordinal": 5,
         "rIds": [
           "R5",
           "R8"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Create a unique temporary file in the destination directory, fsync it, rename it atomically, and clean it up on failure.",
         "title": "All writers use `focus"
       }
     ],
     "reviewKind": "implementation",
-    "round": 1,
+    "round": 2,
     "schemaVersion": 1,
-    "sourceReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da"
+    "sourceReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+    "supersedesReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da"
   },
   "id": "fn-3-focus-mode-agent-notification-summary.1",
   "mode": "host",
   "model": "gpt-5.6-sol-high",
-  "review": "## Findings\n\n### 1. Claude invocation discards all supported authentication\n\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:497`\n- **R-IDs**: `[R5, R11]`\n- **Problem**: `invoke_claude()` replaces `HOME` with an empty directory while `_agent_base_env()` removes `ANTHROPIC_API_KEY`, OAuth tokens, and related variables. On Omarchy/Linux, Claude credentials normally live in `~/.claude/.credentials.json`, so an already authenticated Claude installation cannot authenticate. The mocked test does not exercise this.\n- **Suggestion**: Use a private Claude config directory containing only copied credentials, or pass through supported authentication variables while retaining the empty working directory and no-session controls.\n\n### 2. Grok\u2019s required safety proof is neither enforced nor sound\n\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:450`\n- **R-IDs**: `[R11]`\n- **Problem**: `invoke_summary_agent()` calls `invoke_grok()` directly, bypassing `prove_grok()`. Moreover, `prove_grok()` accepts any response lacking the exact hostname and marker\u2014even \u201cI completed both operations\u201d\u2014rather than requiring refusal. Configuration validation only reparses the file just written; it does not inspect effective Grok configuration, including higher-priority system requirements. Thus tool access and 512-token/zero-retry enforcement are not proven.\n- **Suggestion**: Gate Grok use on validation of its effective configuration in the same isolated environment, execute the canary, and require an explicit refusal such as exactly `UNAVAILABLE`.\n\n### 3. Timeout does not kill the agent process group\n\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:407`\n- **R-IDs**: `[R11]`\n- **Problem**: `start_new_session=True` creates a process group, but `subprocess.run(..., timeout=...)` kills only the direct process. Descendants can survive, continue consuming resources, or keep captured pipes open and prevent timeout cleanup.\n- **Suggestion**: Use `Popen`, and on timeout explicitly kill the process group with `os.killpg()`, then drain and wait for it.\n\n### 4. Empty override is incorrectly treated as null\n\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:241`\n- **R-IDs**: `[R7, R8]`\n- **Problem**: `summary_agent=\"\"` falls through to Omarchy-default resolution. The contract permits only null, `claude`, or `grok`; every other value must resolve unusable. This can send notifications to the default agent despite a malformed override.\n- **Suggestion**: Resolve the default only when `override is None`; reject the empty string like every other unsupported value.\n\n### 5. Fixed temporary filename makes concurrent config writes unsafe\n\n- **Severity**: P2\n- **Confidence**: 75\n- **Classification**: introduced\n- **File:Line**: `distractions:199`\n- **R-IDs**: `[R5, R8]`\n- **Problem**: All writers use `focus.json.tmp`. Concurrent commands can open the same inode, overwrite one another, leave trailing bytes, or make one rename fail after the other moves the shared file. The resulting object need not match either requested update.\n- **Suggestion**: Create a unique temporary file in the destination directory, fsync it, rename it atomically, and clean it up on failure.\n\n### 6. Grok credentials can remain after preparation fails\n\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:429`\n- **R-IDs**: `[R11]`\n- **Problem**: If copying/chmodding `auth.json` or writing `config.toml` fails, `prepare_grok_home()` raises before returning the path. The caller still has `home=None`, so its `finally` cannot remove the partially prepared directory and copied credentials.\n- **Suggestion**: Wrap preparation internally and remove `home` on every exception before re-raising.\n\n## Requirements coverage\n\n| Requirement | Status | Evidence |\n|---|---|---|\n| R5 | Not met | Claude cannot use normal stored authentication; concurrent writes are unsafe. |\n| R7 | Partial | Null resolution works, but empty overrides also invoke default resolution. |\n| R8 | Partial | Picker is closed correctly, but invalid empty state is accepted during resolution. |\n| R11 | Not met | Grok safety proof is bypassed/insufficient; Claude authentication and process-group cleanup are broken. |\n| R12 | Met | Uses `omarchy-menu-select`; cancellation/failure preserves settings and notifies. |\n| R13 | Met | Shipped and runtime defaults remain disabled. |\n\nUnaddressed R-IDs: R5, R7, R8, R11\n\n## Verification\n\n- `python3 -m py_compile distractions`: passed\n- `python3 -m unittest tests/test_summary_agent.py`: 12 tests passed\n- Focused reproduction confirmed empty override resolves to Claude and the canary accepts a non-refusal response.\n- Agent binaries were not installed, so real CLI invocation was unavailable.\n\nSuppressed findings: 0\nClassification counts: introduced=6, pre_existing=0\nProtected-path filter: 0 findings removed\n\n<verdict>NEEDS_WORK</verdict>\n",
-  "review_reservation_id": "8afbb49fe6b04148a2facfdfe22aaad7",
+  "review": "Prior finding #1: not-fixed\nPrior finding #2: not-fixed\nPrior finding #3: fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\n\n## Findings\n\n### 1. Claude authentication forwarding remains incomplete and unsafe\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:486`\n- **R-IDs**: `[R5, R11]`\n- **Problem**: Stored Linux credentials and three token variables are now supported, but associated authentication configuration is discarded. For example, `ANTHROPIC_AUTH_TOKEN` is preserved while `ANTHROPIC_BASE_URL` is removed, potentially sending a gateway token to the default endpoint. Bedrock, Vertex, Foundry, profiles, federation, and credential-helper authentication are also unusable.\n- **Suggestion**: Forward complete, closed authentication bundles\u2014including their endpoint/provider selectors\u2014or fail unsupported authentication modes without forwarding partial credentials.\n\n### 2. Grok bounds are still not proven effective\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:580`\n- **R-IDs**: `[R11]`\n- **Problem**: Invocation now requires the canary\u2019s exact refusal, but `grok_bounds_honored()` only reparses the TOML the plugin itself wrote. It does not establish that the installed Grok loaded or honored `max_completion_tokens = 512` and `max_retries = 0`. The canary only exercises file/shell access.\n- **Suggestion**: Validate effective settings through a Grok-supported capability or observable request metadata, and fail closed when the installed version cannot prove both bounds.\n\n### 3. Claude\u2019s working directory is not empty\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:554`\n- **R-IDs**: `[R11]`\n- **Problem**: `prepare_claude_home(cwd)` places `.claude/.credentials.json` inside the directory subsequently used as the agent\u2019s working directory. This violates the dedicated-empty-cwd requirement and puts credentials directly beneath the agent cwd.\n- **Suggestion**: Use separate temporary directories for the empty cwd and private Claude configuration.\n\n### 4. Concurrent config updates can undo consent changes\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:216`\n- **R-IDs**: `[R5, R8, R13]`\n- **Problem**: Unique temporary files fixed the prior collision, but `update_focus_config()` still performs an unlocked read-modify-write. Concurrent picker processes can lose one another\u2019s changes. A stale summary-agent update can restore `agent_summaries: true` after another process writes `Off`.\n- **Suggestion**: Lock the complete load/merge/validate/replace transaction.\n\n### 5. Some picker-open failures bypass the required notice\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:267`\n- **R-IDs**: `[R12]`\n- **Problem**: `menu_select()` catches only `FileNotFoundError`. Other launch failures such as `PermissionError` or executable-format errors propagate and terminate without notifying the user.\n- **Suggestion**: Catch `OSError` for picker launch failures and retain the existing notification behavior.\n\nUnaddressed R-IDs: R5, R8, R11, R12, R13\n<verdict>NEEDS_WORK</verdict>\n",
+  "review_reservation_id": "60883735a8b045409d611ebf3d341d47",
   "session_id": null,
   "spec": "host",
-  "timestamp": "2026-09-01T08:04:05Z",
+  "timestamp": "2026-09-01T08:10:04Z",
   "type": "impl_review",
   "verdict": "NEEDS_WORK"
 }

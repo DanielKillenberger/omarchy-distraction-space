@@ -11,7 +11,7 @@
   ],
   "id": "fn-3-focus-mode-agent-notification-summary",
   "impl_review_rounds": {
-    "fn-3-focus-mode-agent-notification-summary.1": 1
+    "fn-3-focus-mode-agent-notification-summary.1": 2
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -1369,6 +1369,127 @@
       "task": "fn-3-focus-mode-agent-notification-summary.1",
       "timestamp": "2026-09-01T08:04:06.395881Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "fd23bdaa177a50916d7bb98c9f75036f5c26e727d8e7c36f75c4a9e29a542ab3",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-9fee359c4f78e1f0f3697fec30e56f4a",
+            "classification": "introduced",
+            "findingId": "finding-9fee359c4f78e1f0f3697fec30e56f4a",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-b90c8cb09c4ad02be1e41dc66ef9112c",
+            "classification": "introduced",
+            "findingId": "finding-b90c8cb09c4ad02be1e41dc66ef9112c",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-cbb4ff586c46785cbad4f2c8f55fec19",
+            "classification": "introduced",
+            "findingId": "finding-cbb4ff586c46785cbad4f2c8f55fec19",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-279c9ac9a6d3c7f75adffea110c7bc2c",
+            "classification": "introduced",
+            "findingId": "finding-279c9ac9a6d3c7f75adffea110c7bc2c",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-455deec1055974072d9f7de462473d80",
+            "classification": "introduced",
+            "findingId": "finding-455deec1055974072d9f7de462473d80",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-96e28a96f2fa237f557b3f3eec777a20",
+            "classification": "introduced",
+            "findingId": "finding-96e28a96f2fa237f557b3f3eec777a20",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-4fba17c52c904a1c1a2d3eb44437af2b",
+            "classification": "introduced",
+            "findingId": "finding-4fba17c52c904a1c1a2d3eb44437af2b",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-4131b0deb634e2d119c86c5bd3eeca72",
+            "classification": "introduced",
+            "findingId": "finding-4131b0deb634e2d119c86c5bd3eeca72",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-c2324c40d711c1eadfa501991d654288",
+            "classification": "introduced",
+            "findingId": "finding-c2324c40d711c1eadfa501991d654288",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-68af507bbd801b6ba69d94129628e21b",
+            "classification": "introduced",
+            "findingId": "finding-68af507bbd801b6ba69d94129628e21b",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-3e9cb48767ac21d315add1459ac88c32",
+            "classification": "introduced",
+            "findingId": "finding-3e9cb48767ac21d315add1459ac88c32",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "569b43d0e3ef91efab8233e6a36ea8b7c1b23943",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 3317,
+      "output_sha256": "110ce94f3445826cd58dfb4541cf3ac65c44e1749f3ed7aa8f3eab5ad0820848",
+      "reservation_id": "60883735a8b045409d611ebf3d341d47",
+      "round_consumed": true,
+      "scope": "impl:fn-3-focus-mode-agent-notification-summary.1",
+      "superseded_by": null,
+      "task": "fn-3-focus-mode-agent-notification-summary.1",
+      "timestamp": "2026-09-01T08:10:04.626554Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -1395,5 +1516,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T08:04:06.928586Z"
+  "updated_at": "2026-09-01T08:10:05.142352Z"
 }
