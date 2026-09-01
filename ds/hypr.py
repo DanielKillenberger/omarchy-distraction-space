@@ -1,5 +1,6 @@
 """Hyprland queries, named window rules, silent moves, and workspace cycle."""
 
+import hashlib
 import json
 import re
 import subprocess
@@ -42,7 +43,8 @@ def active_workspace():
 def on_space():
     try:
         data = hyprctl_json("activeworkspace")
-    except Exception:
+    except Exception as e:
+        _log(f"hyprctl activeworkspace: {e}")
         return None
     return isinstance(data, dict) and data.get("name") == SPACE
 
@@ -75,6 +77,17 @@ def _slug(name):
     return s or "entry"
 
 
+def _entry_name(entry):
+    name = entry.get("name") if isinstance(entry, dict) else None
+    return name if isinstance(name, str) and name else "entry"
+
+
+def _rule_name(entry_name, n):
+    raw = entry_name or "entry"
+    digest = hashlib.sha1(raw.encode("utf-8")).hexdigest()[:8]
+    return f"omarchy-ds-{_slug(raw)}-{digest}-{n}"
+
+
 def _normalize(expanded):
     extra = {}
     if isinstance(expanded, dict):
@@ -90,11 +103,11 @@ def _normalize(expanded):
 def _rule_names(entries):
     names, specs = [], []
     for entry in entries:
-        slug = _slug(entry.get("name") or "entry")
+        raw = _entry_name(entry)
         for n, klass in enumerate(entry.get("classes") or []):
             if not isinstance(klass, str) or not klass:
                 continue
-            name = f"omarchy-ds-{slug}-{n}"
+            name = _rule_name(raw, n)
             names.append(name)
             specs.append((name, klass))
     return names, specs
@@ -117,16 +130,24 @@ def apply_rules(expanded):
     if isinstance(nudges, dict) and "app_banner" in nudges:
         _app_banner = bool(nudges["app_banner"])
     names, specs = _rule_names(entries)
+    if len(names) != len(set(names)):
+        _log("apply_rules: generated windowrule names collide; skipped")
+        return
     old = _read_rule_names()
     for name, klass in specs:
         _run("keyword", f"windowrule[{name}]:match:class {klass}")
         _run("keyword", f"windowrule[{name}]:workspace name:{SPACE} silent")
         _run("keyword", f"windowrule[{name}]:enable true")
     desired = set(names)
+    recorded = list(names)
+    seen = set(names)
     for name in old:
         if name not in desired:
-            _run("keyword", f"windowrule[{name}]:enable false")
-    state.write_json(state.state_path("rules.json"), names)
+            if _run("keyword", f"windowrule[{name}]:enable false") is None:
+                if name not in seen:
+                    recorded.append(name)
+                    seen.add(name)
+    state.write_json(state.state_path("rules.json"), recorded)
 
 
 def _current_entries():
@@ -260,8 +281,12 @@ def _handle_event(line):
     addr = client.get("address") if isinstance(client, dict) else address
     if ws_name != SPACE:
         move_to_space(addr or address)
-    if _want_banner() and on_space() is not True:
-        _maybe_banner(match.get("name") or klass)
+    if _want_banner():
+        here = on_space()
+        if here is False:
+            _maybe_banner(match.get("name") or klass)
+        elif here is None:
+            _log("on_space unknown; skipping banner")
 
 
 def cycle(direction):

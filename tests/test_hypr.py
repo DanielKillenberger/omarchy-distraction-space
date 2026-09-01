@@ -135,31 +135,32 @@ class HyprTests(unittest.TestCase):
 
     def test_two_classes_yield_two_named_rules_and_rules_json(self):
         hypr.apply_rules([TELEGRAM])
+        expected, _ = hypr._rule_names([TELEGRAM])
         joined = "\n".join(self._joined())
-        self.assertIn("windowrule[omarchy-ds-telegram-0]", joined)
-        self.assertIn("windowrule[omarchy-ds-telegram-1]", joined)
+        self.assertEqual(len(expected), 2)
+        self.assertIn(f"windowrule[{expected[0]}]", joined)
+        self.assertIn(f"windowrule[{expected[1]}]", joined)
         self.assertIn(f"match:class {NATIVE}", joined)
         self.assertIn(f"match:class {PWA_CLASS}", joined)
         self.assertIn(f"workspace name:{hypr.SPACE} silent", joined)
         self.assertIn("enable true", joined)
         names = state.read_json(state.state_path("rules.json"), [])
-        self.assertEqual(
-            set(names),
-            {"omarchy-ds-telegram-0", "omarchy-ds-telegram-1"},
-        )
+        self.assertEqual(set(names), set(expected))
 
     def test_removed_entries_have_rules_disabled(self):
         hypr.apply_rules(_entries("Telegram", "Discord"))
         before = set(state.read_json(state.state_path("rules.json"), []))
-        self.assertIn("omarchy-ds-discord-0", before)
+        discord_names, _ = hypr._rule_names(_entries("Discord"))
+        telegram_names, _ = hypr._rule_names(_entries("Telegram"))
+        self.assertTrue(set(discord_names) <= before)
         self.hypr_log.write_text("", encoding="utf-8")
         hypr.apply_rules(_entries("Telegram"))
         joined = "\n".join(self._joined())
-        self.assertIn("windowrule[omarchy-ds-discord-0]:enable false", joined)
-        self.assertNotIn("windowrule[omarchy-ds-telegram-0]:enable false", joined)
+        self.assertIn(f"windowrule[{discord_names[0]}]:enable false", joined)
+        self.assertNotIn(f"windowrule[{telegram_names[0]}]:enable false", joined)
         after = set(state.read_json(state.state_path("rules.json"), []))
-        self.assertEqual(after, {"omarchy-ds-telegram-0", "omarchy-ds-telegram-1"})
-        self.assertNotIn("omarchy-ds-discord-0", after)
+        self.assertEqual(after, set(telegram_names))
+        self.assertFalse(set(discord_names) & after)
 
     def test_open_and_move_listed_native_and_pwa_unlisted_untouched(self):
         hypr.apply_rules([TELEGRAM])
@@ -244,7 +245,10 @@ class HyprTests(unittest.TestCase):
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertIn("windowrule", log)
         names = set(state.read_json(state.state_path("rules.json"), []))
-        self.assertEqual(names, {"omarchy-ds-discord-0"})
+        discord_names, _ = hypr._rule_names(_entries("Discord"))
+        telegram_names, _ = hypr._rule_names([TELEGRAM])
+        self.assertTrue(set(discord_names) <= names)
+        self.assertTrue(set(telegram_names) <= names)
 
     def test_notify_failure_ignored(self):
         hypr.apply_rules([TELEGRAM])
@@ -295,6 +299,59 @@ class HyprTests(unittest.TestCase):
         dest = "\n".join(self._joined())
         self.assertIn("name:1", dest)
         self.assertNotIn("name:distraction", dest.split("dispatch workspace", 1)[-1])
+
+    def test_failed_disable_kept_in_rules_json_and_retried(self):
+        hypr.apply_rules(_entries("Telegram", "Discord"))
+        discord_names, _ = hypr._rule_names(_entries("Discord"))
+        telegram_names, _ = hypr._rule_names(_entries("Telegram"))
+        self.hypr_log.write_text("", encoding="utf-8")
+        os.environ["DS_HYPR_FAIL"] = "enable false"
+        hypr.apply_rules(_entries("Telegram"))
+        recorded = set(state.read_json(state.state_path("rules.json"), []))
+        self.assertTrue(set(discord_names) <= recorded)
+        self.assertTrue(set(telegram_names) <= recorded)
+        joined = "\n".join(self._joined())
+        self.assertIn(f"windowrule[{discord_names[0]}]:enable false", joined)
+        log = state.state_path("log").read_text(encoding="utf-8")
+        self.assertIn("enable false", log)
+
+        os.environ.pop("DS_HYPR_FAIL", None)
+        self.hypr_log.write_text("", encoding="utf-8")
+        hypr.apply_rules(_entries("Telegram"))
+        retried = "\n".join(self._joined())
+        self.assertIn(f"windowrule[{discord_names[0]}]:enable false", retried)
+        after = set(state.read_json(state.state_path("rules.json"), []))
+        self.assertEqual(after, set(telegram_names))
+        self.assertFalse(set(discord_names) & after)
+
+    def test_slug_collision_gets_distinct_rule_names(self):
+        entries = [
+            {"name": "Foo Bar", "classes": ["FooBarClass"]},
+            {"name": "Foo-Bar", "classes": ["FooDashClass"]},
+        ]
+        self.assertEqual(hypr._slug("Foo Bar"), hypr._slug("Foo-Bar"))
+        hypr.apply_rules(entries)
+        names = state.read_json(state.state_path("rules.json"), [])
+        self.assertEqual(len(names), 2)
+        self.assertEqual(len(set(names)), 2)
+        joined = "\n".join(self._joined())
+        self.assertIn("match:class FooBarClass", joined)
+        self.assertIn("match:class FooDashClass", joined)
+        self.assertIn(f"windowrule[{names[0]}]", joined)
+        self.assertIn(f"windowrule[{names[1]}]", joined)
+
+    def test_unknown_on_space_logs_and_skips_banner(self):
+        hypr.apply_rules([TELEGRAM])
+        self._state(clients=[self._client("0xaaa", NATIVE, "1")])
+        self.hypr_log.write_text("", encoding="utf-8")
+        os.environ["DS_HYPR_FAIL"] = "activeworkspace"
+        hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
+        self.assertTrue(any("movetoworkspacesilent" in j and "0xaaa" in j for j in self._joined()))
+        self.assertEqual(self._notifies(), [])
+        log = state.state_path("log").read_text(encoding="utf-8")
+        self.assertIn("hyprctl", log)
+        self.assertIn("activeworkspace", log)
+        self.assertIn("skipping banner", log)
 
     def test_cli_next_prev_dispatch_workspace(self):
         occupied = [
