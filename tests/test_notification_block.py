@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import tempfile
 import unittest
 from importlib.machinery import SourceFileLoader
@@ -189,6 +190,8 @@ class ApplyLiftTests(unittest.TestCase):
             return 0, self.disarm_out
         if args[:2] == (distractions.PLUGIN_IPC, "drainState"):
             return 0, self.drain_out
+        if args[:2] == ("shell", "rescanPlugins"):
+            return 0, "ok"
         if "toggleDnd" in args or "setDnd" in args:
             raise AssertionError(f"DND mutation is forbidden: {args}")
         return 1, "unknown"
@@ -272,6 +275,48 @@ class ApplyLiftTests(unittest.TestCase):
 
         with mock.patch.object(distractions, "shell_ipc", shell_with_drain_error):
             self.assertFalse(distractions.lift_notification_block())
+
+    def test_watcher_disarms_when_focus_off_without_new_generation(self):
+        request = {"generation": 4, "want_armed": True}
+        distractions.FOCUS.write_text("on\n")
+        self.assertTrue(distractions.watcher_desired_armed(request))
+        self.assertFalse(distractions.watcher_needs_transition(4, True, request))
+        distractions.FOCUS.write_text("off\n")
+        self.assertFalse(distractions.watcher_desired_armed(request))
+        self.assertTrue(distractions.watcher_needs_transition(4, True, request))
+
+    def test_rollback_uses_live_status_not_stale_request(self):
+        distractions.write_watcher_request(1, True)
+        distractions.write_watcher_status(
+            {"pid": 1, "generation": 1, "armed": False, "last_error": "", "muted": []}
+        )
+        with mock.patch.object(distractions, "read_proc_starttime", return_value=None):
+            self.assertFalse(distractions.watcher_acknowledged_armed())
+        self.ping = ""
+        with mock.patch.object(distractions, "notify"):
+            self.assertFalse(distractions.apply_notification_block())
+        request = distractions.read_json(distractions.WATCHER_REQUEST, {})
+        self.assertGreater(int(request.get("generation") or 0), 1)
+        self.assertFalse(request.get("want_armed"))
+        self.assertIn((distractions.PLUGIN_IPC, "disarm"), self.calls)
+
+    def test_rollback_rearms_from_acknowledged_status(self):
+        distractions.write_watcher_status(
+            {"pid": os.getpid(), "generation": 2, "armed": True, "last_error": "", "muted": []}
+        )
+        distractions.write_watcher_request(2, True)
+        self.ping = ""
+        with mock.patch.object(distractions, "read_proc_starttime", return_value="99"):
+            with mock.patch.object(distractions, "notify"):
+                self.assertFalse(distractions.apply_notification_block())
+        request = distractions.read_json(distractions.WATCHER_REQUEST, {})
+        self.assertGreater(int(request.get("generation") or 0), 2)
+        self.assertTrue(request.get("want_armed"))
+        self.assertIn((distractions.PLUGIN_IPC, "arm"), self.calls)
+
+    def test_install_command_rescans_plugins(self):
+        self.assertTrue(distractions.install_notification_service())
+        self.assertIn(("shell", "rescanPlugins"), self.calls)
 
     def test_evaluate_sink_mute_failure_is_fatal(self):
         members = distractions.load_members()

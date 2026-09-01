@@ -473,6 +473,32 @@ def write_watcher_status(payload: dict) -> None:
     write_json_atomic(WATCHER_STATUS, payload)
 
 
+def watcher_pid_live(status: dict) -> bool:
+    try:
+        pid = int(status.get("pid") or 0)
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0:
+        return False
+    return read_proc_starttime(pid) is not None
+
+
+def watcher_acknowledged_armed(status: dict | None = None) -> bool:
+    last = status if isinstance(status, dict) else read_watcher_status()
+    return bool(last.get("armed")) and watcher_pid_live(last)
+
+
+def watcher_desired_armed(request: dict | None = None) -> bool:
+    data = request if isinstance(request, dict) else read_json(WATCHER_REQUEST, {})
+    return bool(data.get("want_armed")) and is_focus()
+
+
+def watcher_needs_transition(generation: int, armed: bool, request: dict) -> bool:
+    want_gen = int(request.get("generation") or 0)
+    want_armed = watcher_desired_armed(request)
+    return bool(want_gen and want_gen != generation) or (bool(armed) != bool(want_armed))
+
+
 def wait_watcher_ack(generation: int, want_armed: bool, timeout: float | None = None) -> tuple[bool, str]:
     deadline = time.monotonic() + (APPLY_WAIT_S if timeout is None else timeout)
     last = {}
@@ -536,7 +562,7 @@ def _apply_notification_block() -> bool:
     if not is_focus():
         return True
     snapshot_muted = muted_ids()
-    prev_request = read_json(WATCHER_REQUEST, {})
+    was_armed = watcher_acknowledged_armed()
     generation = next_generation()
     try:
         members_match_windows()
@@ -557,7 +583,7 @@ def _apply_notification_block() -> bool:
             raise RuntimeError(out or "failed to arm the notification filter")
         return True
     except Exception as exc:
-        _rollback_apply(prev_request, snapshot_muted, generation, bool(prev_request.get("want_armed")))
+        _rollback_apply(snapshot_muted, generation, was_armed)
         notify(
             "Focus mode",
             f"Could not mute distraction notifications. {exc}",
@@ -597,19 +623,17 @@ def _lift_notification_block() -> bool:
 
 
 def _rollback_apply(
-    prev_request: dict,
     snapshot_muted: list[int],
     failed_generation: int,
     was_armed: bool,
 ) -> None:
+    rollback_gen = max(int(failed_generation) + 1, next_generation())
     if was_armed:
         plugin_call("arm")
-        if prev_request:
-            write_json_atomic(WATCHER_REQUEST, prev_request)
-            wait_watcher_ack(int(prev_request.get("generation") or 0), True, timeout=3.0)
+        write_watcher_request(rollback_gen, True)
+        wait_watcher_ack(rollback_gen, True, timeout=3.0)
     else:
         plugin_call("disarm")
-        rollback_gen = max(failed_generation + 1, next_generation())
         write_watcher_request(rollback_gen, False, keep_muted=snapshot_muted)
         wait_watcher_ack(rollback_gen, False, timeout=3.0)
     current = muted_ids()
@@ -818,10 +842,11 @@ def _watcher_main() -> None:
     while not _watcher_stop.is_set():
         request = read_json(WATCHER_REQUEST, {})
         want_gen = int(request.get("generation") or 0)
-        want_armed = bool(request.get("want_armed")) and is_focus()
+        want_armed = watcher_desired_armed(request)
         keep_muted = {int(item) for item in (request.get("keep_muted") or [])}
-        if want_gen and want_gen != generation:
-            generation = want_gen
+        if watcher_needs_transition(generation, armed, request):
+            if want_gen:
+                generation = want_gen
             last_error = ""
             if want_armed:
                 seen, muted, last_error = evaluate_sink_inputs(True, members, set(), muted)
@@ -862,7 +887,7 @@ def _watcher_main() -> None:
             seen.discard(removed)
             publish()
             continue
-        if armed:
+        if armed and is_focus():
             seen, muted, last_error = evaluate_sink_inputs(True, members, seen, muted)
             if last_error:
                 armed = False
@@ -1059,6 +1084,8 @@ def main() -> None:
             notify("Focus mode", str(exc))
             raise SystemExit(str(exc))
         print(removed)
+    elif command in {"install", "install-notifications"}:
+        raise SystemExit(0 if install_notification_service() else 1)
     else:
         raise SystemExit(f"unknown command: {command}")
 
