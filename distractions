@@ -672,7 +672,10 @@ def _rollback_apply(
     plugin_call("disarm")
     write_watcher_request(rollback_gen, False, keep_muted=snapshot_muted)
     wait_watcher_ack(rollback_gen, False, timeout=3.0)
-    current = muted_ids()
+    try:
+        current = muted_ids()
+    except RuntimeError:
+        current = list(snapshot_muted)
     extras = [item for item in current if item not in snapshot_muted]
     leftover = unmute_owned(extras)
     save_muted_ids(list(snapshot_muted) + leftover)
