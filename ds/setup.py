@@ -46,11 +46,18 @@ def _writable_ancestor(dest: Path) -> bool:
     return False
 
 
-def _same_bytes(path: Path, data: bytes) -> bool:
-    try:
-        return path.read_bytes() == data
-    except OSError:
-        return False
+def _install_if_changed(src: Path, dest: Path, mode: str, *, mkdir: bool) -> int:
+    inner = (
+        f'install -D -m {mode} "$1" "$2"'
+        if mkdir
+        else f'install -m {mode} "$1" "$2"'
+    )
+    script = f'cmp -s "$1" "$2" 2>/dev/null || {inner}'
+    proc = subprocess.run(
+        ["sudo", "sh", "-c", script, "sh", str(src), str(dest)],
+        check=False,
+    )
+    return proc.returncode
 
 
 def _flush_ok(proc) -> bool:
@@ -93,14 +100,9 @@ def install():
     if "__INSTALL_USER__" in grant or not principal:
         print("refused: sudoers render", file=sys.stderr)
         return 1
-    if not _same_bytes(wrapper, shipped.read_bytes()):
-        proc = subprocess.run(
-            ["sudo", "install", "-D", "-m", "0755", str(shipped), str(wrapper)],
-            check=False,
-        )
-        if proc.returncode != 0:
-            print("sudo install wrapper failed", file=sys.stderr)
-            return 1
+    if _install_if_changed(shipped, wrapper, "0755", mkdir=True) != 0:
+        print("sudo install wrapper failed", file=sys.stderr)
+        return 1
     fd, tmp = tempfile.mkstemp(prefix="ds-sudoers.")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
@@ -119,18 +121,9 @@ def install():
         if visudo.returncode != 0:
             print((visudo.stderr or "visudo failed").strip(), file=sys.stderr)
             return 1
-        same = subprocess.run(
-            ["sudo", "-n", "cmp", "-s", tmp, str(sudoers)],
-            check=False,
-        )
-        if same.returncode != 0:
-            proc = subprocess.run(
-                ["sudo", "install", "-m", "0440", tmp, str(sudoers)],
-                check=False,
-            )
-            if proc.returncode != 0:
-                print("sudo install sudoers failed", file=sys.stderr)
-                return 1
+        if _install_if_changed(Path(tmp), sudoers, "0440", mkdir=False) != 0:
+            print("sudo install sudoers failed", file=sys.stderr)
+            return 1
     finally:
         if fd >= 0:
             os.close(fd)

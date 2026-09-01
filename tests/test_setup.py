@@ -19,14 +19,14 @@ from ds import setup
 SUDO = r"""
 import os, shutil, sys
 from pathlib import Path
-args = sys.argv[1:]
+raw = sys.argv[1:]
+args = list(raw)
+nflag = False
 if args[:1] == ["-n"]:
+    nflag = True
     args = args[1:]
 log = Path(os.environ["DS_SETUP_SUDO_LOG"])
 log.parent.mkdir(parents=True, exist_ok=True)
-log.open("a").write(" ".join(args) + "\n")
-if os.environ.get("DS_SUDO_DENY"):
-    sys.exit(1)
 lock = os.environ.get("DS_LOCK_PREFIX")
 
 def relock():
@@ -45,43 +45,88 @@ def unlock(path: Path):
         except OSError:
             continue
 
-if len(args) >= 2 and args[-2:] == ["flush", "ds"]:
-    err = os.environ.get("DS_FLUSH_ERR", "")
-    if err:
-        sys.stderr.write(err + "\n")
-    sys.exit(int(os.environ.get("DS_FLUSH_RC", "0")))
-if args[:1] == ["cmp"]:
-    files = [a for a in args[1:] if not a.startswith("-")]
-    src, dest = Path(files[0]), Path(files[1])
-    unlock(dest)
-    try:
-        same = src.read_bytes() == dest.read_bytes()
-    except OSError:
-        relock()
-        sys.exit(2)
-    relock()
-    sys.exit(0 if same else 1)
-if args[:1] == ["install"]:
+def is_wrapper_flush(a):
+    return len(a) >= 2 and a[-2:] == ["flush", "ds"] and Path(a[0]).name == "distractions-nft"
+
+def parse_install(a):
+    if a[:1] != ["install"]:
+        return None
     mode = 0o755
     dflag = False
     files = []
     i = 1
-    while i < len(args):
-        if args[i] == "-D":
+    while i < len(a):
+        if a[i] == "-D":
             dflag = True
             i += 1
-        elif args[i] == "-m":
-            mode = int(args[i + 1], 8)
+        elif a[i] == "-m":
+            mode = int(a[i + 1], 8)
             i += 2
         else:
-            files.append(args[i])
+            files.append(a[i])
             i += 1
-    src, dest = files[0], Path(files[1])
+    if len(files) != 2:
+        return None
+    return files[0], Path(files[1]), mode, dflag
+
+def do_install(src, dest, mode, dflag):
+    unlock(dest)
     unlock(dest.parent)
     dest.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(src, dest)
     os.chmod(dest, mode)
     relock()
+
+# Interactive session or grant: sh -c compare-or-install, install, wrapper, rm.
+# Standalone cmp (including sudo -n cmp) is not accepted.
+if nflag and not is_wrapper_flush(args):
+    sys.exit(1)
+log.open("a").write(" ".join(raw) + "\n")
+if os.environ.get("DS_SUDO_DENY"):
+    sys.exit(1)
+if is_wrapper_flush(args):
+    err = os.environ.get("DS_FLUSH_ERR", "")
+    if err:
+        sys.stderr.write(err + "\n")
+    sys.exit(int(os.environ.get("DS_FLUSH_RC", "0")))
+if args[:2] == ["sh", "-c"] and len(args) == 6 and args[3] == "sh":
+    script, src, dest = args[2], Path(args[4]), Path(args[5])
+    tokens = script.split()
+    if "cmp" not in tokens or "install" not in tokens:
+        relock()
+        sys.exit(1)
+    dflag = "-D" in tokens
+    mode = 0o755
+    if "-m" in tokens:
+        mode = int(tokens[tokens.index("-m") + 1], 8)
+    dest_mode = None
+    if dest.exists():
+        dest_mode = dest.stat().st_mode
+        try:
+            os.chmod(dest, dest_mode | 0o400)
+        except OSError:
+            unlock(dest)
+    try:
+        same = dest.exists() and src.read_bytes() == dest.read_bytes()
+    except OSError:
+        same = False
+    if dest.exists() and dest_mode is not None:
+        try:
+            os.chmod(dest, dest_mode)
+        except OSError:
+            pass
+    if same:
+        relock()
+        sys.exit(0)
+    do_install(src, dest, mode, dflag)
+    log.open("a").write(
+        f"install {'-D ' if dflag else ''}-m {mode:04o} {src} {dest}\n"
+    )
+    sys.exit(0)
+parsed = parse_install(args)
+if parsed is not None:
+    src, dest, mode, dflag = parsed
+    do_install(src, dest, mode, dflag)
     sys.exit(0)
 if args[:1] == ["rm"]:
     for token in args[1:]:
@@ -93,7 +138,7 @@ if args[:1] == ["rm"]:
     relock()
     sys.exit(0)
 relock()
-sys.exit(0)
+sys.exit(1)
 """
 
 VISUDO = r"""
@@ -273,8 +318,10 @@ class SetupTests(unittest.TestCase):
                 os.chmod(self.sudoers, 0o440)
         self.assertEqual(rc, 0)
         extra = self._sudo_lines()[len(sudo_after_first):]
-        self.assertTrue(any(ln.startswith("cmp ") for ln in extra))
-        self.assertFalse(any(ln.startswith("install") for ln in extra))
+        self.assertTrue(
+            any(ln.startswith("sh -c ") and str(self.sudoers) in ln for ln in extra)
+        )
+        self.assertFalse(any(ln.startswith(("install", "cmp ", "-n ")) for ln in extra))
 
     def test_cli_setup_and_remove(self):
         site = self.box.runtime / "pysite"
