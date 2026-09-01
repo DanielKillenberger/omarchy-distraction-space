@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-3-focus-mode-agent-notification-summary",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "needs_work",
+  "completion_reviewed_at": "2026-09-01T10:07:02.536608Z",
   "created_at": "2026-08-31T22:13:56.886658Z",
   "default_impl": null,
   "default_review": null,
@@ -17,7 +17,7 @@
     "fn-3-focus-mode-agent-notification-summary.4": 0
   },
   "next_task": 1,
-  "plan_review_rounds": 0,
+  "plan_review_rounds": 1,
   "plan_review_status": "ship",
   "plan_reviewed_at": "2026-09-01T07:45:55.411157Z",
   "ready": true,
@@ -2883,6 +2883,47 @@
       "task": "fn-3-focus-mode-agent-notification-summary.4",
       "timestamp": "2026-09-01T10:01:00.954697Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "28e06ef1fcfc5de7bd9c73b14bc047aa28794e27134eff6004504e92d1e96262",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-5b765252b2f08cbf30d0c7f678a9aad4",
+            "classification": "introduced",
+            "findingId": "finding-5b765252b2f08cbf30d0c7f678a9aad4",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 2,
+      "head_sha": "ad1064424441a273d55640d334960112126ad1fb",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "verdict",
+      "output_bytes": 3931,
+      "output_sha256": "4b0bf50184754ef4edfe0317d11e2c840240d8cb51b9108fae87604827d102c1",
+      "reservation_id": "598ae4dfce974fadb697056574825c46",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T10:07:01.917307Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -2896,6 +2937,7 @@
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "completion": 0,
     "impl:fn-3-focus-mode-agent-notification-summary.1": 0,
     "impl:fn-3-focus-mode-agent-notification-summary.2": 0,
     "impl:fn-3-focus-mode-agent-notification-summary.3": 0,
@@ -2916,5 +2958,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T10:01:01.461547Z"
+  "updated_at": "2026-09-01T10:07:02.537061Z"
 }
