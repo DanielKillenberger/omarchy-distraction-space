@@ -16,9 +16,11 @@ Implement `ds/lock.py` to the spec's `ds.lock` contract: `is_locked()` with lazy
 - Confirm: `enter` switches; `stay` (Stay, Escape, timeout) stays; second Super+D during a dialog is a no-op; lock flipped mid-dialog shows the lock notice; `unavailable` enters with one notice.
 - Hooks run detached with the documented env and never affect the action.
 ## Done summary
-TBD
+`ds/lock.py` implements the `ds.lock` contract: `is_locked()` with lazy `until` expiry, `lock()` / `unlock()` writing `lock.json` under a runtime flock so transitions are serialized and each hook fires once, `unlock` enforcing `reason_min_chars` and appending the audit line before clearing the lock (an unwritable log keeps the lock and returns 1), `expire_if_due()` true once per transition, `run_hook()` detached with the `DS_*` env, `enter()` with the lock check, optional confirm through `ui.confirm_enter`, the non-blocking confirm flock, lock re-check after the dialog and fail-open on `ui.Unavailable`, plus `leave`, `toggle`, and the real `lock`/`unlock`/`enter`/`leave`/`toggle` commands (the foundation's stub test was updated). Config is read through the validated loader with a defaults fallback. Implemented by cursor-agent (cursor-grok-4.6-high) in an isolated worktree; the conductor committed and integrated.
 
+stage: impl-review - ran [round 1 NEEDS_WORK (3 findings fixed in 556dba8), round 2 SHIP] (model: gpt-5.6-sol-high via cursor)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 39fef48d31fd109b83451e02b8dd59f1f5ffe054, d9cd03929227f8c9c12f6f23ebedff913a25d66a, 556dba8a3dc218d7bf54c5688914b1efe1b6cef6
+- Tests: python3 -m unittest discover tests, python3 -m unittest tests.test_lock tests.test_enter tests.test_status tests.test_config tests.test_hypr
 - PRs:
