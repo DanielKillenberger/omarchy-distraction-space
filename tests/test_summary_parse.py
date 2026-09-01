@@ -135,6 +135,54 @@ class ReservationAndBoundsTests(ParseHarness):
             )
         self.assertEqual(distractions.read_summary_control()["invocations"], 3)
 
+    def test_grok_proof_and_parse_each_consume_durable_budget(self):
+        self.ready_session()
+        first = self.write_records("one")
+        second = [
+            {
+                "seq": 2,
+                "app": "Telegram",
+                "title": "two",
+                "body": "body-two",
+                "at": "2026-09-01T00:00:00Z",
+            }
+        ]
+        with mock.patch.object(distractions, "resolve_summary_agent", return_value="grok"):
+            with mock.patch.object(distractions, "prove_grok", return_value="UNAVAILABLE") as proof:
+                with mock.patch.object(
+                    distractions,
+                    "invoke_summary_agent",
+                    return_value="summary",
+                ) as invoke:
+                    self.assertEqual(distractions.run_one_parse(first, "sess-1"), "summary")
+                    after_first = distractions.read_summary_control()
+                    self.assertEqual(after_first["invocations"], 2)
+                    self.assertTrue(after_first["grok_proven"])
+
+                    with mock.patch.object(distractions.time, "sleep"):
+                        restarted = distractions.apply_parser_restart("sess-1")
+                    self.assertTrue(restarted["grok_proven"])
+
+                    self.assertEqual(distractions.run_one_parse(second, "sess-1"), "summary")
+
+        self.assertEqual(distractions.read_summary_control()["invocations"], 3)
+        proof.assert_called_once_with()
+        self.assertEqual(invoke.call_count, 2)
+        self.assertTrue(all(call.kwargs == {"grok_proven": True} for call in invoke.call_args_list))
+
+    def test_grok_spawns_neither_proof_nor_parse_without_two_free_slots(self):
+        self.ready_session(invocations=2, grok_proven=False)
+        rows = self.write_records("one")
+        with mock.patch.object(distractions, "resolve_summary_agent", return_value="grok"):
+            with mock.patch.object(distractions, "prove_grok") as proof:
+                with mock.patch.object(distractions, "invoke_summary_agent") as invoke:
+                    self.assertEqual(distractions.run_one_parse(rows, "sess-1"), "")
+        proof.assert_not_called()
+        invoke.assert_not_called()
+        control = distractions.read_summary_control()
+        self.assertEqual(control["invocations"], 2)
+        self.assertEqual(control["last_consumed_seq"], 0)
+
     def test_reserve_rejects_already_consumed_records(self):
         self.ready_session(last_consumed_seq=2, invocations=1)
         rows = self.write_records("one", "two")
@@ -231,10 +279,9 @@ class ReservationAndBoundsTests(ParseHarness):
         rows = self.write_records("cap")
         with mock.patch.object(distractions, "resolve_summary_agent", return_value="grok"):
             with mock.patch.object(distractions, "grok_bounds_honored", return_value=False):
-                with mock.patch.object(distractions, "ensure_grok_proven"):
-                    self.assertEqual(distractions.run_one_parse(rows, "sess-1"), "")
+                self.assertEqual(distractions.run_one_parse(rows, "sess-1"), "")
         self.assertFalse(distractions.summary_result_path().exists())
-        self.assertEqual(distractions.read_summary_control()["invocations"], 1)
+        self.assertEqual(distractions.read_summary_control()["invocations"], 2)
 
     def test_timeout_empty_and_overlimit_do_not_publish(self):
         self.ready_session()

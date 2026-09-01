@@ -841,11 +841,17 @@ def ensure_grok_proven() -> str:
     return out
 
 
-def invoke_summary_agent(agent_id: str, prompt: str) -> str:
+def invoke_summary_agent(
+    agent_id: str,
+    prompt: str,
+    *,
+    grok_proven: bool = False,
+) -> str:
     if agent_id == "claude":
         return invoke_claude(prompt)
     if agent_id == "grok":
-        ensure_grok_proven()
+        if not grok_proven:
+            ensure_grok_proven()
         return invoke_grok(prompt)
     raise SummaryAgentError(f"rejected summary agent {agent_id!r}")
 
@@ -1238,6 +1244,7 @@ def default_summary_control() -> dict:
         "parser_closed": False,
         "agent_pid": None,
         "agent_starttime": "",
+        "grok_proven": False,
         "last_parse_at": 0.0,
         "parse_failed": False,
     }
@@ -1865,6 +1872,7 @@ def reserve_parse_invocation(
     expected_session: str | None = None,
     *,
     finishing: bool = False,
+    agent_id: str = "",
 ) -> dict | None:
     lock = _lock_summary_state()
     try:
@@ -1874,7 +1882,10 @@ def reserve_parse_invocation(
             return None
         if not session_id:
             return None
-        if int(control.get("invocations") or 0) >= PARSE_MAX_INVOCATIONS:
+        proof_needed = agent_id == "grok" and not bool(control.get("grok_proven"))
+        slots = 2 if proof_needed else 1
+        invocations = int(control.get("invocations") or 0)
+        if invocations + slots > PARSE_MAX_INVOCATIONS:
             return None
         if finishing:
             if int(control.get("parser_restarts") or 0) >= PARSER_RESTART_MAX:
@@ -1891,13 +1902,27 @@ def reserve_parse_invocation(
             return None
         if not included:
             return None
-        control["invocations"] = int(control.get("invocations") or 0) + 1
+        control["invocations"] = invocations + slots
         control["last_consumed_seq"] = consumed_through
         control["last_parse_at"] = time.time()
         persist = {key: value for key, value in control.items() if not str(key).startswith("_")}
         write_summary_control(persist)
         control["_prompt_records"] = included
+        control["_grok_proof_needed"] = proof_needed
         return control
+    finally:
+        lock.close()
+
+
+def mark_grok_session_proven(expected_session: str) -> bool:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if control.get("session_id") != expected_session:
+            return False
+        control["grok_proven"] = True
+        write_summary_control(control)
+        return True
     finally:
         lock.close()
 
@@ -1911,7 +1936,12 @@ def run_one_parse(
     agent = resolve_summary_agent()
     if not agent:
         return ""
-    reserved = reserve_parse_invocation(records, expected_session, finishing=finishing)
+    reserved = reserve_parse_invocation(
+        records,
+        expected_session,
+        finishing=finishing,
+        agent_id=agent,
+    )
     if reserved is None:
         return ""
     session_id = reserved.get("session_id") or ""
@@ -1921,7 +1951,16 @@ def run_one_parse(
     _agent_invocation.session_id = session_id
     try:
         try:
-            raw = invoke_summary_agent(agent, prompt)
+            grok_proven = bool(reserved.get("grok_proven"))
+            if agent == "grok" and reserved.get("_grok_proof_needed"):
+                prove_grok()
+                if not mark_grok_session_proven(session_id):
+                    raise SummaryAgentError("could not bind Grok proof to summary session")
+                grok_proven = True
+            if agent == "grok":
+                raw = invoke_summary_agent(agent, prompt, grok_proven=grok_proven)
+            else:
+                raw = invoke_summary_agent(agent, prompt)
         except (SummaryAgentError, OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
             raw = ""
     finally:
