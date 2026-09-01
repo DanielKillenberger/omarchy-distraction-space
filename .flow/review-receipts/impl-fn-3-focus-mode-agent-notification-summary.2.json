@@ -1,7 +1,7 @@
 {
   "findings": {
     "backend": "host",
-    "headSha": "b34717f31ccbea3e79c5643e92ece27c8709a005",
+    "headSha": "1a33485b14f6af8dd040c760afe84f2ebe5fe6e8",
     "items": [
       {
         "body": "Parser launches are not bound to `sessionId`; the property is never passed to Python. A delayed launch/restart can increment or clear a newer session\u2019s state, especially across the 1s/4s backoff.",
@@ -9,13 +9,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-a30b68640495786bf9d974ce27b6ba0d",
-        "lastSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "ordinal": 1,
         "rIds": [
           "R1"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "not_fixed",
         "suggestion": "Pass the expected session ID and validate it under the state lock before every mutation and after backoff.",
         "title": "Parser launches are not bound to `sessionId`; the property is never passed to Python"
       },
@@ -25,13 +25,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-cb799c9f971f35ece3f495e97e695121",
-        "lastSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "ordinal": 2,
         "rIds": [
           "R1"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "not_fixed",
         "suggestion": "Treat every unexpected owned-process exit as `--restart`, distinguish singleton contention from a crash, and add tests for pre-marker failure and lock contention.",
         "title": "An unexpected exit before `parser_active` is observed relaunches the normal path, bypassing restart accounting and backoff"
       },
@@ -41,14 +41,14 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-69f5b6cb018bd6644dd47199735710b7",
-        "lastSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "ordinal": 3,
         "rIds": [
           "R1",
           "R14"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "not_fixed",
         "suggestion": "When enabling while focused, initialize/resume a session and publish readiness after confirming notification mute is armed.",
         "title": "Mid-session enable only changes configuration"
       },
@@ -58,13 +58,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-122d6f22a37ba046a061d5a4ac1c33de",
-        "lastSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "ordinal": 4,
         "rIds": [
           "R14"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Bound serialized payload size and queue depth in QML, and enforce a bounded read independently in Python.",
         "title": "Toast fields and the pending queue are unbounded, and `cmd_capture_ping()` uses unbounded `sys"
       },
@@ -74,15 +74,80 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-9f6dd5e87d0585006817f1de018345d1",
-        "lastSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "ordinal": 5,
         "rIds": [
           "R14"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Persist sequence allocation before publishing the record, permitting gaps on append failure, or use a transaction/journal that cannot expose duplicate sequence numbers.",
         "title": "JSONL is replaced before `next_seq` is persisted"
+      },
+      {
+        "body": "After checking the expected session, the parser calls `clear_parser_running()`, which reacquires the lock and mutates whichever session is then current.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "id": "finding-0c04942213353bfc13dd49dfb5f6c953",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "ordinal": 10,
+        "rIds": [
+          "R1"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Pass the expected session into cleanup and validate it while holding the mutation lock.",
+        "title": "After checking the expected session, the parser calls `clear_parser_running()`, which reacquires the lock and mutates whichever session is then current"
+      },
+      {
+        "body": "Exit code 2 merely returns from `onExited`. The 250 ms timer then calls `syncParser()` again with `parserOwned=true`, repeatedly launching `--restart`.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "id": "finding-04cec60fee1278e27bc7366a9e0c4d76",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "ordinal": 11,
+        "rIds": [
+          "R1"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Suppress launches for that session after a busy exit until the existing parser or control marker changes.",
+        "title": "Exit code 2 merely returns from `onExited`"
+      },
+      {
+        "body": "`mark_parser_active()` and `apply_parser_restart()` validate only the session ID, then clear `finish_requested` without requiring ready/open/focused/enabled state.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "id": "finding-227b7a322495da2e68a6576686c4587c",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "ordinal": 12,
+        "rIds": [
+          "R1"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Atomically validate all start conditions and never clear a finish request during parser startup or restart.",
+        "title": "`mark_parser_active()` and `apply_parser_restart()` validate only the session ID, then clear `finish_requested` without requiring ready/open/focused/enabled state"
+      },
+      {
+        "body": "Enabling while focused directly calls `arm_summary_after_mute()` even if mute previously failed.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "id": "finding-c212712bbf6ee4f3fcdb90fe50a1bf0f",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "ordinal": 13,
+        "rIds": [
+          "R1",
+          "R14"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Verify or reapply notification blocking and publish readiness only after success.",
+        "title": "Enabling while focused directly calls `arm_summary_after_mute()` even if mute previously failed"
       },
       {
         "body": "Clean reset overwrites the old control object before reaping `agent_pid`; consequently the old child is never signalled.",
@@ -90,13 +155,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-c091536a034bd7c06f7e418f5bc03f96",
-        "lastSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "ordinal": 6,
         "rIds": [
           "R1"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Preserve and reap the previous control\u2019s child before replacing its state, with PID identity validation.",
         "title": "Clean reset overwrites the old control object before reaping `agent_pid`; consequently the old child is never signalled"
       },
@@ -106,13 +171,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-2814d8feca16a692ee623032f0bb1ee2",
-        "lastSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "ordinal": 7,
         "rIds": [
           "R2"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Create the temporary descriptor as `0600`, verify permissions, then atomically rename it.",
         "title": "Ping and control temporary files are created with umask-derived permissions, published, and only then chmodded"
       },
@@ -122,13 +187,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-f2735134ac8fae61c86cfc17c1b9ff90",
-        "lastSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "ordinal": 8,
         "rIds": [
           "R14"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Clear/cancel capture work on disable and enforce the enabled setting in `capture_ping()`.",
         "title": "Disabling summaries neither clears `captureQueue` nor cancels the in-flight capture helper"
       },
@@ -138,31 +203,48 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-1fe5000811e5145d181499ff8b5c36e4",
-        "lastSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "ordinal": 9,
         "rIds": [
           "R1",
           "R14"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Derive `CONFIG_PATH` consistently from `XDG_CONFIG_HOME`.",
         "title": "QML reads `$XDG_CONFIG_HOME`, while Python always uses `~/"
+      },
+      {
+        "body": "The Off path ignores `update_focus_config()` failure and requests finish anyway.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "id": "finding-2fd6cc6dc5db1df3144a2284e55d4654",
+        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "ordinal": 14,
+        "rIds": [
+          "R14"
+        ],
+        "severity": "P2",
+        "status": "open",
+        "suggestion": "Request finish only when the configuration update succeeds.",
+        "title": "The Off path ignores `update_focus_config()` failure and requests finish anyway"
       }
     ],
     "reviewKind": "implementation",
-    "round": 1,
+    "round": 2,
     "schemaVersion": 1,
-    "sourceReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1"
+    "sourceReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+    "supersedesReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1"
   },
   "id": "fn-3-focus-mode-agent-notification-summary.2",
   "mode": "host",
   "model": "gpt-5.6-sol-high",
-  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.2 (round 1)\n\n## Findings\n\n### 1. Parser launches are not bound to sessionId\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:97`\n- **R-IDs**: `[R1]`\n- **Problem**: Parser launches are not bound to `sessionId`; the property is never passed to Python. A delayed launch/restart can increment or clear a newer session\u2019s state, especially across the 1s/4s backoff.\n- **Suggestion**: Pass the expected session ID and validate it under the state lock before every mutation and after backoff.\n\n### 2. Unexpected exit before parser_active bypasses restart accounting\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:152`\n- **R-IDs**: `[R1]`\n- **Problem**: An unexpected exit before `parser_active` is observed relaunches the normal path, bypassing restart accounting and backoff. Lock contention also exits immediately and triggers repeated process launches without consuming the restart budget.\n- **Suggestion**: Treat every unexpected owned-process exit as `--restart`, distinguish singleton contention from a crash, and add tests for pre-marker failure and lock contention.\n\n### 3. Mid-session enable does not resume a finished session\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:309`\n- **R-IDs**: `[R1, R14]`\n- **Problem**: Mid-session enable only changes configuration. After a prior disable, `finish_requested=true` and `session_ready=false`, so re-enabling starts neither parser nor capture. A cold startup already focused with no control marker has the same problem.\n- **Suggestion**: When enabling while focused, initialize/resume a session and publish readiness after confirming notification mute is armed.\n\n### 4. Unbounded toast queue and stdin\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:39`\n- **R-IDs**: `[R14]`\n- **Problem**: Toast fields and the pending queue are unbounded, and `cmd_capture_ping()` uses unbounded `sys.stdin.read()`. Large or flooded notifications can exhaust QML memory or exceed argv limits before the 64-KiB JSONL trim applies.\n- **Suggestion**: Bound serialized payload size and queue depth in QML, and enforce a bounded read independently in Python.\n\n### 5. JSONL published before next_seq persist\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1273`\n- **R-IDs**: `[R14]`\n- **Problem**: JSONL is replaced before `next_seq` is persisted. If the control write fails, the record remains but the next capture reuses its sequence number, violating durable monotonic sequencing and potentially hiding records from the parser cursor.\n- **Suggestion**: Persist sequence allocation before publishing the record, permitting gaps on append failure, or use a transaction/journal that cannot expose duplicate sequence numbers.\n\n### 6. Clean reset drops agent_pid before reap\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1159`\n- **R-IDs**: `[R1]`\n- **Problem**: Clean reset overwrites the old control object before reaping `agent_pid`; consequently the old child is never signalled.\n- **Suggestion**: Preserve and reap the previous control\u2019s child before replacing its state, with PID identity validation.\n\n### 7. Temp files published before 0600\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1228`\n- **R-IDs**: `[R2]`\n- **Problem**: Ping and control temporary files are created with umask-derived permissions, published, and only then chmodded. Notification text can therefore exist as `0644`, and chmod failures are silently ignored.\n- **Suggestion**: Create the temporary descriptor as `0600`, verify permissions, then atomically rename it.\n\n### 8. Disable does not stop in-flight capture\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:108`\n- **R-IDs**: `[R14]`\n- **Problem**: Disabling summaries neither clears `captureQueue` nor cancels the in-flight capture helper. Because the helper does not verify `agent_summaries`, queued data can still be appended after opt-out.\n- **Suggestion**: Clear/cancel capture work on disable and enforce the enabled setting in `capture_ping()`.\n\n### 9. QML and Python disagree on config path\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:14`\n- **R-IDs**: `[R1, R14]`\n- **Problem**: QML reads `$XDG_CONFIG_HOME`, while Python always uses `~/.config`. With a non-default XDG configuration directory, capture and parser disagree about whether summaries are enabled.\n- **Suggestion**: Derive `CONFIG_PATH` consistently from `XDG_CONFIG_HOME`.\n\n## Requirements coverage\n\n| R-ID | Status |\n|---|---|\n| R1 (start only) | Not met |\n| R2 | Not met |\n| R14 | Not met |\n\nUnaddressed R-IDs: R1, R2, R14\n\n<verdict>NEEDS_WORK</verdict>\n",
-  "review_reservation_id": "f585a1b97ca14c9883485003f431f998",
+  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.2 (round 2)\n\nPrior finding #1: not-fixed\nPrior finding #2: not-fixed\nPrior finding #3: not-fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\nPrior finding #7: fixed\nPrior finding #8: fixed\nPrior finding #9: fixed\n\n## Findings\n\n### 1. Final parser cleanup is not session-bound\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1427`\n- **R-IDs**: `[R1]`\n- **Problem**: After checking the expected session, the parser calls `clear_parser_running()`, which reacquires the lock and mutates whichever session is then current.\n- **Suggestion**: Pass the expected session into cleanup and validate it while holding the mutation lock.\n\n### 2. Singleton contention still causes repeated launches\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:192`\n- **R-IDs**: `[R1]`\n- **Problem**: Exit code 2 merely returns from `onExited`. The 250 ms timer then calls `syncParser()` again with `parserOwned=true`, repeatedly launching `--restart`.\n- **Suggestion**: Suppress launches for that session after a busy exit until the existing parser or control marker changes.\n\n### 3. Delayed launches can undo clean finish\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1331`\n- **R-IDs**: `[R1]`\n- **Problem**: `mark_parser_active()` and `apply_parser_restart()` validate only the session ID, then clear `finish_requested` without requiring ready/open/focused/enabled state.\n- **Suggestion**: Atomically validate all start conditions and never clear a finish request during parser startup or restart.\n\n### 4. Mid-session enable can publish an unverified ready marker\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:325`\n- **R-IDs**: `[R1, R14]`\n- **Problem**: Enabling while focused directly calls `arm_summary_after_mute()` even if mute previously failed.\n- **Suggestion**: Verify or reapply notification blocking and publish readiness only after success.\n\n### 5. Failed disable writes still terminate the session\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:328`\n- **R-IDs**: `[R14]`\n- **Problem**: The Off path ignores `update_focus_config()` failure and requests finish anyway.\n- **Suggestion**: Request finish only when the configuration update succeeds.\n\nUnaddressed R-IDs: R1, R14\n<verdict>NEEDS_WORK</verdict>\n",
+  "review_reservation_id": "e4adad1dcfb04c348e66eeef9bafcfc3",
   "session_id": null,
   "spec": "host",
-  "timestamp": "2026-09-01T08:36:00Z",
+  "timestamp": "2026-09-01T08:43:43Z",
   "type": "impl_review",
   "verdict": "NEEDS_WORK"
 }

@@ -322,12 +322,11 @@ def cmd_agent_summaries() -> None:
                 "Focus mode",
                 "No usable summary agent. Grouped-count catch-up stays in place.",
             )
-        if updated and is_focus():
+        if updated and is_focus() and apply_notification_block():
             arm_summary_after_mute()
         return
     if selected == "Off":
-        update_focus_config(agent_summaries=False)
-        if is_focus():
+        if update_focus_config(agent_summaries=False) and is_focus():
             request_summary_finish()
         return
     notify("Focus mode", "Rejected agent-summaries setting; previous setting kept.")
@@ -1328,14 +1327,25 @@ def _session_matches(control: dict, expected_session: str | None) -> bool:
     return not expected_session or control.get("session_id") == expected_session
 
 
+def _parser_may_start(control: dict, expected_session: str | None = None) -> bool:
+    return bool(
+        _session_matches(control, expected_session)
+        and control.get("session_id")
+        and control.get("session_ready")
+        and not control.get("finish_requested")
+        and not control.get("parser_closed")
+        and agent_summaries_enabled()
+        and is_focus()
+    )
+
+
 def mark_parser_active(expected_session: str | None = None) -> dict:
     lock = _lock_summary_state()
     try:
         control = read_summary_control()
-        if not _session_matches(control, expected_session):
-            raise ValueError("session mismatch")
+        if not _parser_may_start(control, expected_session):
+            raise ValueError("parser start rejected")
         control["parser_active"] = True
-        control["finish_requested"] = False
         write_summary_control(control)
         return control
     finally:
@@ -1346,7 +1356,7 @@ def apply_parser_restart(expected_session: str | None = None) -> dict | None:
     lock = _lock_summary_state()
     try:
         control = read_summary_control()
-        if not _session_matches(control, expected_session):
+        if not _parser_may_start(control, expected_session):
             return None
         current = int(control.get("parser_restarts") or 0)
         if current >= PARSER_RESTART_MAX:
@@ -1357,7 +1367,6 @@ def apply_parser_restart(expected_session: str | None = None) -> dict | None:
             return None
         control["parser_restarts"] = current + 1
         control["parser_active"] = True
-        control["finish_requested"] = False
         write_summary_control(control)
         sleep_for = PARSER_RESTART_SLEEPS[current]
     finally:
@@ -1366,17 +1375,19 @@ def apply_parser_restart(expected_session: str | None = None) -> dict | None:
     lock = _lock_summary_state()
     try:
         control = read_summary_control()
-        if not _session_matches(control, expected_session):
+        if not _parser_may_start(control, expected_session):
             return None
         return control
     finally:
         lock.close()
 
 
-def clear_parser_running() -> dict:
+def clear_parser_running(expected_session: str | None = None) -> dict:
     lock = _lock_summary_state()
     try:
         control = read_summary_control()
+        if not _session_matches(control, expected_session):
+            return control
         control["parser_active"] = False
         if control.get("finish_requested") or control.get("parser_closed"):
             control["session_ready"] = False
@@ -1424,8 +1435,7 @@ def run_summarize_session(
         while True:
             control = read_summary_control()
             if not _session_matches(control, expected_session) or should_stop_parser(control):
-                if _session_matches(control, expected_session):
-                    clear_parser_running()
+                clear_parser_running(expected_session)
                 return 0
             unseen = observe_ping_records(last_seen)
             if unseen:

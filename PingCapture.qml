@@ -30,6 +30,9 @@ Item {
   property bool captureBusy: false
   property string capturePayload: ""
   property bool parserOwned: false
+  property bool singletonElsewhere: false
+  property bool seenRemoteOwner: false
+  property string heldSession: ""
 
   function clipField(value) {
     var text = String(value || "")
@@ -116,12 +119,25 @@ Item {
   }
 
   function syncParser() {
+    if (capture.heldSession !== capture.sessionId) {
+      capture.singletonElsewhere = false
+      capture.seenRemoteOwner = false
+      capture.heldSession = capture.sessionId
+    }
     if (!shouldRunParser()) {
       if (parserProc.running && (!capture.summariesEnabled || capture.finishRequested || capture.parserClosed))
         parserProc.running = false
       if (!capture.summariesEnabled || capture.finishRequested)
         capture.parserOwned = false
       return
+    }
+    if (capture.singletonElsewhere) {
+      if (capture.parserActive)
+        capture.seenRemoteOwner = true
+      if (!(capture.seenRemoteOwner && !capture.parserActive))
+        return
+      capture.singletonElsewhere = false
+      capture.seenRemoteOwner = false
     }
     if (parserProc.running)
       return
@@ -189,8 +205,12 @@ Item {
     stdout: StdioCollector {}
     stderr: StdioCollector {}
     onExited: function (exitCode) {
-      if (exitCode === 2)
+      if (exitCode === 2) {
+        capture.singletonElsewhere = true
+        capture.seenRemoteOwner = capture.parserActive
+        capture.heldSession = capture.sessionId
         return
+      }
       if (!capture.shouldRunParser()) {
         capture.parserOwned = false
         return

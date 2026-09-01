@@ -307,7 +307,8 @@ class ReviewFixTests(SessionHarness):
         self.ready_session(finish_requested=True, session_ready=False)
         self.cfg.write_text(json.dumps({"agent_summaries": False}) + "\n")
         with mock.patch.object(distractions, "menu_select", return_value="On"):
-            distractions.cmd_agent_summaries()
+            with mock.patch.object(distractions, "apply_notification_block", return_value=True):
+                distractions.cmd_agent_summaries()
         control = distractions.read_summary_control()
         self.assertTrue(control["session_ready"])
         self.assertFalse(control["finish_requested"])
@@ -347,6 +348,34 @@ class ReviewFixTests(SessionHarness):
     def test_config_path_follows_xdg_config_home(self):
         with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": "/tmp/xdg-config"}):
             self.assertEqual(distractions.config_home(), Path("/tmp/xdg-config"))
+
+    def test_enable_requires_mute_and_disable_requires_write(self):
+        self.ready_session(finish_requested=True, session_ready=False)
+        self.cfg.write_text(json.dumps({"agent_summaries": False}) + "\n")
+        with mock.patch.object(distractions, "menu_select", return_value="On"):
+            with mock.patch.object(distractions, "apply_notification_block", return_value=False):
+                distractions.cmd_agent_summaries()
+        self.assertFalse(distractions.read_summary_control()["session_ready"])
+        self.ready_session()
+        with mock.patch.object(distractions, "menu_select", return_value="Off"):
+            with mock.patch.object(distractions, "update_focus_config", return_value=False):
+                distractions.cmd_agent_summaries()
+        self.assertTrue(distractions.read_summary_control()["session_ready"])
+        self.assertFalse(distractions.read_summary_control()["finish_requested"])
+
+    def test_stale_parser_start_does_not_clear_finish(self):
+        self.ready_session(finish_requested=True, session_ready=False)
+        with self.assertRaises(ValueError):
+            distractions.mark_parser_active("sess-1")
+        self.assertTrue(distractions.read_summary_control()["finish_requested"])
+        self.assertFalse(distractions.read_summary_control()["parser_active"])
+
+    def test_clear_parser_running_ignores_foreign_session(self):
+        self.ready_session(parser_active=True)
+        distractions.clear_parser_running("other")
+        self.assertTrue(distractions.read_summary_control()["parser_active"])
+        distractions.clear_parser_running("sess-1")
+        self.assertFalse(distractions.read_summary_control()["parser_active"])
 
     def test_capture_stdin_is_bounded(self):
         self.ready_session()
