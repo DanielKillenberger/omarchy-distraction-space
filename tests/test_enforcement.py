@@ -702,6 +702,100 @@ class EnforcementTests(unittest.TestCase):
             any("203.0.113.66" in call.get("stdin", "") for call in self.wrapper_calls())
         )
 
+    def test_raising_network_job_keeps_worker_accepting(self):
+        self.write_list([self.site_row()])
+        self.mod.bootstrap_enforcement()
+        self.wait_net()
+        worker = self.mod._net
+        thread = worker._thread
+        self.assertTrue(worker.started)
+        self.assertIsNotNone(thread)
+        self.assertTrue(thread.is_alive())
+
+        def boom() -> bool:
+            raise RuntimeError("hyprctl_json failed")
+
+        self.mod.on_distractions = boom
+        fail_gen = worker.bump()
+        worker.request_resolve("workspace")
+        self.assertFalse(worker.wait_current_apply(fail_gen, timeout=2))
+        self.assertIs(self.mod._net, worker)
+        self.assertTrue(worker.started)
+        self.assertIs(worker._thread, thread)
+        self.assertTrue(thread.is_alive())
+
+        self.mod.on_distractions = lambda: False
+        ok_gen = worker.bump()
+        worker.request_resolve("workspace")
+        self.assertTrue(worker.wait_current_apply(ok_gen, timeout=2))
+
+    def test_overlapping_reloads_serialize_full_transaction(self):
+        self.write_list([self.site_row()])
+        self.mod.bootstrap_enforcement()
+        self.wait_net()
+        entered = threading.Event()
+        release = threading.Event()
+        apply_calls: list[int] = []
+        orig_apply = self.mod.apply_enforcement
+
+        def stall_apply(expanded, *, mutate_rules):
+            apply_calls.append(self.mod._net.generation)
+            entered.set()
+            self.assertTrue(release.wait(timeout=2))
+            return orig_apply(expanded, mutate_rules=mutate_rules)
+
+        self.mod.apply_enforcement = stall_apply
+        left1, right1 = socket.socketpair()
+        left2, right2 = socket.socketpair()
+        first = threading.Thread(target=self.mod.handle_reload_conn, args=(left1,))
+        second = threading.Thread(target=self.mod.handle_reload_conn, args=(left2,))
+        first.start()
+        right1.sendall(b"reload\n")
+        self.assertTrue(entered.wait(timeout=1))
+        gen_during_first = self.mod._net.generation
+        self.assertEqual(apply_calls, [gen_during_first])
+        second.start()
+        right2.sendall(b"reload\n")
+        time.sleep(0.1)
+        self.assertEqual(self.mod._net.generation, gen_during_first)
+        self.assertEqual(len(apply_calls), 1)
+        release.set()
+        self.assertTrue(right1.recv(64).startswith(b"ok"))
+        self.assertTrue(right2.recv(64).startswith(b"ok"))
+        first.join(timeout=8)
+        second.join(timeout=8)
+        right1.close()
+        right2.close()
+        self.assertEqual(len(apply_calls), 2)
+        self.assertGreater(self.mod._net.generation, gen_during_first)
+
+    def test_failed_reload_leaves_last_good_and_retries(self):
+        self.write_list([self.telegram_row()])
+        self.mod.bootstrap_enforcement()
+        self.wait_net()
+        self.assertEqual(self.mod.load_last_good_expand()[0]["name"], "Telegram")
+        self.write_list([self.telegram_row(), self.discord_row()])
+        self.fail_on("windowrule[omarchy-ds-discord]:match:class")
+        left, right = socket.socketpair()
+        thread = threading.Thread(target=self.mod.handle_reload_conn, args=(left,))
+        thread.start()
+        right.sendall(b"reload\n")
+        self.assertTrue(right.recv(64).startswith(b"error"))
+        thread.join(timeout=8)
+        right.close()
+        kept = self.mod.load_last_good_expand()
+        self.assertEqual([row["name"] for row in kept], ["Telegram"])
+        self.assertEqual(self.mod._active_expand[0]["name"], "Telegram")
+        (self.hypr / "fail_contains").unlink()
+        left, right = socket.socketpair()
+        thread = threading.Thread(target=self.mod.handle_reload_conn, args=(left,))
+        thread.start()
+        right.sendall(b"reload\n")
+        self.assertTrue(right.recv(64).startswith(b"ok"))
+        thread.join(timeout=8)
+        right.close()
+        self.assertEqual({row["name"] for row in self.mod.load_last_good_expand()}, {"Telegram", "Discord"})
+
     def test_create_failure_rolls_back_batch(self):
         self.write_list([self.telegram_row()])
         self.mod.bootstrap_enforcement()

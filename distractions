@@ -1695,9 +1695,12 @@ class NetworkWorker:
                 self._inflight_gen = gen
             ok = False
             try:
-                ok = self._run(kind, gen)
-            finally:
-                self._finish(gen, ok)
+                try:
+                    ok = self._run(kind, gen)
+                finally:
+                    self._finish(gen, ok)
+            except Exception:
+                pass
 
     def _run(self, kind: str, gen: int) -> bool:
         applied = True
@@ -1795,21 +1798,22 @@ def handle_reload_conn(conn: socket.socket) -> None:
     global _last_on_space
     try:
         conn.recv(1024)
-        status, expanded = load_for_enforcement()
-        if status == "corrupt":
-            conn.sendall(b"error\n")
-            return
-        ensure_net_worker()
-        _net.bump()
-        if not apply_enforcement(expanded, mutate_rules=True):
-            conn.sendall(b"error\n")
-            return
-        _last_on_space = None
-        sync_network_to_workspace()
-        if _net.wait_current_apply(_net.generation):
-            conn.sendall(b"ok\n")
-        else:
-            conn.sendall(b"error\n")
+        with _reload_lock:
+            status, expanded = load_for_enforcement()
+            if status == "corrupt":
+                conn.sendall(b"error\n")
+                return
+            ensure_net_worker()
+            _net.bump()
+            if not apply_enforcement(expanded, mutate_rules=True):
+                conn.sendall(b"error\n")
+                return
+            _last_on_space = None
+            sync_network_to_workspace()
+            if _net.wait_current_apply(_net.generation):
+                conn.sendall(b"ok\n")
+            else:
+                conn.sendall(b"error\n")
     except OSError:
         try:
             conn.sendall(b"error\n")
@@ -1889,7 +1893,7 @@ def edit_list(
 
 
 def reset_runtime_state() -> None:
-    global _active_expand, _banner_at, _last_on_space, _network_skip_notified, _net
+    global _active_expand, _banner_at, _last_on_space, _network_skip_notified, _net, _reload_lock
     _active_expand = []
     _banner_at = {}
     _last_on_space = None
@@ -1897,9 +1901,11 @@ def reset_runtime_state() -> None:
     if _net.started:
         _net.stop()
     _net = NetworkWorker()
+    _reload_lock = threading.Lock()
 
 
 _state_lock = threading.Lock()
+_reload_lock = threading.Lock()
 _active_expand: list[dict] = []
 _banner_at: dict[str, float] = {}
 _last_on_space: bool | None = None
