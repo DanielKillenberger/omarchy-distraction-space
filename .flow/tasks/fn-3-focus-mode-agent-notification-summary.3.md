@@ -28,7 +28,7 @@ Run the open one-shot under R15 bounds and choose one catch-up surface after a s
 
 **Optional** (reference as needed):
 - Planned mute task `.2` on `fn-2-focus-mode-distraction-notification` — count file and lift-then-notice to extract, not replace
-- `BarWidget.qml:26-31` — bar Process skip is not the session flock
+- `BarWidget.qml:26-31` — bar Process skip is not the parser singleton guard or state lock
 
 ## Key context
 - `enable_focus()` after lift-fail keeps retained catch-up. New toasts may append. Next successful lift XORs retained plus new state.

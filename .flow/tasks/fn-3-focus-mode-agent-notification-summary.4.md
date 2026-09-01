@@ -5,17 +5,17 @@ satisfies: [R9, R10]
 # fn-3-focus-mode-agent-notification-summary.4 Summary ledger and README
 
 ## Description
-After a shown summary, record helpful / not-helpful plus an optional note with a three-state claim, and document the opt-in path (R9, R10). Finalization (README + shipped `focus.json`) lives here.
+After a shown summary, record helpful / not-helpful plus an optional note with a three-state claim, and document the opt-in path (R9, R10). README finalization lives here; task .1 owns shipped config defaults.
 
 **Size:** S
-**Files:** `distractions`, `focus.json`, `README.md`, `tests/test_summary_ledger.py`
-**Touches:** [distractions, focus.json, README.md, tests/test_summary_ledger.py]
+**Files:** `distractions`, `README.md`, `tests/test_summary_ledger.py`
+**Touches:** [distractions, README.md, tests/test_summary_ledger.py]
 
 ## Approach
 - After the focus-off summary notice, `omarchy-menu-select` with Helpful and Not helpful. Exit 1 (cancel) does not append. Then optional zenity `--entry` for a note. Do not copy `prompt_reason()` as the helpful/not-helpful control.
 - Append one JSONL object `{at, helpful, note}` at `~/.local/state/omarchy/focus-summary-ledger.jsonl`. Notify on write failure. Keep the summary already shown (R10).
 - `.3` already includes the ledger file in the next prompt (last 20 lines / 4 KiB). Confirm that pass-through reads new lines. `.3` initially shipped with an empty-ledger stub.
-- README. New Agent summaries section between Use and Commands. State R13 consent, default vs override, closed picker (`claude` and `grok` only), focus-off one summary, ledger, and fallback to the mute grouped count. Document `agent-summaries` and `summary-agent`. Extend the `focus.json` example with the two new keys defaulting off / null.
+- README. New Agent summaries section between Use and Commands. State R13 consent, default vs override, closed picker (`claude` and `grok` only), focus-off one summary, ledger, and fallback to the mute grouped count. Document `agent-summaries` and `summary-agent`. Extend the README's `focus.json` example with the two new keys defaulting off / null; task .1 owns the shipped `focus.json`.
 - Do not add a history screen or per-app toggles.
 
 ## Investigation targets
