@@ -29,11 +29,24 @@ def load_mod():
     return mod
 
 
-class KeepReachableSetTests(unittest.TestCase):
+class QuiesceMixin:
+    """Let a background refresh finish before the temp state dir is removed."""
+
+    def quiesce(self) -> None:
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            with self.mod._keep_lock:
+                if not self.mod._keep_refreshing:
+                    return
+            time.sleep(0.01)
+
+
+class KeepReachableSetTests(QuiesceMixin, unittest.TestCase):
     def setUp(self) -> None:
         self.mod = load_mod()
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(self.quiesce)
         self.state = Path(self.tmp.name) / "state"
         self.state.mkdir(parents=True)
         self.mod.state_dir = lambda: self.state
@@ -51,14 +64,15 @@ class KeepReachableSetTests(unittest.TestCase):
     def set_keep(self, addrs: set[str]) -> None:
         """Seed the carve-out the way a warm daemon holds it."""
         with self.mod._keep_lock:
-            self.mod._keep_addrs = set(addrs)
+            self.mod._keep_hosts = {"seed": sorted(addrs)}
             self.mod._keep_fetched_at = time.time()
 
     def keep_cache(self) -> list[str]:
         path = self.state / self.mod.KEEP_ADDRS_LAST_GOOD_NAME
         if not path.exists():
             return []
-        return json.loads(path.read_text())["addrs"]
+        hosts = json.loads(path.read_text())["hosts"]
+        return sorted({a for v in hosts.values() for a in v})
 
     def test_shared_address_leaves_the_set_and_x_stays_blocked(self) -> None:
         self.set_keep(set(SHARED))
@@ -100,7 +114,7 @@ class KeepReachableSetTests(unittest.TestCase):
         self.assertIn("172.66.0.227", self.sent[0].split())
 
 
-class ApplyPathLatencyTests(unittest.TestCase):
+class ApplyPathLatencyTests(QuiesceMixin, unittest.TestCase):
     """Entering the distraction space queues a flush behind the worker.
 
     A carve-out lookup that stalls on the apply path would keep X blocked on
@@ -111,6 +125,7 @@ class ApplyPathLatencyTests(unittest.TestCase):
         self.mod = load_mod()
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(self.quiesce)
         self.state = Path(self.tmp.name) / "state"
         self.state.mkdir(parents=True)
         self.mod.state_dir = lambda: self.state
@@ -190,6 +205,122 @@ class ApplyPathLatencyTests(unittest.TestCase):
         self.mod.request_keep_reapply()
         self.assertEqual(asked, [])
 
+
+
+
+class ReviewFindingTests(QuiesceMixin, unittest.TestCase):
+    """Regressions for the four defects the PR review found."""
+
+    def setUp(self) -> None:
+        self.mod = load_mod()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(self.quiesce)
+        self.state = Path(self.tmp.name) / "state"
+        self.state.mkdir(parents=True)
+        self.mod.state_dir = lambda: self.state
+        self.mod.wrapper_present = lambda: True
+        self.mod.load_config = lambda: {}
+        self.mod.request_keep_reapply = lambda: None
+        self.sent: list[str] = []
+        self.mod.sudo_nft = lambda cmd, stdin="": (self.sent.append(stdin), 0)[1]
+
+    def settle(self, timeout: float = 5.0) -> None:
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self.mod._keep_lock:
+                if not self.mod._keep_refreshing:
+                    return
+            time.sleep(0.01)
+        self.fail("refresh thread did not finish")
+
+    # 1 - a partial refresh must not discard a sibling host's addresses
+    def test_one_failed_host_keeps_its_own_last_good(self) -> None:
+        answers = {"grok.com": ["104.18.28.234"], "api.x.ai": ["104.18.18.80"]}
+        # Patch resolve_host, not lookup_addresses: the latter goes through a
+        # 2s threaded timeout that makes this flaky under a loaded suite.
+        self.mod.resolve_host = lambda host, timeout=None: answers.get(host, [])
+        first = self.mod.refresh_keep_addrs()
+        self.assertIn("104.18.28.234", first)
+
+        # grok.com now fails; api.x.ai still answers.
+        def flaky(host: str, timeout=None):
+            if host == "grok.com":
+                raise OSError("dns down")
+            return answers.get(host, [])
+
+        self.mod.resolve_host = flaky
+        second = self.mod.refresh_keep_addrs()
+        self.assertIn("104.18.28.234", second, "a sibling's success wiped grok's cache")
+        self.assertIn("104.18.18.80", second)
+
+    # 2 - focus mode falls back per host through the shared cache
+    def test_focus_mode_uses_the_per_host_cache_on_failure(self) -> None:
+        cache = {"grok.com": ["104.18.28.234"]}
+
+        def failing(_host: str):
+            raise OSError("dns down")
+
+        addrs = self.mod.focus_block.keep_reachable_addrs(
+            {}, resolve=failing, fallback=cache
+        )
+        self.assertIn("104.18.28.234", addrs)
+
+    # 3 - the guard decides each address family on its own
+    def test_all_shared_v4_stays_blocked_even_when_v6_survives(self) -> None:
+        shared_v4 = ["104.18.28.234", "104.18.29.234"]
+        unique_v6 = ["2a04:4e42:8d::159"]
+        kept4, kept6 = self.mod.focus_block.drop_keep_reachable_split(
+            shared_v4, unique_v6, set(shared_v4)
+        )
+        self.assertEqual(kept4, shared_v4, "host became reachable over IPv4")
+        self.assertEqual(kept6, unique_v6)
+
+    def test_replace_ds_applies_the_family_split(self) -> None:
+        shared_v4 = ["104.18.28.234", "104.18.29.234"]
+        with self.mod._keep_lock:
+            self.mod._keep_hosts = {"grok.com": shared_v4}
+            self.mod._keep_fetched_at = time.time()
+        self.mod.replace_ds({"pbs.twimg.com": shared_v4 + ["2a04:4e42:8d::159"]})
+        installed = self.sent[0].split()
+        for addr in shared_v4:
+            self.assertIn(addr, installed, "v4 block dropped because v6 survived")
+
+    # 4 - a spawn failure must not wedge the flag, and the worker must survive
+    def test_a_failed_thread_spawn_clears_the_flag(self) -> None:
+        def boom(*_a, **_k):
+            raise RuntimeError("can't start new thread")
+
+        # mod.threading is the real shared module - capture the original
+        # BEFORE overwriting, or the restore puts `boom` back permanently.
+        original = threading.Thread
+        self.mod.threading.Thread = boom
+        try:
+            self.mod.start_keep_refresh()
+        finally:
+            self.mod.threading.Thread = original
+        with self.mod._keep_lock:
+            self.assertFalse(self.mod._keep_refreshing, "refresh flag wedged on")
+
+    def test_the_network_worker_survives_an_exception(self) -> None:
+        worker = self.mod.NetworkWorker()
+        calls: list[int] = []
+
+        def explode(kind, gen):
+            calls.append(gen)
+            if len(calls) == 1:
+                raise RuntimeError("boom")
+            return True
+
+        worker._run = explode
+        worker.start()
+        self.addCleanup(worker.stop)
+        worker.request_flush()
+        worker.request_flush()
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline and len(calls) < 2:
+            time.sleep(0.01)
+        self.assertEqual(len(calls), 2, "worker died on the first exception")
 
 
 if __name__ == "__main__":

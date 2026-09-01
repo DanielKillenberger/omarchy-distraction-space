@@ -86,6 +86,11 @@ SINKHOLE_UPSTREAMS = Path("/run/omarchy-focus.upstreams")
 RESOLVED_DROPIN = Path("/etc/systemd/resolved.conf.d/omarchy-focus.conf")
 RESOLV_PATH = Path("/etc/resolv.conf")
 RESOLV_BACKUP = Path("/run/omarchy-focus.resolv.bak")
+KEEP_CACHE_PATH = (
+    Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state"))
+    / "omarchy"
+    / "omarchy-ds-keep-addrs.last-good.json"
+)
 
 HOSTNAME_RE = re.compile(
     r"^(?=.{1,253}$)(?!-)[A-Za-z0-9-]{1,63}(?<!-)(\.(?!-)[A-Za-z0-9-]{1,63}(?<!-))+$"
@@ -567,21 +572,65 @@ def keep_reachable_hosts(config: dict | None = None, path: Path | None = None) -
     return kept
 
 
+def load_keep_cache(path: Path | None = None) -> dict[str, list[str]]:
+    """Per-host last-good answers for the carve-out, written by `distractions`."""
+    cache_path = path or KEEP_CACHE_PATH
+    try:
+        raw = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    hosts = raw.get("hosts")
+    if not isinstance(hosts, dict):
+        return {}
+    out: dict[str, list[str]] = {}
+    for host, addrs in hosts.items():
+        if isinstance(host, str) and isinstance(addrs, list):
+            out[host] = [a for a in addrs if isinstance(a, str) and a]
+    return out
+
+
+def keep_reachable_map(
+    config: dict | None = None,
+    resolve=None,
+    path: Path | None = None,
+    fallback: dict[str, list[str]] | None = None,
+) -> dict[str, list[str]]:
+    """Per-host carve-out answers, each host falling back on its own last-good.
+
+    A host is resolved independently, so one failed lookup cannot discard the
+    addresses of the hosts that did answer.
+    """
+    lookup = resolve or resolve_host
+    cached = fallback if fallback is not None else {}
+    out: dict[str, list[str]] = {}
+    for host in keep_reachable_hosts(config, path):
+        addrs: list[str] = []
+        try:
+            ipv4, ipv6 = lookup(host)
+            addrs = list(ipv4) + list(ipv6)
+        except Exception:
+            addrs = []
+        if not addrs:
+            addrs = list(cached.get(host) or [])
+        out[host] = _unique(addrs)
+    return out
+
+
 def keep_reachable_addrs(
     config: dict | None = None,
     resolve=None,
     path: Path | None = None,
+    fallback: dict[str, list[str]] | None = None,
 ) -> set[str]:
-    """Every address a keep-reachable host answers on right now."""
-    lookup = resolve or resolve_host
+    """Every address a keep-reachable host answers on, per-host last-good filled in."""
+    if fallback is None:
+        fallback = load_keep_cache()
+    mapped = keep_reachable_map(config, resolve, path, fallback)
     addrs: set[str] = set()
-    for host in keep_reachable_hosts(config, path):
-        try:
-            ipv4, ipv6 = lookup(host)
-        except Exception:
-            continue
-        addrs.update(ipv4)
-        addrs.update(ipv6)
+    for values in mapped.values():
+        addrs.update(values)
     return addrs
 
 
@@ -592,9 +641,23 @@ def drop_keep_reachable(addresses: list[str], keep: set[str]) -> list[str]:
     not to lift a block. If every address of a blocked host looks shared the
     block wins, so a resolver that answers the same for every name -- a captive
     portal, an NXDOMAIN hijack, a wildcard -- cannot empty the set.
+
+    Applied per address family by drop_keep_reachable_split: a host whose whole
+    v4 set looks shared must stay blocked on v4 even when its v6 survives, or
+    it is simply reachable on an IPv4-only network.
     """
     kept = [address for address in addresses if address not in keep]
     return kept if kept else list(addresses)
+
+
+def drop_keep_reachable_split(
+    ipv4: list[str], ipv6: list[str], keep: set[str]
+) -> tuple[list[str], list[str]]:
+    """Carve one host out of the block, deciding each address family on its own."""
+    return (
+        drop_keep_reachable(ipv4, keep) if ipv4 else [],
+        drop_keep_reachable(ipv6, keep) if ipv6 else [],
+    )
 
 
 SINKHOLE_V4 = {"0.0.0.0", "127.0.0.1"}
@@ -1211,10 +1274,13 @@ def _apply_block_locked(
         keep = keep_reachable_addrs(config)
         for host in hostnames:
             v4, v6 = backend.resolve(host, captured or None)
-            usable = [item for item in v4 if usable_v4(item)]
-            usable += [item for item in v6 if usable_v6(item)]
-            for item in drop_keep_reachable(usable, keep):
-                (ipv6 if ":" in item else ipv4).append(item)
+            kept4, kept6 = drop_keep_reachable_split(
+                [item for item in v4 if usable_v4(item)],
+                [item for item in v6 if usable_v6(item)],
+                keep,
+            )
+            ipv4.extend(kept4)
+            ipv6.extend(kept6)
         ipv4 = _unique(ipv4)
         ipv6 = _unique(ipv6)
         ruleset = nft_ruleset(ipv4, ipv6)
