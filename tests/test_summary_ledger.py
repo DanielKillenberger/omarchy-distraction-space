@@ -92,6 +92,22 @@ class LedgerWriteTests(LedgerHarness):
         self.assertLessEqual(len(prompt.encode()), distractions.LEDGER_PROMPT_BYTES)
         self.assertLessEqual(len(prompt.splitlines()), distractions.LEDGER_PROMPT_LINES)
 
+    def test_oversized_note_is_truncated_and_stays_valid_json(self):
+        huge = "n" * (distractions.LEDGER_NOTE_MAX + 200)
+        self.assertTrue(distractions.append_ledger_entry(True, huge))
+        raw = distractions.summary_ledger_path().read_text().splitlines()[-1]
+        row = json.loads(raw)
+        self.assertTrue(row["helpful"])
+        self.assertLessEqual(len(row["note"].encode()), distractions.LEDGER_NOTE_MAX)
+        self.assertLessEqual(len(raw.encode()), distractions.LEDGER_PROMPT_BYTES)
+        prompt = distractions.read_ledger_prompt()
+        self.assertIn('"helpful":true', prompt)
+
+    def test_lock_failure_notifies_without_raising(self):
+        with mock.patch.object(distractions, "_lock_summary_ledger", side_effect=OSError("lock")):
+            self.assertFalse(distractions.append_ledger_entry(True, "x"))
+        self.assertTrue(any("Could not save summary feedback" in item[1] for item in self.notices))
+
     def test_xor_success_asks_for_feedback(self):
         asked: list[str] = []
 

@@ -134,6 +134,7 @@ PARSE_RLIMIT_FSIZE = 1024 * 1024
 PARSE_RLIMIT_NPROC = 16
 LEDGER_PROMPT_LINES = 20
 LEDGER_PROMPT_BYTES = 4 * 1024
+LEDGER_NOTE_MAX = 1024
 SUMMARY_NOTIFY_MS = 12000
 FINISH_WAIT_S = 60.0
 WATCHER_REQUEST = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.request"
@@ -1694,11 +1695,9 @@ def read_ledger_prompt() -> str:
     if not path.exists():
         return ""
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-LEDGER_PROMPT_LINES:]
-    text = "\n".join(lines)
-    encoded = text.encode()
-    if len(encoded) <= LEDGER_PROMPT_BYTES:
-        return text
-    return encoded[-LEDGER_PROMPT_BYTES:].decode("utf-8", "ignore")
+    while lines and len("\n".join(lines).encode()) > LEDGER_PROMPT_BYTES:
+        lines.pop(0)
+    return "\n".join(lines)
 
 
 def _lock_summary_ledger():
@@ -1735,43 +1734,48 @@ def append_ledger_entry(helpful: bool, note: str) -> bool:
     payload = {
         "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "helpful": helpful,
-        "note": note,
+        "note": _truncate_bytes(note, LEDGER_NOTE_MAX),
     }
+    lock = None
     try:
         line = json.dumps(payload, separators=(",", ":")) + "\n"
-    except (TypeError, ValueError):
-        notify("Focus mode", "Could not save summary feedback.")
-        return False
-    lock = _lock_summary_ledger()
-    try:
+        if len(line.encode()) > LEDGER_PROMPT_BYTES:
+            notify("Focus mode", "Could not save summary feedback.")
+            return False
+        lock = _lock_summary_ledger()
         path = summary_ledger_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         existing = path.read_text(encoding="utf-8") if path.exists() else ""
         write_private_atomic(path, existing + line)
         return True
-    except OSError:
+    except (TypeError, ValueError, OSError):
         notify("Focus mode", "Could not save summary feedback.")
         return False
     finally:
-        lock.close()
+        if lock is not None:
+            lock.close()
 
 
 def collect_summary_feedback() -> dict | None:
-    selected = menu_select(
-        "Was this summary helpful?",
-        list(LEDGER_FEEDBACK_OPTIONS),
-        quiet=True,
-    )
-    if selected == "Helpful":
-        helpful = True
-    elif selected == "Not helpful":
-        helpful = False
-    else:
+    try:
+        selected = menu_select(
+            "Was this summary helpful?",
+            list(LEDGER_FEEDBACK_OPTIONS),
+            quiet=True,
+        )
+        if selected == "Helpful":
+            helpful = True
+        elif selected == "Not helpful":
+            helpful = False
+        else:
+            return None
+        note = prompt_ledger_note()
+        if append_ledger_entry(helpful, note):
+            return {"helpful": helpful, "note": _truncate_bytes(note, LEDGER_NOTE_MAX)}
         return None
-    note = prompt_ledger_note()
-    if append_ledger_entry(helpful, note):
-        return {"helpful": helpful, "note": note}
-    return None
+    except Exception:
+        notify("Focus mode", "Could not save summary feedback.")
+        return None
 
 
 def _record_prompt_piece(row: dict) -> str:

@@ -1,0 +1,12 @@
+{
+  "id": "fn-3-focus-mode-agent-notification-summary.4",
+  "mode": "host",
+  "model": "gpt-5.6-sol-high",
+  "review": "## Findings\n\n1. P1 distractions:1745 [R10] Ledger-lock acquisition outside error handler; exceptions can skip network teardown.\n2. P2 distractions:1741 [R10] Notes unbounded; 4 KiB prompt cap can drop helpful.\n\n<verdict>NEEDS_WORK</verdict>\n",
+  "review_reservation_id": "2661d6d146cd495089149f312eaf430c",
+  "session_id": null,
+  "spec": "host",
+  "timestamp": "2026-09-01T09:58:22Z",
+  "type": "impl_review",
+  "verdict": "NEEDS_WORK"
+}
