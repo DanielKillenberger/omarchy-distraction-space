@@ -418,7 +418,10 @@ def apply_named_rules(expanded: list[dict], *, disable_removed: bool = True) -> 
     last_good = load_rule_registry(rules_last_good_path())
     old_pending = load_rule_registry(rules_pending_path())
     if disable_removed:
-        save_rule_registry(rules_pending_path(), desired)
+        crash_pending = dict(last_good)
+        crash_pending.update(old_pending)
+        crash_pending.update(desired)
+        save_rule_registry(rules_pending_path(), crash_pending)
     created: list[str] = []
     updated: list[str] = []
     try:
@@ -528,8 +531,7 @@ def silent_move(address: str) -> None:
 
 def maybe_banner(product: str) -> None:
     stamp = now()
-    last = _banner_at.get(product, 0.0)
-    if stamp - last < BANNER_DEBOUNCE_S:
+    if product in _banner_at and stamp - _banner_at[product] < BANNER_DEBOUNCE_S:
         return
     _banner_at[product] = stamp
     notify(BANNER_TITLE, product)
@@ -836,6 +838,8 @@ def handle_reload_conn(conn: socket.socket) -> None:
         if status == "corrupt":
             conn.sendall(b"error\n")
             return
+        ensure_net_worker()
+        _net.bump()
         if not apply_enforcement(expanded, mutate_rules=True):
             conn.sendall(b"error\n")
             return

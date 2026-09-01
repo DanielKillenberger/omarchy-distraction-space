@@ -604,6 +604,67 @@ class EnforcementTests(unittest.TestCase):
         self.assertTrue(any(call["argv"] == ["replace", "ds"] for call in calls))
         self.assertFalse(any(call["argv"] == ["flush", "ds"] for call in calls))
 
+    def test_apply_failure_keeps_pending_orphans(self):
+        self.write_list([self.telegram_row()])
+        self.mod.bootstrap_enforcement()
+        self.wait_net()
+        pending = {
+            "omarchy-ds-telegram": {
+                "class": "org.telegram.desktop",
+                "workspace": "name:distraction silent",
+                "enabled": True,
+            },
+            "omarchy-ds-orphan": {
+                "class": "orphan.app",
+                "workspace": "name:distraction silent",
+                "enabled": True,
+            },
+        }
+        self.mod.save_rule_registry(self.mod.rules_pending_path(), pending)
+        self.write_list([self.telegram_row(), self.discord_row()])
+        self.fail_on("windowrule[omarchy-ds-discord]:match:class")
+        self.mod.bootstrap_enforcement()
+        kept = self.mod.load_rule_registry(self.mod.rules_pending_path())
+        self.assertIn("omarchy-ds-orphan", kept)
+
+    def test_first_banner_soon_after_boot_is_not_suppressed(self):
+        self.clock[0] = 5.0
+        self.write_list([self.telegram_row()])
+        self.mod.bootstrap_enforcement()
+        self.write_hypr("clients", [self.client("org.telegram.desktop", "distraction")])
+        self.notes.clear()
+        self.mod.process_socket2_line("openwindow>>0xabc,99,org.telegram.desktop,Telegram")
+        self.assertTrue(self.notes)
+        self.assertEqual(self.notes[0][0], self.mod.BANNER_TITLE)
+
+    def test_reload_bumps_generation_before_apply(self):
+        self.write_list([self.site_row()])
+        gate = threading.Event()
+        started = threading.Event()
+
+        def stall(host, timeout=2.0):
+            started.set()
+            gate.wait(timeout=2)
+            return ["203.0.113.66"]
+
+        self.mod.resolve_host = stall
+        self.mod.bootstrap_enforcement()
+        self.assertTrue(started.wait(timeout=1))
+        self.write_list([{"name": "OtherSite", "hosts": ["other.example"]}])
+        self.mod.resolve_host = lambda host, timeout=2.0: ["198.51.100.66"]
+        left, right = socket.socketpair()
+        thread = threading.Thread(target=self.mod.handle_reload_conn, args=(left,))
+        thread.start()
+        right.sendall(b"reload\n")
+        self.assertTrue(right.recv(64).startswith(b"ok"))
+        thread.join(timeout=2)
+        right.close()
+        gate.set()
+        self.wait_net()
+        self.assertFalse(
+            any("203.0.113.66" in call.get("stdin", "") for call in self.wrapper_calls())
+        )
+
     def test_create_failure_rolls_back_batch(self):
         self.write_list([self.telegram_row()])
         self.mod.bootstrap_enforcement()
