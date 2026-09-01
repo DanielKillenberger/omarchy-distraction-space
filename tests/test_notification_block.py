@@ -346,6 +346,15 @@ class ApplyLiftTests(unittest.TestCase):
                     mute.assert_not_called()
         self.assertEqual(distractions.muted_ids(), [10, 11])
 
+    def test_corrupt_mute_snapshot_fails_apply(self):
+        distractions.MUTED_PATH.write_text('["corrupt"]\n')
+        with mock.patch.object(distractions, "notify") as notify:
+            self.assertFalse(distractions.apply_notification_block())
+            notify.assert_called()
+            self.assertIn("Could not mute", notify.call_args[0][1])
+        with self.assertRaises(RuntimeError):
+            distractions.muted_ids()
+
     def test_persist_failure_does_not_ack_armed(self):
         with mock.patch.object(distractions, "save_muted_ids", side_effect=OSError("disk full")):
             armed, error = distractions.persist_then_ack_status(3, True, "", [4])
