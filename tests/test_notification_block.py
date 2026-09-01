@@ -218,6 +218,16 @@ class ApplyLiftTests(unittest.TestCase):
         distractions.save_muted_ids(current)
         return True
 
+    def test_apply_is_noop_when_focus_is_off(self):
+        distractions.FOCUS.write_text("off\n")
+        self.assertTrue(distractions.apply_notification_block())
+        self.assertNotIn((distractions.PLUGIN_IPC, "arm"), self.calls)
+
+    def test_unmute_treats_missing_sink_as_restored(self):
+        with mock.patch.object(distractions, "pactl_mute", return_value=False):
+            with mock.patch.object(distractions, "list_sink_inputs", return_value=[]):
+                self.assertEqual(distractions.unmute_owned([4, 5]), [])
+
     def test_apply_arms_plugin_and_watcher_without_dnd(self):
         self.assertTrue(distractions.apply_notification_block())
         methods = [call[1] if len(call) > 1 else call[0] for call in self.calls]
@@ -290,6 +300,8 @@ class QmlFilterContractTests(unittest.TestCase):
         self.assertIn("deletePopupFileFor", self.text)
         self.assertIn("liveRefs", self.text)
         self.assertIn("onObjectAdded", self.text)
+        self.assertIn("scanExistingRows", self.text)
+        self.assertIn("setArmed", self.text)
 
     def test_never_uses_dnd_or_summary_dismiss(self):
         self.assertNotIn("toggleDnd", self.text)

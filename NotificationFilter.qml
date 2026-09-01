@@ -157,6 +157,29 @@ Item {
     return -1
   }
 
+  function scanExistingRows() {
+    if (!root.armed || !root.notifications || !root.notifications.popupModel)
+      return
+    var model = root.notifications.popupModel
+    for (var i = 0; i < model.count; i++) {
+      var row = model.get(i)
+      if (!row)
+        continue
+      var originalId = row.originalId
+      var timestamp = row.timestamp
+      Qt.callLater(function () {
+        root.onRowObserved(originalId, timestamp)
+      })
+    }
+  }
+
+  function setArmed(next) {
+    var became = next && !root.armed
+    root.armed = next
+    if (became)
+      root.scanExistingRows()
+  }
+
   function tryBind() {
     if (root.ready)
       return
@@ -368,7 +391,7 @@ Item {
     id: focusStatus
     command: [root.helperPath, "focus-status"]
     onExited: function (exitCode) {
-      root.armed = root.ready && exitCode === 0
+      root.setArmed(root.ready && exitCode === 0)
     }
   }
 
@@ -404,11 +427,11 @@ Item {
     function arm(): string {
       if (!root.ready)
         return "pending"
-      root.armed = true
+      root.setArmed(true)
       return "ok"
     }
     function disarm(): string {
-      root.armed = false
+      root.setArmed(false)
       return root.pendingOps === 0 ? "drained" : "draining"
     }
     function drainState(): string {

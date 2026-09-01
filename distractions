@@ -63,7 +63,7 @@ ORIGIN_BARE = re.compile(
     re.I,
 )
 WINDOW_CLASS_RE = re.compile(r'o\.window\("([^"]+)"')
-SINK_EVENT_RE = re.compile(r"Event '(new|change)' on sink-input")
+SINK_EVENT_RE = re.compile(r"Event '(new|change|remove)' on sink-input(?: #(\d+))?")
 
 _watcher_stop = threading.Event()
 _watcher_thread: threading.Thread | None = None
@@ -515,7 +515,26 @@ def lift_notification_block() -> bool:
         lock.close()
 
 
+def sink_exists(index: int) -> bool:
+    try:
+        return any(sink_index(entry) == index for entry in list_sink_inputs())
+    except Exception:
+        return True
+
+
+def unmute_owned(ids: list[int]) -> list[int]:
+    leftover: list[int] = []
+    for index in ids:
+        if pactl_mute(index, False):
+            continue
+        if sink_exists(index):
+            leftover.append(index)
+    return leftover
+
+
 def _apply_notification_block() -> bool:
+    if not is_focus():
+        return True
     snapshot_muted = muted_ids()
     prev_request = read_json(WATCHER_REQUEST, {})
     generation = next_generation()
@@ -595,9 +614,8 @@ def _rollback_apply(
         wait_watcher_ack(rollback_gen, False, timeout=3.0)
     current = muted_ids()
     extras = [item for item in current if item not in snapshot_muted]
-    for index in extras:
-        pactl_mute(index, False)
-    save_muted_ids(list(snapshot_muted))
+    leftover = unmute_owned(extras)
+    save_muted_ids(list(snapshot_muted) + leftover)
 
 
 def pactl(*args: str, timeout: float = 4.0) -> tuple[int, str]:
@@ -734,7 +752,8 @@ def evaluate_sink_inputs(armed: bool, members: list[dict], seen: set[int], muted
                 return seen, muted, f"failed to mute sink-input {index}"
             if index not in muted:
                 muted.append(index)
-    muted = [item for item in muted if item in current_ids or not armed]
+    muted = [item for item in muted if item in current_ids]
+    seen = {item for item in seen if item in current_ids}
     return seen, muted, ""
 
 
@@ -813,10 +832,7 @@ def _watcher_main() -> None:
                             leftovers.append(index)
                     muted = leftovers
             else:
-                leftovers = []
-                for index in list(muted):
-                    if not pactl_mute(index, False):
-                        leftovers.append(index)
+                leftovers = unmute_owned(list(muted))
                 muted = leftovers
                 seen = set()
                 armed = False
@@ -834,7 +850,17 @@ def _watcher_main() -> None:
         line = proc.stdout.readline()
         if not line:
             continue
-        if armed and SINK_EVENT_RE.search(line):
+        event = SINK_EVENT_RE.search(line)
+        if not event:
+            continue
+        kind = event.group(1)
+        removed = int(event.group(2)) if event.group(2) else None
+        if kind == "remove" and removed is not None:
+            muted = [item for item in muted if item != removed]
+            seen.discard(removed)
+            publish()
+            continue
+        if armed:
             seen, muted, last_error = evaluate_sink_inputs(True, members, seen, muted)
             if last_error:
                 armed = False
