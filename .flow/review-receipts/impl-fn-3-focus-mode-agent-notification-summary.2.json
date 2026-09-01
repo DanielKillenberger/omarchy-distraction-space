@@ -1,7 +1,8 @@
 {
   "findings": {
     "backend": "host",
-    "headSha": "4d99e20279373b9298a5e68ccf1bba375aa23e5a",
+    "baseSha": "21707d871ffdf6927b2bc77fdb55829cabecbb7e",
+    "headSha": "82c9e7ec285913cc268b58fe4021e8226f63303e",
     "items": [
       {
         "body": "Parser launches are not bound to `sessionId`; the property is never passed to Python. A delayed launch/restart can increment or clear a newer session\u2019s state, especially across the 1s/4s backoff.",
@@ -9,7 +10,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-a30b68640495786bf9d974ce27b6ba0d",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 1,
         "rIds": [
           "R1"
@@ -25,7 +26,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-cb799c9f971f35ece3f495e97e695121",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 2,
         "rIds": [
           "R1"
@@ -41,7 +42,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-69f5b6cb018bd6644dd47199735710b7",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 3,
         "rIds": [
           "R1",
@@ -58,7 +59,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-122d6f22a37ba046a061d5a4ac1c33de",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 4,
         "rIds": [
           "R14"
@@ -74,7 +75,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-9f6dd5e87d0585006817f1de018345d1",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 5,
         "rIds": [
           "R14"
@@ -90,7 +91,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-0c04942213353bfc13dd49dfb5f6c953",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 10,
         "rIds": [
           "R1"
@@ -106,7 +107,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-04cec60fee1278e27bc7366a9e0c4d76",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 11,
         "rIds": [
           "R1"
@@ -122,7 +123,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-227b7a322495da2e68a6576686c4587c",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 12,
         "rIds": [
           "R1"
@@ -138,14 +139,14 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-c212712bbf6ee4f3fcdb90fe50a1bf0f",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 13,
         "rIds": [
           "R1",
           "R14"
         ],
         "severity": "P1",
-        "status": "not_fixed",
+        "status": "fixed",
         "suggestion": "Verify or reapply notification blocking and publish readiness only after success.",
         "title": "Enabling while focused directly calls `arm_summary_after_mute()` even if mute previously failed"
       },
@@ -155,7 +156,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "id": "finding-03ca1ea8c8ba0c3f8b7445feff117108",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 15,
         "rIds": [
           "R1"
@@ -171,7 +172,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "id": "finding-7ced3016137441de2ec599a6bb013b3f",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 16,
         "rIds": [
           "R14"
@@ -187,7 +188,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "id": "finding-e36dd870a35e4fe72be2d59d609970ce",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 17,
         "rIds": [
           "R1"
@@ -203,16 +204,40 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "id": "finding-8a3ce370736ee8edf4520650912cf5b8",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 18,
         "rIds": [
           "R1",
           "R14"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Flip focus off before requesting finish, and never let resume clear a finish that belongs to an in-progress leave.",
         "title": "If `disable_focus()` sets `finish_requested` before flipping the focus flag, concurrent mid-session enable can `resume=True` and republish ready"
+      },
+      {
+        "anchor": {
+          "baseSha": "21707d871ffdf6927b2bc77fdb55829cabecbb7e",
+          "headSha": "82c9e7ec285913cc268b58fe4021e8226f63303e",
+          "path": "distractions",
+          "side": "head",
+          "startLine": 2258
+        },
+        "body": "`enable_focus()` now calls `arm_summary_after_mute()`, which returns before `apply_notification_block()` when summaries are disabled. Thus the default summaries-off path skips notification mute application, especially sound muting.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
+        "id": "finding-fe5d7fbe2ef7a1719e9d6cc58ec905c8",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
+        "ordinal": 19,
+        "rIds": [
+          "R4",
+          "R13"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Always apply notification blocking on focus-on. Only publish the session mute token/readiness when summaries are enabled. Add a summaries-off focus-on test asserting mute apply occurs without parser readiness.",
+        "title": "`enable_focus()` now calls `arm_summary_after_mute()`, which returns before `apply_notification_block()` when summaries are disabled"
       },
       {
         "body": "Clean reset overwrites the old control object before reaping `agent_pid`; consequently the old child is never signalled.",
@@ -220,7 +245,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-c091536a034bd7c06f7e418f5bc03f96",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 6,
         "rIds": [
           "R1"
@@ -236,7 +261,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-2814d8feca16a692ee623032f0bb1ee2",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 7,
         "rIds": [
           "R2"
@@ -252,7 +277,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-f2735134ac8fae61c86cfc17c1b9ff90",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 8,
         "rIds": [
           "R14"
@@ -268,7 +293,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-1fe5000811e5145d181499ff8b5c36e4",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 9,
         "rIds": [
           "R1",
@@ -285,7 +310,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-2fd6cc6dc5db1df3144a2284e55d4654",
-        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "lastSeenReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
         "ordinal": 14,
         "rIds": [
           "R14"
@@ -297,19 +322,18 @@
       }
     ],
     "reviewKind": "implementation",
-    "round": 4,
+    "round": 5,
     "schemaVersion": 1,
-    "sourceReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
-    "supersedesReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94"
+    "sourceReceiptId": "review-8b3f7dc3df47c889efbcfe3fc5aa64b696bd6c8485829597ef1107ea8d87cbdd",
+    "supersedesReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730"
   },
   "id": "fn-3-focus-mode-agent-notification-summary.2",
   "mode": "host",
   "model": "gpt-5.6-sol-high",
-  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.2 (round 4)\n\nPrior finding #1: fixed\nPrior finding #2: fixed\nPrior finding #3: fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\nPrior finding #7: fixed\nPrior finding #8: fixed\nPrior finding #9: fixed\nPrior finding #10: fixed\nPrior finding #11: fixed\nPrior finding #12: fixed\nPrior finding #13: not-fixed\nPrior finding #14: fixed\nPrior finding #15: fixed\nPrior finding #16: fixed\nPrior finding #17: fixed\n\n## Findings\n\n### 1. Resume can clear an in-progress focus-off finish\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1215`\n- **R-IDs**: `[R1, R14]`\n- **Problem**: If `disable_focus()` sets `finish_requested` before flipping the focus flag, concurrent mid-session enable can `resume=True` and republish ready.\n- **Suggestion**: Flip focus off before requesting finish, and never let resume clear a finish that belongs to an in-progress leave.\n\nUnaddressed R-IDs: R1, R14\n<verdict>NEEDS_WORK</verdict>\n",
-  "review_reservation_id": "028cd6ebc9134518a267648f939b7df0",
+  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.2 (reset + host)\n\nPrior findings: all fixed\n\n## Findings\n\n### 1. Focus-on skips mute apply when summaries are off\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:2258`\n- **R-IDs**: `[R4, R13]`\n- **Problem**: `enable_focus()` now calls `arm_summary_after_mute()`, which returns before `apply_notification_block()` when summaries are disabled. Thus the default summaries-off path skips notification mute application, especially sound muting.\n- **Suggestion**: Always apply notification blocking on focus-on. Only publish the session mute token/readiness when summaries are enabled. Add a summaries-off focus-on test asserting mute apply occurs without parser readiness.\n\nVerification passed:\n- `python3 -m py_compile distractions`\n- `python3 -m unittest tests.test_summary_session` \u2014 33 tests\n\nWorking tree already had an unstaged modification to `.flow/specs/fn-3-focus-mode-agent-notification-summary.json` (14 additions, 4 deletions).\n\n<verdict>NEEDS_WORK</verdict>\n",
   "session_id": null,
   "spec": "host",
-  "timestamp": "2026-09-01T08:51:54Z",
+  "timestamp": "2026-09-01T09:05:00Z",
   "type": "impl_review",
   "verdict": "NEEDS_WORK"
 }
