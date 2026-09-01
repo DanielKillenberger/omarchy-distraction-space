@@ -1,0 +1,49 @@
+{
+  "backend": "host",
+  "counter_scope": "impl:fn-2-focus-mode-distraction-notification.1",
+  "failure_class": null,
+  "finalized": {
+    "digest": "pending",
+    "receipt": "pending",
+    "status": "not_applicable"
+  },
+  "findings_container": null,
+  "metadata": {
+    "artifact_sha256": "e4b80cd24a2da4cd1741bff2f0b51c95191b1d6bcaa127d2b83ae0943680e6d3",
+    "counter_scope": "impl:fn-2-focus-mode-distraction-notification.1",
+    "epoch": 0,
+    "forced": false,
+    "review_type": "impl"
+  },
+  "outcome": "verdict",
+  "receipt_payload": {
+    "id": "fn-2-focus-mode-distraction-notification.1",
+    "mode": "host",
+    "model": "gpt-5.6-sol-high",
+    "review": "Prior finding #1: fixed\nPrior finding #2: fixed\nPrior finding #3: fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\nPrior finding #7: fixed\nPrior finding #8: not-fixed\nPrior finding #9: fixed\nPrior finding #10: fixed\n\nNew: scanExistingRows var-closure; watcher ignores focus file; rollback disarm unmutes snapshot ids.\n\n<verdict>NEEDS_WORK</verdict>\n",
+    "session_id": null,
+    "spec": "host",
+    "timestamp": "2026-09-01T00:34:17.257664+00:00",
+    "type": "impl_review",
+    "verdict": "NEEDS_WORK"
+  },
+  "receipt_target": "/tmp/impl-review-receipt-fn-2-focus-mode-distraction-notification.1.json",
+  "reservation_id": "d44c67d63b32453c93445dcfb19aaec5",
+  "reset_rounds_on_ship": true,
+  "response": "Prior finding #1: fixed\nPrior finding #2: fixed\nPrior finding #3: fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\nPrior finding #7: fixed\nPrior finding #8: not-fixed\nPrior finding #9: fixed\nPrior finding #10: fixed\n\nNew: scanExistingRows var-closure; watcher ignores focus file; rollback disarm unmutes snapshot ids.\n\n<verdict>NEEDS_WORK</verdict>\n",
+  "response_sha256": "1d61825c38e0d4743bec12f5e3ddd91a7cd7a9e83a02e74ef6680c5bd23f40ab",
+  "review_kind": "impl",
+  "review_type": "impl",
+  "reviewed_base_sha": null,
+  "reviewed_effort": null,
+  "reviewed_head_sha": null,
+  "reviewed_model": null,
+  "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+  "spec_id": "fn-2-focus-mode-distraction-notification",
+  "status_target": null,
+  "superseded_by": null,
+  "task_id": "fn-2-focus-mode-distraction-notification.1",
+  "timestamp": "2026-09-01T00:34:17.886368Z",
+  "tool_calls": null,
+  "verdict": "NEEDS_WORK"
+}

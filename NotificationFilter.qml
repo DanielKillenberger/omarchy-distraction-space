@@ -157,6 +157,12 @@ Item {
     return -1
   }
 
+  function enqueueObserved(originalId, timestamp) {
+    Qt.callLater(function () {
+      root.onRowObserved(originalId, timestamp)
+    })
+  }
+
   function scanExistingRows() {
     if (!root.armed || !root.notifications || !root.notifications.popupModel)
       return
@@ -165,11 +171,7 @@ Item {
       var row = model.get(i)
       if (!row)
         continue
-      var originalId = row.originalId
-      var timestamp = row.timestamp
-      Qt.callLater(function () {
-        root.onRowObserved(originalId, timestamp)
-      })
+      root.enqueueObserved(row.originalId, row.timestamp)
     }
   }
 
@@ -411,11 +413,7 @@ Item {
       var row = root.notifications.popupModel.get(index)
       if (!row)
         return
-      var originalId = row.originalId
-      var timestamp = row.timestamp
-      Qt.callLater(function () {
-        root.onRowObserved(originalId, timestamp)
-      })
+      root.enqueueObserved(row.originalId, row.timestamp)
     }
   }
 

@@ -302,6 +302,7 @@ class QmlFilterContractTests(unittest.TestCase):
         self.assertIn("onObjectAdded", self.text)
         self.assertIn("scanExistingRows", self.text)
         self.assertIn("setArmed", self.text)
+        self.assertIn("enqueueObserved", self.text)
 
     def test_never_uses_dnd_or_summary_dismiss(self):
         self.assertNotIn("toggleDnd", self.text)

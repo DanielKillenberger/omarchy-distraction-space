@@ -457,11 +457,11 @@ def next_generation(current: int | None = None) -> int:
     return int(data.get("generation") or 0) + 1
 
 
-def write_watcher_request(generation: int, want_armed: bool) -> None:
-    write_json_atomic(
-        WATCHER_REQUEST,
-        {"generation": generation, "want_armed": bool(want_armed)},
-    )
+def write_watcher_request(generation: int, want_armed: bool, keep_muted: list[int] | None = None) -> None:
+    payload = {"generation": generation, "want_armed": bool(want_armed)}
+    if keep_muted is not None:
+        payload["keep_muted"] = [int(item) for item in keep_muted]
+    write_json_atomic(WATCHER_REQUEST, payload)
 
 
 def read_watcher_status() -> dict:
@@ -610,7 +610,7 @@ def _rollback_apply(
     else:
         plugin_call("disarm")
         rollback_gen = max(failed_generation + 1, next_generation())
-        write_watcher_request(rollback_gen, False)
+        write_watcher_request(rollback_gen, False, keep_muted=snapshot_muted)
         wait_watcher_ack(rollback_gen, False, timeout=3.0)
     current = muted_ids()
     extras = [item for item in current if item not in snapshot_muted]
@@ -818,7 +818,8 @@ def _watcher_main() -> None:
     while not _watcher_stop.is_set():
         request = read_json(WATCHER_REQUEST, {})
         want_gen = int(request.get("generation") or 0)
-        want_armed = bool(request.get("want_armed"))
+        want_armed = bool(request.get("want_armed")) and is_focus()
+        keep_muted = {int(item) for item in (request.get("keep_muted") or [])}
         if want_gen and want_gen != generation:
             generation = want_gen
             last_error = ""
@@ -832,9 +833,10 @@ def _watcher_main() -> None:
                             leftovers.append(index)
                     muted = leftovers
             else:
-                leftovers = unmute_owned(list(muted))
-                muted = leftovers
-                seen = set()
+                release = [item for item in muted if item not in keep_muted]
+                leftovers = unmute_owned(release)
+                muted = leftovers + [item for item in muted if item in keep_muted]
+                seen = set(muted)
                 armed = False
                 if leftovers:
                     last_error = "failed to unmute snapshotted sink-inputs"
@@ -976,6 +978,8 @@ def listen() -> None:
         apply_notification_block()
         if on_distractions():
             hide()
+    else:
+        write_watcher_request(next_generation(), False)
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(str(sock_path))
