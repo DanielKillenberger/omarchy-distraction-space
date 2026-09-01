@@ -4023,6 +4023,8 @@ def _rmdir_created(pinned: _PinnedAncestors) -> None:
                 continue
             try:
                 os.rmdir(name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                pass
             except OSError:
                 pass
             try:
@@ -4041,6 +4043,8 @@ def _rmdir_created(pinned: _PinnedAncestors) -> None:
         pinned.entries.pop()
         try:
             os.rmdir(name, dir_fd=parent_fd)
+        except FileNotFoundError:
+            continue
         except OSError:
             break
 
@@ -4086,8 +4090,8 @@ def _pin_or_create_ancestors(
                 if _stat_identity(opened) != _stat_identity(st):
                     os.close(child_fd)
                     raise _SetupClosed(f"ancestor changed during pin: {name}")
-                pinned.entries.append((name, child_fd, opened))
                 pending = None
+                pinned.entries.append((name, child_fd, opened))
             finally:
                 if pending:
                     try:
