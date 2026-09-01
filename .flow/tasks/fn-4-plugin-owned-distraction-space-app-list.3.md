@@ -38,9 +38,14 @@ Give the user a plugin UI to add, remove, and change list entries, and update in
 - [ ] README states the off-space site block is always on, the intercept banner copy, and that focus mode still locks the space
 - [ ] manifest descriptions mention the list, the always-on off-space site block, and the intercept banner
 ## Done summary
-TBD
+The plugin now edits the distraction list from a zenity helper launched by right-click on the bar (or `edit-list`). Accepted rows persist to the user list file; rejected or colliding rows stay out; a successful save only asks the listener to reload. README and manifest describe the owned list, leftover-rule migrate, nft wrapper/sudoers install and uninstall, the always-on off-space site block, and the intercept banner.
 
+baseline: green
+stage: impl-review - skipped(policy: host-deferred - conductor owns the gate)
+
+stage: impl-review - SHIP (host, gpt-5.6-sol-medium)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 578d1b2b5e7e067f09251891f0ce951ceaf56cfc
+- Tests: python3 -m py_compile distractions, python3 -c "import ast; ast.parse(open('distractions').read())", python3 -m unittest tests.test_edit_list
 - PRs:
