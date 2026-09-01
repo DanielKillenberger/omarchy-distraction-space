@@ -181,7 +181,7 @@ footer {
   <a href="#proof">Proof</a>
 </nav>
 
-<p class="kicker">Spec lens <span class="sep">·</span> plan replan <span class="sep">·</span> 2026-08-31</p>
+<p class="kicker">Spec lens <span class="sep">·</span> host-reviewed plan <span class="sep">·</span> 2026-09-01</p>
 <h1><span class="id">fn-2</span> Focus-mode distraction notification block</h1>
 <div class="dials">
   <div class="dial"><div class="v">ready</div><div class="c">status</div></div>
@@ -189,13 +189,13 @@ footer {
   <div class="dial"><div class="v">8 / 8</div><div class="c">task coverage</div></div>
   <div class="dial"><div class="v">2</div><div class="c">tasks</div></div>
   <div class="dial"><div class="v">2</div><div class="c">critical depth</div></div>
-  <div class="dial"><div class="v">unknown</div><div class="c">plan review</div></div>
+  <div class="dial"><div class="v">ship</div><div class="c">plan review</div></div>
 </div>
 
 <section id="thesis">
   <div class="shead"><span class="num">01</span><span class="ttl">Thesis</span><span class="note">scope: business</span></div>
   <p class="tldr">While focus mode is on, <strong>distraction-space apps send no banner and no sound</strong>. Other apps keep notifying. Focus off lifts this mute, then <em>one grouped per-app count</em> may play one sound.</p>
-  <div class="thesis">Mechanism is a plugin Quickshell service (same world as BarWidget.qml) plus a session stream watcher. Whole-desktop toggleDnd (Super+Ctrl+,) stays the user mute and is out of spec for R2. Live Omarchy 4 ships Quickshell, not mako. SwayNC is not the daemon.</div>
+  <div class="thesis">Mechanism is a plugin Quickshell service bound to the live <code>shell.serviceFor("omarchy.notifications")</code> plus the sole session stream watcher owned by <code>listen</code>. Whole-desktop toggleDnd (Super+Ctrl+,) stays the user mute and is out of spec for R2.</div>
 </section>
 
 <section id="dag">
@@ -206,13 +206,13 @@ footer {
       <div class="dagcol">
         <div class="node" id="n1" data-deps="" data-rids="R1,R2,R3,R6,R8">
           <div class="nid">.1</div>
-          <div class="nt">Per-app Quickshell filter and stream mute</div>
+          <div class="nt">Exact-row Quickshell filter, canonical membership, and generation-acked stream mute</div>
         </div>
       </div>
       <div class="dagcol">
         <div class="node" id="n2" data-deps="n1" data-rids="R3,R4,R5,R7">
           <div class="nid">.2</div>
-          <div class="nt">Grouped catch-up count and docs</div>
+          <div class="nt">Flocked, drained grouped catch-up count and docs</div>
         </div>
       </div>
     </div>
@@ -291,16 +291,16 @@ footer {
   <div class="shead"><span class="num">04</span><span class="ttl">Architecture</span><span class="note">scope: technical</span></div>
   <div class="archgrid">
     <div class="archbox">
-      <h3>Quickshell service</h3>
-      <p>Armed while focus is on. Dismisses member toasts via omarchy-shell notifications dismiss. Never calls toggleDnd.</p>
+      <h3>Live Quickshell service</h3>
+      <p>Lazily binds <code>shell.serviceFor("omarchy.notifications")</code>. An invisible Instantiator captures immutable keys, then <code>Qt.callLater</code> relocates, revalidates, and removes only that exact row/ref after queuing its popup-file delete.</p>
     </div>
     <div class="archbox">
-      <h3>Session stream watcher</h3>
-      <p>Evaluates new nodes for the whole session. Native PW keys or chrome cmdline host/app-id. Bare Chrome stays up. Default sink stays up.</p>
+      <h3>One acknowledged watcher</h3>
+      <p>The session-long <code>listen</code> process solely owns <code>pactl subscribe</code>. Toggles write a monotonic generation and wait for matching armed/disarmed status; they never spawn a fallback watcher.</p>
     </div>
     <div class="archbox">
-      <h3>Count then one notice</h3>
-      <p>Dismiss increments an XDG count file. No mid-focus reader. Focus off sends one grouped notify() if any count is above zero.</p>
+      <h3>Canonical identity + count</h3>
+      <p><code>notification-members.json</code> drives QML and Python. Count helpers share a <code>flock</code>, fsync, and atomic rename; lift waits for disarmed-and-drained before one notice and successful clear.</p>
     </div>
   </div>
 </section>
@@ -309,16 +309,16 @@ footer {
   <div class="shead"><span class="num">05</span><span class="ttl">Edges</span><span class="note">apply / identity / compose</span></div>
   <div class="edge">
     <div class="ecard high">
-      <h3>Chrome identity</h3>
-      <p>PWA banners match app or desktop-entry. PWA sounds match cmdline host/app-id. Bare Chrome mute fails R2.</p>
+      <h3>Chromium identity</h3>
+      <p>Banners accept only an anchored leading body origin and exact shipped host. Sounds require a host/app-id in bounded, PID-guarded process ancestry. Generic browser identity never matches.</p>
     </div>
     <div class="ecard high">
       <h3>Apply fail</h3>
       <p>Tell the user. Roll back this spec's mutation. Focus still turns on.</p>
     </div>
     <div class="ecard med">
-      <h3>User DND</h3>
-      <p>Super+Ctrl+, stays independent. This spec never toggles the Quickshell dnd boolean.</p>
+      <h3>Boundary races</h3>
+      <p>Deferred suppression rechecks row identity and live ref. Drain-before-read plus the shared count lock makes a boundary ping counted or visible, never cleared unseen.</p>
     </div>
   </div>
 </section>
@@ -349,32 +349,38 @@ footer {
   <div class="shead"><span class="num">07</span><span class="ttl">Decisions</span><span class="note">plan</span></div>
   <div class="dec">
     <div class="dtag">D1 · daemon</div>
-    <p class="q">Omarchy 4 ships Quickshell NotificationServer. Super+Ctrl+, is toggleDnd.</p>
-    <p>Chosen path: plugin Quickshell service plus session stream watcher.</p>
-    <p class="rej">Rejected: whole-desktop toggleDnd (R2). Rejected: mako custom mode. Rejected: SwayNC. Rejected: cloning omarchy.notifications.</p>
+    <p class="q">Omarchy 4 exposes its live NotificationServer service in the same QML engine.</p>
+    <p>Chosen: bind manifest id <code>omarchy.notifications</code>, require its exact-row APIs, queue deletion behind persistence, then remove and dismiss only the captured row/ref.</p>
+    <p class="rej">Rejected: <code>dismiss(summary)</code>, whole-desktop DND, a second NotificationServer, mako, and SwayNC.</p>
   </div>
   <div class="dec">
     <div class="dtag">D2 · membership</div>
     <p class="q">"i don't want to get a notification from apps in distraction space"</p>
-    <p>Chosen path: shipped window-rule apps, mapped to notification app / desktop-entry and cmdline host/app-id.</p>
-    <p class="rej">Rejected: mute every Chromium notification. Rejected: a settings list for Super+Alt+D strays.</p>
+    <p>Chosen: one canonical <code>notification-members.json</code>, parity-tested with named window rules. Native identities use app/icon and Pulse keys; PWA banners use an anchored leading body origin, while sounds use process ancestry.</p>
+    <p class="rej">Rejected: generic browser app/icon/desktop-entry, all-Chromium mute, and runtime Super+Alt+D strays.</p>
   </div>
   <div class="dec">
     <div class="dtag">D3 · catch-up</div>
     <p class="q">Grouped per-app count after focus off. May play one sound.</p>
-    <p>Chosen path: sidecar count file plus one notify().</p>
+    <p>Chosen: increment only after exact suppression is queued; serialize helpers; share a count-file <code>flock</code>; disarm and drain before locked read/notice/clear.</p>
     <p class="rej">Rejected: replay each banner. Rejected: mid-focus history (declined extra UI).</p>
+  </div>
+  <div class="dec">
+    <div class="dtag">D4 · watcher ownership</div>
+    <p class="q">New streams must be caught without duplicate owners or detached fallbacks.</p>
+    <p>Chosen: <code>listen</code> alone owns the long-lived pactl worker; focus toggles require acknowledgement of the same monotonic generation and roll back on failure.</p>
+    <p class="rej">Rejected: one-shot current-input mute, toggle-owned subscriptions, audio-service restarts, and unacknowledged apply.</p>
   </div>
 </section>
 
 <section id="proof">
   <div class="shead"><span class="num">08</span><span class="ttl">Early proof</span><span class="note">task .1</span></div>
-  <div class="proof">Task .1 must prove the Quickshell service hides banners for mapped apps only, and the stream watcher mutes matching nodes including new ones, without toggleDnd and without muting bare Chrome. If apply cannot stay per-app, stop before the count work.</div>
+  <div class="proof">Task .1 must prove live service resolution and exact-row behavior with identical-summary member/non-member toasts; no blocked popup or history file; a member <code>showHistory</code> replay left visible; every shipped PWA banner matched only by its leading origin; and every shipped PWA sound positively identified through leaf/ancestor ancestry. It must also prove one <code>listen</code>-owned watcher receives matching generation acknowledgements and catches new streams. If normal PWA identity or per-app isolation fails, stop before count work rather than widen to summary, DND, or all Chromium.</div>
 </section>
 
 <footer>
   <p>Render lens, not record. Source: .flow/specs/fn-2-focus-mode-distraction-notification.md</p>
-  <div class="stamp">staleness stamp · spec updated_at 2026-08-31T22:37:38.948666Z · repo commit 7ec5016 · rendered 2026-08-31</div>
+  <div class="stamp">staleness stamp · spec updated_at 2026-09-01T00:04:11.525372Z · repo commit 1034c13 · rendered 2026-09-01</div>
 </footer>
 <script>
 (function () {
@@ -403,6 +409,16 @@ footer {
   }
   window.addEventListener('resize', draw);
   requestAnimationFrame(draw);
+  var storageKey = 'flow-next:fn-2-focus-mode-distraction-notification:last-section';
+  try {
+    var last = localStorage.getItem(storageKey);
+    if (last && document.getElementById(last)) document.getElementById(last).classList.add('visited');
+  } catch (ignoreRead) {}
+  document.querySelectorAll('nav.rail a').forEach(function (link) {
+    link.addEventListener('click', function () {
+      try { localStorage.setItem(storageKey, link.getAttribute('href').slice(1)); } catch (ignoreWrite) {}
+    });
+  });
   document.querySelectorAll('#dag .node').forEach(function (n) {
     n.addEventListener('mouseenter', function () {
       n.classList.add('lit');
