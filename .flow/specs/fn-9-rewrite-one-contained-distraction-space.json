@@ -1,11 +1,19 @@
 {
   "branch_name": "fn-9-rewrite-one-contained-distraction-space",
+  "completion_review_status": "unknown",
+  "completion_reviewed_at": null,
   "created_at": "2026-09-01T19:22:26.321593Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-9-rewrite-one-contained-distraction-space",
+  "impl_review_rounds": {},
   "next_task": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "ready": true,
   "spec_path": ".flow/specs/fn-9-rewrite-one-contained-distraction-space.md",
   "status": "open",
   "title": "Rewrite: one contained distraction space, one config, native menu UI",
@@ -20,5 +28,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T19:59:28.473772Z"
+  "updated_at": "2026-09-01T20:06:58.262075Z"
 }
