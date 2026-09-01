@@ -272,6 +272,7 @@ class CloseDialogLedgerTests(LedgerHarness):
         class FakeGtk:
             class ResponseType:
                 CANCEL = 0
+                OK = -5
 
             class PolicyType:
                 NEVER = 0

@@ -4420,6 +4420,8 @@ def prompt_focus_close(
     if ask_feedback:
         dialog.add_button("Not helpful", response_not_helpful)
         dialog.add_button("Helpful", response_helpful)
+    elif ask_eval:
+        dialog.add_button("Done", Gtk.ResponseType.OK)
     box = dialog.get_content_area()
     box.set_spacing(12)
     box.set_margin_top(16)
@@ -4470,6 +4472,8 @@ def prompt_focus_close(
             action = "helpful"
         elif response == response_not_helpful:
             action = "not_helpful"
+        elif response == Gtk.ResponseType.OK:
+            action = "done"
         else:
             action = "dismiss"
         return {"action": action, "eval": eval_text, "note": note}

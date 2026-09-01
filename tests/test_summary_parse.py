@@ -1135,6 +1135,29 @@ class LiftFailCloseTests(CloseWindowHarness):
         self.assertEqual(row["helpful"], True)
         self.assertEqual(row["note"], "good")
 
+    def test_eval_only_done_persists_self_eval(self):
+        self.ready_session()
+        self.seed_recap("deep work")
+        self.seed_result("keep-me")
+        self.seed_counts({"Telegram": 3})
+        with self.inject_close({"action": "done", "eval": "ok-ish", "note": ""}):
+            with mock.patch.object(distractions, "lift_notification_block", return_value=False):
+                self.disable()
+        self.assertEqual(self.dialog_calls[0]["summary"], "")
+        self.assertTrue(self.dialog_calls[0]["ask_eval"])
+        self.assertFalse(self.dialog_calls[0]["ask_feedback"])
+        self.assertIn("ok-ish", self.log.read_text())
+        self.assertFalse(distractions.summary_ledger_path().exists())
+        self.assertEqual(distractions.read_counts(), {"Telegram": 3})
+        self.assertEqual(distractions.read_summary_result()["text"], "keep-me")
+        self.assertFalse(distractions.is_focus())
+
+    def test_eval_only_dialog_has_done_button(self):
+        source = Path(ROOT / "distractions").read_text()
+        close = source[source.find("def prompt_focus_close") : source.find("def run_session_close_window")]
+        self.assertIn('dialog.add_button("Done", Gtk.ResponseType.OK)', close)
+        self.assertIn('action = "done"', close)
+
 
 if __name__ == "__main__":
     unittest.main()
