@@ -4380,18 +4380,25 @@ def _commit_grant(
 
 
 def _cleanup_this_run(
-    dest: Path, pinned: _PinnedAncestors | None, created_dest: bool
+    dest: Path,
+    pinned: _PinnedAncestors | None,
+    created_dest: bool,
+    previous_wrapper: bytes | None = None,
+    trusted_uid: int = 0,
+    replaced_dest: bool = False,
 ) -> None:
     if pinned is None:
         return
     try:
-        if created_dest:
+        if replaced_dest and previous_wrapper is not None:
+            _stage_replace_wrapper(pinned, dest.name, previous_wrapper, trusted_uid)
+        elif created_dest:
             try:
                 os.unlink(dest.name, dir_fd=pinned.parent_fd)
             except FileNotFoundError:
                 pass
         _rmdir_created(pinned)
-    except OSError:
+    except (OSError, _SetupClosed):
         pass
 
 
@@ -4426,6 +4433,8 @@ def _privileged_install(
     body = sudoers_body if sudoers_body is not None else _render_sudoers(principal)
     dest_existed = False
     created_dest = False
+    replaced_dest = False
+    previous_wrapper: bytes | None = None
     pinned: _PinnedAncestors | None = None
     lock_fd = _acquire_setup_lock(lock_path)
     wrapper_fd: int | None = None
@@ -4450,10 +4459,13 @@ def _privileged_install(
                 extra = "; disabled the grant for an untrusted or missing path"
             raise _SetupClosed(f"{exc}{extra}") from exc
         if not dest_existed or not dest_ok:
+            if dest_existed:
+                previous_wrapper = _read_nofollow(pinned.parent_fd, wrapper_dest.name)
             if _grant_exists(sudoers_path) and not dest_existed:
                 _disable_grant(sudoers_path, trusted_uid, fs_root)
             created_dest = not dest_existed
             _stage_replace_wrapper(pinned, wrapper_dest.name, data, trusted_uid)
+            replaced_dest = True
         wrapper_fd = os.open(
             wrapper_dest.name,
             os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -4470,23 +4482,38 @@ def _privileged_install(
             ),
         )
     except OSError as exc:
-        if not grant_committed and not _grant_body_matches(
-            sudoers_path, body, trusted_uid, fs_root
-        ):
-            _cleanup_this_run(wrapper_dest, pinned, created_dest)
+        if not grant_committed:
+            _cleanup_this_run(
+                wrapper_dest,
+                pinned,
+                created_dest,
+                previous_wrapper=previous_wrapper,
+                trusted_uid=trusted_uid,
+                replaced_dest=replaced_dest,
+            )
         raise _SetupClosed(f"could not complete setup: {exc}") from exc
     except _SetupClosed:
-        if not grant_committed and not _grant_body_matches(
-            sudoers_path, body, trusted_uid, fs_root
-        ):
-            _cleanup_this_run(wrapper_dest, pinned, created_dest)
+        if not grant_committed:
+            _cleanup_this_run(
+                wrapper_dest,
+                pinned,
+                created_dest,
+                previous_wrapper=previous_wrapper,
+                trusted_uid=trusted_uid,
+                replaced_dest=replaced_dest,
+            )
         raise
     except KeyboardInterrupt:
-        if grant_committed or _grant_body_matches(
-            sudoers_path, body, trusted_uid, fs_root
-        ):
+        if grant_committed:
             return
-        _cleanup_this_run(wrapper_dest, pinned, created_dest)
+        _cleanup_this_run(
+            wrapper_dest,
+            pinned,
+            created_dest,
+            previous_wrapper=previous_wrapper,
+            trusted_uid=trusted_uid,
+            replaced_dest=replaced_dest,
+        )
         raise _SetupClosed("setup was interrupted; removed only this-run artifacts")
     finally:
         if wrapper_fd is not None:
@@ -4624,12 +4651,17 @@ def setup_privileged_helper() -> None:
             input=payload,
             text=True,
             check=False,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
         )
     except KeyboardInterrupt as exc:
         raise SystemExit(
             "setup was interrupted; removed only this-run artifacts"
         ) from exc
     if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "").strip()
+        if detail:
+            raise SystemExit(detail)
         raise SystemExit(_SETUP_DENIED_MSG)
     if not _wrapper_grant_ok():
         raise SystemExit(

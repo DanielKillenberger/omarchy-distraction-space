@@ -171,6 +171,28 @@ class SetupTests(unittest.TestCase):
                         self.mod.setup_privileged_helper()
         self.assertIn("cannot remove a root-owned grant", str(ctx.exception))
 
+    def test_child_failure_is_not_reported_as_denied_sudo(self):
+        def fake_run(cmd, **kwargs):
+            argv = [str(part) for part in cmd]
+            if argv[:2] == ["sudo", "-k"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if argv[:1] == ["sudo"] and argv[1:2] not in (["-n"], ["-k"]):
+                return subprocess.CompletedProcess(
+                    cmd,
+                    1,
+                    stdout="",
+                    stderr="untrusted ancestor; disabled the grant for an untrusted or missing path",
+                )
+            raise AssertionError(argv)
+
+        with mock.patch.object(self.mod, "_setup_already_installed", return_value=False):
+            with mock.patch.object(self.mod, "_setup_has_tty", return_value=True):
+                with mock.patch.object(self.mod.subprocess, "run", fake_run):
+                    with self.assertRaises(SystemExit) as ctx:
+                        self.mod.setup_privileged_helper()
+        self.assertIn("disabled the grant", str(ctx.exception))
+        self.assertNotIn("cannot remove a root-owned grant", str(ctx.exception))
+
     def test_root_install_script_is_self_contained(self):
         script = self.mod._root_install_script((ROOT / "distractions").read_text())
         compile(script, "<root-install>", "exec")
@@ -359,6 +381,62 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(dest.read_bytes(), args["wrapper_src"].read_bytes())
         self.assertTrue(sudoers.exists())
         self.assertEqual(stat.S_IMODE(sudoers.stat().st_mode), 0o440)
+
+    def test_interrupt_after_wrapper_rename_restores_previous(self):
+        root, src, dest, sudoers, lock = self._tree()
+        dest.parent.mkdir(parents=True)
+        for path in [root / "usr", root / "usr/local", root / "usr/local/libexec", dest.parent]:
+            os.chmod(path, 0o755)
+        dest.write_bytes(b"previous-wrapper\n")
+        os.chmod(dest, 0o755)
+        sudoers.write_text(self.mod._render_sudoers(self.principal))
+        os.chmod(sudoers, 0o440)
+
+        def interrupt_before_grant(*args, **kwargs):
+            raise KeyboardInterrupt()
+
+        with mock.patch.object(self.mod, "_commit_grant", interrupt_before_grant):
+            with self.assertRaises(self.mod._SetupClosed) as ctx:
+                self.mod._privileged_install(
+                    wrapper_src=src,
+                    wrapper_dest=dest,
+                    sudoers_path=sudoers,
+                    principal=self.principal,
+                    trusted_uid=self.uid,
+                    lock_path=lock,
+                    fs_root=root,
+                )
+        self.assertIn("interrupted", str(ctx.exception))
+        self.assertEqual(dest.read_bytes(), b"previous-wrapper\n")
+        self.assertEqual(sudoers.read_text(), self.mod._render_sudoers(self.principal))
+
+    def test_interrupt_before_replace_with_matching_grant_fails_closed(self):
+        root, src, dest, sudoers, lock = self._tree()
+        dest.parent.mkdir(parents=True)
+        for path in [root / "usr", root / "usr/local", root / "usr/local/libexec", dest.parent]:
+            os.chmod(path, 0o755)
+        dest.write_bytes(b"stale-usage-wrapper\n")
+        os.chmod(dest, 0o755)
+        sudoers.write_text(self.mod._render_sudoers(self.principal))
+        os.chmod(sudoers, 0o440)
+
+        def interrupt_replace(*args, **kwargs):
+            raise KeyboardInterrupt()
+
+        with mock.patch.object(self.mod, "_stage_replace_wrapper", interrupt_replace):
+            with self.assertRaises(self.mod._SetupClosed) as ctx:
+                self.mod._privileged_install(
+                    wrapper_src=src,
+                    wrapper_dest=dest,
+                    sudoers_path=sudoers,
+                    principal=self.principal,
+                    trusted_uid=self.uid,
+                    lock_path=lock,
+                    fs_root=root,
+                )
+        self.assertIn("interrupted", str(ctx.exception))
+        self.assertEqual(dest.read_bytes(), b"stale-usage-wrapper\n")
+        self.assertEqual(sudoers.read_text(), self.mod._render_sudoers(self.principal))
 
     def test_disable_grant_when_dest_missing_then_repair(self):
         root, src, dest, sudoers, lock = self._tree()
