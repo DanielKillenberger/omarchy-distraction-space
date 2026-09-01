@@ -1,0 +1,16 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-01T13:52:09.335245Z",
+  "depends_on": [
+    "fn-7-one-time-setup-privilege-and-helper.1"
+  ],
+  "id": "fn-7-one-time-setup-privilege-and-helper.2",
+  "priority": null,
+  "spec": "fn-7-one-time-setup-privilege-and-helper",
+  "spec_path": ".flow/tasks/fn-7-one-time-setup-privilege-and-helper.2.md",
+  "status": "todo",
+  "title": "Worker stay-up and serialized reload",
+  "updated_at": "2026-09-01T14:27:38.058796Z"
+}
