@@ -965,20 +965,37 @@ def sink_index(entry: dict) -> int | None:
     return None
 
 
+def sink_is_muted(entry: dict) -> bool:
+    for key in ("mute", "muted"):
+        if key not in entry:
+            continue
+        value = entry[key]
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "on", "muted"}:
+            return True
+        if text in {"0", "false", "no", "off", "unmuted"}:
+            return False
+    return False
+
+
 def evaluate_sink_inputs(armed: bool, members: list[dict], seen: set[int], muted: list[int]) -> tuple[set[int], list[int], str]:
     try:
         entries = list_sink_inputs()
     except Exception as exc:
         return seen, muted, str(exc)
     current_ids = set()
+    owned = set(muted)
     for entry in entries:
         index = sink_index(entry)
         if index is None:
             continue
         current_ids.add(index)
-        if not armed or index in seen:
+        if not armed:
             continue
-        seen.add(index)
         props = sink_properties(entry)
         pid_raw = props.get("application.process.id") or props.get("application.process.id".replace(".", "_"))
         try:
@@ -986,11 +1003,23 @@ def evaluate_sink_inputs(armed: bool, members: list[dict], seen: set[int], muted
         except ValueError:
             pid = 0
         chain = walk_process_cmdlines(pid) if pid else []
-        if match_stream(props, chain, members):
-            if not pactl_mute(index, True):
+        if not match_stream(props, chain, members):
+            seen.add(index)
+            continue
+        already_muted = sink_is_muted(entry)
+        if index in owned:
+            if not already_muted and not pactl_mute(index, True):
                 return seen, muted, f"failed to mute sink-input {index}"
-            if index not in muted:
-                muted.append(index)
+            seen.add(index)
+            continue
+        if already_muted:
+            seen.add(index)
+            continue
+        if not pactl_mute(index, True):
+            return seen, muted, f"failed to mute sink-input {index}"
+        muted.append(index)
+        owned.add(index)
+        seen.add(index)
     muted = [item for item in muted if item in current_ids]
     seen = {item for item in seen if item in current_ids}
     return seen, muted, ""

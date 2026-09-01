@@ -438,6 +438,100 @@ class ApplyLiftTests(unittest.TestCase):
                 _seen, _muted, error = distractions.evaluate_sink_inputs(True, members, set(), [])
         self.assertIn("failed to mute", error)
 
+    def test_change_event_reevaluates_initially_unmatched_stream(self):
+        members = distractions.load_members()
+        first = {"index": 7, "mute": False, "properties": {"application.name": "Unknown"}}
+        changed = {
+            "index": 7,
+            "mute": False,
+            "properties": {
+                "application.name": "Telegram Desktop",
+                "application.process.binary": "telegram-desktop",
+            },
+        }
+        mute_calls: list[tuple[int, bool]] = []
+
+        def record_mute(index, muted):
+            mute_calls.append((index, muted))
+            return True
+
+        with mock.patch.object(distractions, "pactl_mute", record_mute):
+            with mock.patch.object(distractions, "list_sink_inputs", return_value=[first]):
+                seen, muted, error = distractions.evaluate_sink_inputs(True, members, set(), [])
+            self.assertEqual(error, "")
+            self.assertEqual(muted, [])
+            with mock.patch.object(distractions, "list_sink_inputs", return_value=[changed]):
+                seen, muted, error = distractions.evaluate_sink_inputs(True, members, seen, muted)
+        self.assertEqual(error, "")
+        self.assertEqual(muted, [7])
+        self.assertIn((7, True), mute_calls)
+
+    def test_premuted_matching_stream_is_not_owned(self):
+        members = distractions.load_members()
+        premuted = {
+            "index": 9,
+            "mute": True,
+            "properties": {
+                "application.name": "Telegram Desktop",
+                "application.process.binary": "telegram-desktop",
+            },
+        }
+        mute_calls: list[tuple[int, bool]] = []
+
+        def record_mute(index, muted):
+            mute_calls.append((index, muted))
+            return True
+
+        with mock.patch.object(distractions, "list_sink_inputs", return_value=[premuted]):
+            with mock.patch.object(distractions, "pactl_mute", record_mute):
+                _seen, muted, error = distractions.evaluate_sink_inputs(True, members, set(), [])
+        self.assertEqual(error, "")
+        self.assertEqual(muted, [])
+        self.assertEqual(mute_calls, [])
+
+    def test_apply_fail_rollback_unmutes_only_streams_this_spec_muted(self):
+        members = distractions.load_members()
+        premuted = {
+            "index": 9,
+            "mute": True,
+            "properties": {
+                "application.name": "Telegram Desktop",
+                "application.process.binary": "telegram-desktop",
+            },
+        }
+        fresh = {
+            "index": 10,
+            "mute": False,
+            "properties": {
+                "application.name": "Signal",
+                "application.process.binary": "signal-desktop",
+            },
+        }
+        mute_calls: list[tuple[int, bool]] = []
+
+        def record_mute(index, muted):
+            mute_calls.append((index, muted))
+            return True
+
+        with mock.patch.object(distractions, "list_sink_inputs", return_value=[premuted, fresh]):
+            with mock.patch.object(distractions, "pactl_mute", record_mute):
+                _seen, muted, error = distractions.evaluate_sink_inputs(True, members, set(), [])
+                self.assertEqual(error, "")
+                self.assertEqual(muted, [10])
+                snapshot_muted: list[int] = []
+                extras = [item for item in muted if item not in snapshot_muted]
+                leftover = distractions.unmute_owned(extras)
+        self.assertEqual(leftover, [])
+        self.assertEqual(mute_calls, [(10, True), (10, False)])
+        self.assertNotIn((9, True), mute_calls)
+        self.assertNotIn((9, False), mute_calls)
+
+    def test_sink_is_muted_reads_pulse_fields(self):
+        self.assertTrue(distractions.sink_is_muted({"mute": True}))
+        self.assertTrue(distractions.sink_is_muted({"muted": "yes"}))
+        self.assertFalse(distractions.sink_is_muted({"mute": False}))
+        self.assertFalse(distractions.sink_is_muted({"index": 1}))
+
 
 class WatcherAckLivenessTests(unittest.TestCase):
     def setUp(self):
