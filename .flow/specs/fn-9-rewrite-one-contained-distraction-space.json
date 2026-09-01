@@ -10,10 +10,141 @@
   "id": "fn-9-rewrite-one-contained-distraction-space",
   "impl_review_rounds": {},
   "next_task": 1,
-  "plan_review_rounds": 0,
-  "plan_review_status": "unknown",
-  "plan_reviewed_at": null,
+  "plan_review_rounds": 1,
+  "plan_review_status": "needs_work",
+  "plan_reviewed_at": "2026-09-01T20:14:21.977458Z",
   "ready": true,
+  "review_attempts": [
+    {
+      "artifact_sha256": "cca720f3a5551c4af1dfe51df13e082aaa6a41828bbfac3fbc51e1ec441285b8",
+      "backend": "cursor",
+      "base_sha": "6ae5284886e31abf1d7189a0e259402807bbf9e9",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-150269f392d4f794221b046f9f5de339",
+            "classification": "introduced",
+            "findingId": "finding-150269f392d4f794221b046f9f5de339",
+            "firstSeenThisRound": true,
+            "severity": "P0",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-d1661a3e727a55eaf0095a600d45a8ba",
+            "classification": "introduced",
+            "findingId": "finding-d1661a3e727a55eaf0095a600d45a8ba",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-e99ab367d0866a14e7408d01a68a42fc",
+            "classification": "introduced",
+            "findingId": "finding-e99ab367d0866a14e7408d01a68a42fc",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-ce0071caea1af5bbbf9be779ce3451a4",
+            "classification": "introduced",
+            "findingId": "finding-ce0071caea1af5bbbf9be779ce3451a4",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-ca2994f3c5b306263122e12fdf013817",
+            "classification": "introduced",
+            "findingId": "finding-ca2994f3c5b306263122e12fdf013817",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-278918f540a414629d6d31d49acc5953",
+            "classification": "introduced",
+            "findingId": "finding-278918f540a414629d6d31d49acc5953",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-c6a91fec5a8fb5491364a134d1517a54",
+            "classification": "introduced",
+            "findingId": "finding-c6a91fec5a8fb5491364a134d1517a54",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-f6c5650af6804dce9bc2b19facba83ce",
+            "classification": "introduced",
+            "findingId": "finding-f6c5650af6804dce9bc2b19facba83ce",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-63ac67038be4c25968ff37a29f0ee5e2",
+            "classification": "introduced",
+            "findingId": "finding-63ac67038be4c25968ff37a29f0ee5e2",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-568da057d978adf2de16a397d73b721c",
+            "classification": "introduced",
+            "findingId": "finding-568da057d978adf2de16a397d73b721c",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-2da25159ffe0256709791aebaa5fe574",
+            "classification": "introduced",
+            "findingId": "finding-2da25159ffe0256709791aebaa5fe574",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "6ae5284886e31abf1d7189a0e259402807bbf9e9",
+      "head_sha_observed": true,
+      "kind": "plan",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 7164,
+      "output_sha256": "3d9c62063bdedc61fa8dc05bfa92356aa89c9cf3fbef4d7a4bd0dd7d9e666a1a",
+      "reservation_id": "1533690594a345eca10ee82d475bafa9",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T20:14:21.974800Z",
+      "verdict": "NEEDS_WORK"
+    }
+  ],
+  "review_hash_epoch": {},
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "plan": 0
+  },
   "spec_path": ".flow/specs/fn-9-rewrite-one-contained-distraction-space.md",
   "status": "open",
   "title": "Rewrite: one contained distraction space, one config, native menu UI",
@@ -28,5 +159,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T20:06:58.262075Z"
+  "updated_at": "2026-09-01T20:17:24.629777Z"
 }

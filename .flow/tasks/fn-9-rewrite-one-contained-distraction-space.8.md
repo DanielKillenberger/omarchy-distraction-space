@@ -8,6 +8,7 @@ Delete `focus_block.py`, `focus_dns.py`, `NotificationFilter.qml`, `PingCapture.
 
 **Files:** deletions, `hypr/*.lua`, `manifest.json`, `README.md`, `tests/test_tree.py`.
 
+**Touches:** [focus_block.py, focus_dns.py, NotificationFilter.qml, PingCapture.qml, notification-members.json, app-list-defaults.json, defaults/**, focus.json, tests/**, hypr/**, manifest.json, README.md]
 ## Acceptance
 - None of the deleted files exist; `git grep focus_block` is empty.
 - `python3 -m unittest discover tests` passes; non-test Python under 2,000 lines.
