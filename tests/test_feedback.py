@@ -132,6 +132,14 @@ class FeedbackTests(unittest.TestCase):
         self.assertIn(b"still.example", page)
         self.assertIn(b"Super+D", page)
 
+    def test_blank_line_terminated_garbage_closes_silently(self):
+        self._start()
+        junk = _exchange("127.0.0.1", HTTP_PORT, b"garbage\r\n\r\n", timeout=1.0)
+        self.assertEqual(junk, b"")
+        page = _http_get("still.example")
+        self.assertIn(b"still.example", page)
+        self.assertIn(b"Super+D", page)
+
     def test_sni_parser_valid_clienthello(self):
         data = make_client_hello("www.youtube.com")
         self.assertEqual(feedback.parse_sni(data), "www.youtube.com")
@@ -148,6 +156,14 @@ class FeedbackTests(unittest.TestCase):
 
     def test_sni_parser_no_sni(self):
         self.assertIsNone(feedback.parse_sni(make_client_hello(None)))
+
+    def test_first_banner_when_monotonic_below_debounce(self):
+        with patch("ds.feedback.time.monotonic", return_value=10.0):
+            feedback._maybe_banner("early.example")
+        banners = [n for n in self.notices if n[0] == "Blocked on this workspace"]
+        self.assertEqual(len(banners), 1)
+        self.assertIn("early.example", banners[0][1])
+        self.assertIn("Super+D", banners[0][1])
 
     def test_concurrent_clienthellos_one_banner_per_host(self):
         self._start()

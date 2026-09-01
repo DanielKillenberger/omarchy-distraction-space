@@ -201,6 +201,22 @@ def _headers_done(buf):
     return b"\r\n\r\n" in buf or b"\n\n" in buf
 
 
+def _http_request_line(buf):
+    nl = buf.find(b"\n")
+    if nl < 0:
+        return False
+    line = buf[:nl].rstrip(b"\r")
+    parts = line.split(b" ")
+    if len(parts) != 3:
+        return False
+    method, target, version = parts
+    if not method.isalpha() or not target:
+        return False
+    if len(version) != 8 or not version.startswith(b"HTTP/1."):
+        return False
+    return version[7:8].isdigit()
+
+
 def _tls_done(buf):
     if len(buf) < 5:
         return False
@@ -241,7 +257,7 @@ def _page(host, locked):
 def _http_conn(conn):
     try:
         buf = _read_bounded(conn, _headers_done)
-        if not _headers_done(buf):
+        if not _headers_done(buf) or not _http_request_line(buf):
             return
         host = _host_from_http(buf) or "this site"
         try:
@@ -274,8 +290,8 @@ def _maybe_banner(host):
     now = time.monotonic()
     key = host.lower()
     with _banner_lock:
-        last = _banner_at.get(key, 0.0)
-        if now - last < BANNER_DEBOUNCE_S:
+        last = _banner_at.get(key)
+        if last is not None and now - last < BANNER_DEBOUNCE_S:
             return
         _banner_at[key] = now
     _notify("Blocked on this workspace", f"{host} opens in the distraction space — Super+D.")
