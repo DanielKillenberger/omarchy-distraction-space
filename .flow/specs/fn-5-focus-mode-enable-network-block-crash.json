@@ -82,7 +82,7 @@
     "impl:fn-5-focus-mode-enable-network-block-crash.1": 0
   },
   "spec_path": ".flow/specs/fn-5-focus-mode-enable-network-block-crash.md",
-  "status": "open",
+  "status": "done",
   "title": "Focus-mode enable network-block crash",
   "tracker": {
     "baseHashFlow": null,
@@ -95,5 +95,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T12:21:12.455205Z"
+  "updated_at": "2026-09-01T12:25:13.916716Z"
 }
