@@ -8,7 +8,9 @@
   "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-2-focus-mode-distraction-notification",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-2-focus-mode-distraction-notification.1": 1
+  },
   "next_task": 1,
   "plan_review_rounds": 0,
   "plan_review_status": "ship",
@@ -428,6 +430,32 @@
       "task": null,
       "timestamp": "2026-09-01T00:04:10.991431Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "3c8c9fabbf3060a68fbd88ff13c4534b47ff1a7fc1ce250905c9888b2d96e9d8",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "7aa43bd4fd85a0458e779b2d2ba3a56019d1fcd1",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 467,
+      "output_sha256": "e9a0a5cdff113521f61cf8dd11114a603f32a6b4a6a6adeaaef47c7ff2320901",
+      "reservation_id": "d244cb56640545268a3f8373bd550fbd",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T00:23:47.982378Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -437,6 +465,7 @@
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "impl:fn-2-focus-mode-distraction-notification.1": 0,
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-2-focus-mode-distraction-notification.md",
@@ -453,5 +482,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T00:04:11.525372Z"
+  "updated_at": "2026-09-01T00:23:48.553580Z"
 }

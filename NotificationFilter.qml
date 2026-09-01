@@ -101,31 +101,26 @@ Item {
   function memberLabelFor(row) {
     if (!row || isPluginToast(row.app))
       return ""
-    if (isGenericBrowserIdentity(row.app) || isGenericBrowserIdentity(row.appIcon)) {
-      // Generic browser identity is never enough on its own.
-    }
     var i
-    for (i = 0; i < root.members.length; i++) {
-      var member = root.members[i]
-      var native = member.native || null
-      if (native) {
-        if (listHas(native.app, row.app) || listHas(native.appIcon, row.appIcon))
-          return member.label
+    if (isChromiumDerived(row.app, row.appIcon)) {
+      var host = leadingOriginHost(row.body)
+      if (!host)
+        return ""
+      for (i = 0; i < root.members.length; i++) {
+        var chromium = root.members[i].chromium || null
+        if (!chromium || !chromium.hosts)
+          continue
+        for (var h = 0; h < chromium.hosts.length; h++) {
+          if (normalizeToken(chromium.hosts[h]) === host)
+            return root.members[i].label
+        }
       }
+      return ""
     }
-    if (!isChromiumDerived(row.app, row.appIcon))
-      return ""
-    var host = leadingOriginHost(row.body)
-    if (!host)
-      return ""
     for (i = 0; i < root.members.length; i++) {
-      var chromium = root.members[i].chromium || null
-      if (!chromium || !chromium.hosts)
-        continue
-      for (var h = 0; h < chromium.hosts.length; h++) {
-        if (normalizeToken(chromium.hosts[h]) === host)
-          return root.members[i].label
-      }
+      var native = root.members[i].native || null
+      if (native && (listHas(native.app, row.app) || listHas(native.appIcon, row.appIcon)))
+        return root.members[i].label
     }
     return ""
   }

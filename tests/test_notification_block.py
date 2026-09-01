@@ -72,6 +72,9 @@ class IdentityMapTests(unittest.TestCase):
         self.assertIsNone(
             distractions.match_banner("firefox", "", "https://discord.com/app")
         )
+        self.assertIsNone(
+            distractions.match_banner("Google Chrome", "signal", "plain chrome toast")
+        )
 
     def test_leading_origin_extracts_same_forms_as_notification_logic(self):
         self.assertEqual(distractions.leading_origin_host("https://discord.com/app hi"), "discord.com")
@@ -115,6 +118,9 @@ class StreamMatchTests(unittest.TestCase):
             "WhatsApp",
         )
         self.assertIsNone(distractions.match_stream(props, ["chrome --type=renderer"]))
+        self.assertIsNone(
+            distractions.match_stream(props, ["chrome --app=https://fox.com/news"])
+        )
 
 
 class RowRelocateTests(unittest.TestCase):
@@ -243,6 +249,33 @@ class ApplyLiftTests(unittest.TestCase):
         self.assertTrue(distractions.lift_notification_block())
         self.assertIn((distractions.PLUGIN_IPC, "disarm"), self.calls)
         self.assertFalse(self.status_armed)
+
+    def test_lift_fails_when_drain_ipc_errors(self):
+        self.drain_out = "error"
+        self.fake_shell_drain_code = 1
+
+        def shell_with_drain_error(*args, timeout=4.0):
+            if args[:2] == (distractions.PLUGIN_IPC, "drainState"):
+                self.calls.append(args)
+                return 1, "broken"
+            return self.fake_shell(*args, timeout=timeout)
+
+        with mock.patch.object(distractions, "shell_ipc", shell_with_drain_error):
+            self.assertFalse(distractions.lift_notification_block())
+
+    def test_evaluate_sink_mute_failure_is_fatal(self):
+        members = distractions.load_members()
+        entry = {
+            "index": 9,
+            "properties": {
+                "application.name": "Telegram Desktop",
+                "application.process.binary": "telegram-desktop",
+            },
+        }
+        with mock.patch.object(distractions, "list_sink_inputs", return_value=[entry]):
+            with mock.patch.object(distractions, "pactl_mute", return_value=False):
+                _seen, _muted, error = distractions.evaluate_sink_inputs(True, members, set(), [])
+        self.assertIn("failed to mute", error)
 
 
 class QmlFilterContractTests(unittest.TestCase):
