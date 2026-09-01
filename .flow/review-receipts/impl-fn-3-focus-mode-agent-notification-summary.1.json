@@ -1,7 +1,7 @@
 {
   "findings": {
     "backend": "host",
-    "headSha": "82734066f13d0feda5790100270f722f56ccbfc9",
+    "headSha": "0626bdfc20633d32d925d9335c9af145561d9dff",
     "items": [
       {
         "body": "`invoke_claude()` replaces `HOME` with an empty directory while `_agent_base_env()` removes `ANTHROPIC_API_KEY`, OAuth tokens, and related variables. On Omarchy/Linux, Claude credentials normally live in `~/.claude/.credentials.json`, so an already authenticated Claude installation cannot authenticate. The mocked test does not exercise this.",
@@ -9,7 +9,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-9fee359c4f78e1f0f3697fec30e56f4a",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 1,
         "rIds": [
           "R5",
@@ -26,7 +26,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-b90c8cb09c4ad02be1e41dc66ef9112c",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 2,
         "rIds": [
           "R11"
@@ -42,14 +42,14 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "id": "finding-cbb4ff586c46785cbad4f2c8f55fec19",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 7,
         "rIds": [
           "R5",
           "R11"
         ],
         "severity": "P1",
-        "status": "not_fixed",
+        "status": "fixed",
         "suggestion": "Forward complete, closed authentication bundles\u2014including their endpoint/provider selectors\u2014or fail unsupported authentication modes without forwarding partial credentials.",
         "title": "Stored Linux credentials and three token variables are now supported, but associated authentication configuration is discarded"
       },
@@ -59,7 +59,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "id": "finding-279c9ac9a6d3c7f75adffea110c7bc2c",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 8,
         "rIds": [
           "R11"
@@ -75,16 +75,33 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
         "id": "finding-11f1abb8d6d59c25cc408fc8a126a720",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 12,
         "rIds": [
           "R5",
           "R11"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Select one complete authentication route. When `ANTHROPIC_BASE_URL` is present, forward it only with exactly one supported gateway credential\u2014API key or auth token. Fail closed for incomplete or unsupported provider bundles.",
         "title": "`ANTHROPIC_API_KEY` is always forwarded independently, while `ANTHROPIC_BASE_URL` is forwarded only with `ANTHROPIC_AUTH_TOKEN`"
+      },
+      {
+        "body": "An incomplete `ANTHROPIC_AUTH_TOKEN` route returned immediately. If a valid API key or OAuth token was also present, neither fallback was forwarded.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "id": "finding-e4bfb1ef70662f55cc6ead03e9f20bfd",
+        "lastSeenReceiptId": "review-2f9ba3c900d74387b2fa144b9d6f69f2",
+        "ordinal": 13,
+        "rIds": [
+          "R5",
+          "R11"
+        ],
+        "severity": "P1",
+        "status": "fixed",
+        "suggestion": "Return from the token branch only when both token and base URL exist; otherwise continue to API-key and OAuth selection.",
+        "title": "An incomplete `ANTHROPIC_AUTH_TOKEN` route returned immediately"
       },
       {
         "body": "`start_new_session=True` creates a process group, but `subprocess.run(..., timeout=...)` kills only the direct process. Descendants can survive, continue consuming resources, or keep captured pipes open and prevent timeout cleanup.",
@@ -92,7 +109,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-455deec1055974072d9f7de462473d80",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 3,
         "rIds": [
           "R11"
@@ -108,7 +125,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-96e28a96f2fa237f557b3f3eec777a20",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 4,
         "rIds": [
           "R7",
@@ -125,7 +142,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-4fba17c52c904a1c1a2d3eb44437af2b",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 6,
         "rIds": [
           "R11"
@@ -141,7 +158,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "id": "finding-4131b0deb634e2d119c86c5bd3eeca72",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 9,
         "rIds": [
           "R11"
@@ -157,7 +174,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "id": "finding-c2324c40d711c1eadfa501991d654288",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 10,
         "rIds": [
           "R5",
@@ -175,7 +192,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
         "id": "finding-68af507bbd801b6ba69d94129628e21b",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 11,
         "rIds": [
           "R12"
@@ -191,7 +208,7 @@
         "confidence": 75,
         "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
         "id": "finding-3e9cb48767ac21d315add1459ac88c32",
-        "lastSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
         "ordinal": 5,
         "rIds": [
           "R5",
@@ -204,19 +221,20 @@
       }
     ],
     "reviewKind": "implementation",
-    "round": 3,
+    "round": 5,
     "schemaVersion": 1,
-    "sourceReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
-    "supersedesReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936"
+    "sourceReceiptId": "review-2f9ba3c900d74387b2fa144b9d6f69f2",
+    "supersedesReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8"
   },
   "id": "fn-3-focus-mode-agent-notification-summary.1",
   "mode": "host",
   "model": "gpt-5.6-sol-high",
-  "review": "Prior finding #1: fixed\nPrior finding #2: fixed\nPrior finding #3: fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\nPrior finding #7: not-fixed\nPrior finding #8: withdrawn\nPrior finding #9: fixed\nPrior finding #10: fixed\nPrior finding #11: fixed\n\n## Findings\n\n### 1. API-key gateway credentials are still split from their endpoint\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:515`\n- **R-IDs**: `[R5, R11]`\n- **Problem**: `ANTHROPIC_API_KEY` is always forwarded independently, while `ANTHROPIC_BASE_URL` is forwarded only with `ANTHROPIC_AUTH_TOKEN`. Claude officially supports API-key gateways using `ANTHROPIC_API_KEY` plus `ANTHROPIC_BASE_URL`. For that configuration, the child receives the gateway key without its URL; print mode then sends it to Anthropic\u2019s default endpoint.\n- **Suggestion**: Select one complete authentication route. When `ANTHROPIC_BASE_URL` is present, forward it only with exactly one supported gateway credential\u2014API key or auth token. Fail closed for incomplete or unsupported provider bundles.\n\nUnaddressed R-IDs: R5, R11\n<verdict>NEEDS_WORK</verdict>\n",
-  "review_reservation_id": "87c149fa42d548bd8f55b3990486be7b",
+  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.1 (round 5)\n\n<verdict>SHIP</verdict>\n\nThe exclusive flock wraps every `focus.json` load/merge/write, including picker and `--set` paths. Claude isolation keeps empty cwd and private `CLAUDE_CONFIG_DIR` separate, copies only `.credentials.json`, and uses one complete auth route with incomplete `ANTHROPIC_AUTH_TOKEN` (no `ANTHROPIC_BASE_URL`) falling through. Grok home is private 0700, `auth.json` 0600, and contains only `auth.json` plus the controlled `config.toml`. `invoke_summary_agent(\"grok\")` proves once via `_grok_proven`. `Popen` + `start_new_session` + `os.killpg` covers the timeout path.\n\nNo remaining findings against task `.1` acceptance, Touches, or R5/R7/R8/R11/R12/R13.\n",
+  "review_reservation_id": "2f9ba3c900d74387b2fa144b9d6f69f2",
   "session_id": null,
   "spec": "host",
-  "timestamp": "2026-09-01T08:16:06Z",
+  "timestamp": "2026-09-01T08:25:05Z",
   "type": "impl_review",
-  "verdict": "NEEDS_WORK"
+  "verdict": "SHIP",
+  "backend": "host"
 }

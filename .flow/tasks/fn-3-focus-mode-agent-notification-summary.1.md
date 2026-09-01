@@ -48,9 +48,17 @@ Add plugin consent, default-agent resolve, and the owner-pinned `claude` / `grok
 - [ ] `python3 -m unittest discover -s tests -p 'test_*.py'` covers both argv mappings, Claude no-persistence/version failure, Grok private config/environment/cleanup/canary and rejected-control failure, closed-set reject, default-false opt-in, and reject-unknown-id.
 
 ## Done summary
-TBD
+Plugin consent, closed `claude`/`grok` argv table, default-agent resolve, and `omarchy-menu-select` pickers landed. Config writes are atomic and flocked; unknown ids and picker failures leave the previous object. Claude isolation keeps empty cwd separate from a private config dir; incomplete `ANTHROPIC_AUTH_TOKEN` falls through to API key/OAuth. Grok is proven once via `_grok_proven` with private home and exact `UNAVAILABLE` canary.
 
+Host impl-review (gpt-5.6-sol-high, 5 rounds) SHIP.
+
+stage: impl-review - ran (model: gpt-5.6-sol-high)
+stage: plan-sync - skipped(config: planSync.enabled != true)
+
+R5/R8 reject-unknown-id: `test_reject_unknown_id_leaves_previous_object`. R7 empty resolve: `test_null_override_reads_omarchy_default_closed_set_only`. R11 vectors: `ClaudeVectorTests`, `GrokVectorTests`. R12 picker failure: `test_menu_select_failure_keeps_previous_and_notifies`. R13 default-false: `test_agent_summaries_default_false_without_omarchy_consent`.
+baseline: green
+focused: tests.test_summary_agent 19 OK
 ## Evidence
-- Commits:
-- Tests:
-- PRs:
+- Commits: fd1b14633b8c869a1509b25f4113d06a31a8d5f9, 569b43d0e3ef91efab8233e6a36ea8b7c1b23943, 82734066f13d0feda5790100270f722f56ccbfc9, f3b53746d865b4b62d4b495904a5ca0a22e2b6a4, 0626bdfc20633d32d925d9335c9af145561d9dff
+- Tests: python3 -m py_compile distractions, python3 -m unittest tests.test_summary_agent, python3 -m unittest discover -s tests -p 'test_*.py'
+- PRs: https://github.com/DanielKillenberger/omarchy-distraction-space/pull/3
