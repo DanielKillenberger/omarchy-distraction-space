@@ -37,10 +37,12 @@ def pwa_class(host):
 
 def _ident(name, classes, hosts, spec=None):
     spec = spec or {}
+    senders = spec.get("senders")
+    audio = spec.get("audio")
     return {
         "name": name, "classes": classes, "hosts": hosts,
-        "senders": list(spec.get("senders") or []),
-        "audio": dict(spec.get("audio") or {}),
+        "senders": list(senders) if isinstance(senders, list) else [],
+        "audio": dict(audio) if isinstance(audio, dict) else {},
     }
 
 

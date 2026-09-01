@@ -59,7 +59,11 @@ class Sandbox:
             PATH=path,
         )
         if extra:
-            out.update(extra)
+            for k, v in extra.items():
+                if v is None:
+                    out.pop(k, None)
+                else:
+                    out[k] = v
         return out
 
     def apply_env(self) -> None:

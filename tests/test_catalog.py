@@ -60,6 +60,22 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(item["classes"], ["^chrome-example\\.com__.*$"])
         self.assertEqual(item["hosts"], ["example.com"])
 
+    def test_object_senders_and_audio_expand_without_crash(self):
+        item = expand_entry(
+            {
+                "name": "Slack",
+                "class": "^Slack$",
+                "hosts": ["slack.com"],
+                "senders": ["Slack"],
+                "audio": {"name": ["Slack"], "binary": ["slack"]},
+            }
+        )
+        self.assertEqual(item["senders"], ["Slack"])
+        self.assertEqual(item["audio"], {"name": ["Slack"], "binary": ["slack"]})
+        missing = expand_entry({"name": "Site", "hosts": ["example.com"]})
+        self.assertEqual(missing["senders"], [])
+        self.assertEqual(missing["audio"], {})
+
     def test_unknown_catalog_name_skipped(self):
         self.assertIsNone(expand_entry("NotAProduct"))
         self.assertEqual(expand({"list": ["NotAProduct"]}), [])

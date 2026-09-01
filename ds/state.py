@@ -3,7 +3,6 @@
 import json
 import os
 import socket
-import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -163,12 +162,6 @@ def status():
 
 
 def cmd_status(args):
-    from ds import config
-    try:
-        config.load()
-    except config.Invalid as e:
-        print(str(e), file=sys.stderr)
-        return 1
     st = status()
     if getattr(args, "json", False):
         print(json.dumps(st))

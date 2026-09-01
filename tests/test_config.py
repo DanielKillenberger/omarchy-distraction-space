@@ -227,6 +227,57 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(self.box.old_app_list.read_bytes(), app_bytes)
         self.assertEqual(self.box.old_focus.read_bytes(), focus_bytes)
 
+    def test_migration_carries_valid_forms_and_converts_objects(self):
+        slack = {"name": "Slack", "class": "^Slack$", "hosts": ["slack.com", "app.slack.com"]}
+        converted = {
+            "name": "LegacyWin",
+            "window_class": "^LegacyWin$",
+            "hosts": ["legacy.example", "not a host"],
+            "senders": 1,
+        }
+        self.box.old_app_list.write_text(
+            json.dumps(
+                [
+                    {"name": "Telegram"},
+                    slack,
+                    "class=^Foo$",
+                    "news.example",
+                    {"name": "NotInCatalog"},
+                    {"name": "CustomSite", "hosts": ["custom.example"]},
+                    converted,
+                    {"name": "BadClassOnly", "class": "["},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        self.box.old_focus.write_text(
+            json.dumps({"destinations": ["Bluesky"], "log": "~/migrated.log"}),
+            encoding="utf-8",
+        )
+        r = self.box.run("config", "get", "list")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        got = json.loads(r.stdout)
+        self.assertEqual(got[0], "Telegram")
+        self.assertEqual(got[1], slack)
+        self.assertEqual(got[2], "class=^Foo$")
+        self.assertEqual(got[3], "news.example")
+        self.assertEqual(got[4], {"name": "CustomSite", "hosts": ["custom.example"]})
+        self.assertEqual(
+            got[5],
+            {"name": "LegacyWin", "class": "^LegacyWin$", "hosts": ["legacy.example"]},
+        )
+        self.assertEqual(got[6], "Bluesky")
+        self.assertNotIn("NotInCatalog", [e if isinstance(e, str) else e.get("name") for e in got])
+        self.assertEqual(json.loads(self.box.run("config", "get", "log").stdout), "~/migrated.log")
+
+    def test_present_empty_legacy_union_seeds_empty_list(self):
+        self.box.old_app_list.write_text("[]", encoding="utf-8")
+        self.box.old_focus.write_text(json.dumps({"destinations": []}), encoding="utf-8")
+        r = self.box.run("config", "get", "list")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), [])
+        self.assertTrue(self.box.config_file.is_file())
+
     def test_unreadable_old_files_use_defaults(self):
         self.box.old_app_list.write_text("{not json", encoding="utf-8")
         self.box.old_focus.write_text("nope", encoding="utf-8")
@@ -285,6 +336,73 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("hosts", by_name["Telegram"])
         self.assertIn("senders", by_name["Telegram"])
         self.assertIn("audio", by_name["Telegram"])
+
+    def test_invalid_class_regex_refused_file_unchanged(self):
+        self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
+        before = self.box.config_file.read_bytes()
+        for value in (
+            json.dumps(["class=["]),
+            json.dumps([{"name": "Bad", "class": "(unclosed"}]),
+        ):
+            with self.subTest(value=value):
+                r = self.box.run("config", "set", "list", value)
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn("list", r.stderr)
+                self.assertEqual(self.box.config_file.read_bytes(), before)
+        r = self.box.run("list", "add", "class=(unclosed")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self.box.config_file.read_bytes(), before)
+
+    def test_senders_and_audio_on_custom_list_objects(self):
+        self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
+        good = [
+            {
+                "name": "Slack",
+                "class": "^Slack$",
+                "hosts": ["slack.com"],
+                "senders": ["Slack"],
+                "audio": {"name": ["Slack"], "binary": ["slack"]},
+            }
+        ]
+        r = self.box.run("config", "set", "list", json.dumps(good))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(self.box.run("config", "get", "list").stdout), good)
+        expanded = json.loads(self.box.run("list", "expand").stdout)
+        self.assertEqual(expanded[0]["senders"], ["Slack"])
+        self.assertEqual(expanded[0]["audio"], {"name": ["Slack"], "binary": ["slack"]})
+        before = self.box.config_file.read_bytes()
+        for value in (
+            json.dumps([{"name": "Slack", "class": "^Slack$", "senders": "Slack"}]),
+            json.dumps([{"name": "Slack", "class": "^Slack$", "audio": ["Slack"]}]),
+            json.dumps([{"name": "Slack", "class": "^Slack$", "audio": {"name": "Slack"}}]),
+            json.dumps([{"name": "Slack", "class": "^Slack$", "audio": {"other": []}}]),
+        ):
+            with self.subTest(value=value):
+                r = self.box.run("config", "set", "list", value)
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertEqual(self.box.config_file.read_bytes(), before)
+
+    def test_config_edit_splits_editor_or_falls_back(self):
+        self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
+        rec = self.box.runtime / "editor-argv.json"
+        recorder = (
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            f"Path({str(rec)!r}).write_text(json.dumps(sys.argv), encoding='utf-8')\n"
+        )
+        self.box.fake_bin("my-editor", recorder)
+        r = self.box.run("config", "edit", extra_env={"EDITOR": "my-editor --wait"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = json.loads(rec.read_text(encoding="utf-8"))
+        self.assertTrue(argv[0].endswith("my-editor"))
+        self.assertEqual(argv[1:], ["--wait", str(self.box.config_file)])
+        rec.unlink()
+        self.box.fake_bin("omarchy-launch-editor", recorder)
+        r = self.box.run("config", "edit", extra_env={"EDITOR": None})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        argv = json.loads(rec.read_text(encoding="utf-8"))
+        self.assertTrue(argv[0].endswith("omarchy-launch-editor"))
+        self.assertEqual(argv[1:], [str(self.box.config_file)])
 
 
 if __name__ == "__main__":

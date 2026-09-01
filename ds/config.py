@@ -4,6 +4,8 @@ import copy
 import fcntl
 import json
 import os
+import re
+import shlex
 import subprocess
 import sys
 import time
@@ -70,9 +72,42 @@ def display_name(entry):
     return str(entry) if entry is not None else ""
 
 
+def _class_regex_ok(s):
+    if not (isinstance(s, str) and s):
+        return False
+    try:
+        re.compile(s)
+    except re.error:
+        return False
+    return True
+
+
+def _str_list(v):
+    return isinstance(v, list) and all(isinstance(x, str) for x in v)
+
+
+def _hosts_ok(hosts):
+    return isinstance(hosts, list) and bool(hosts) and all(isinstance(h, str) and is_hostname(h) for h in hosts)
+
+
+def _senders_ok(v):
+    return _str_list(v)
+
+
+def _audio_ok(v):
+    if not isinstance(v, dict):
+        return False
+    for k, val in v.items():
+        if k not in ("name", "binary") or not _str_list(val):
+            return False
+    return True
+
+
 def valid_list_entry(entry):
     if isinstance(entry, str):
-        return is_class_entry(entry) or is_hostname(entry) or entry in load_catalog()
+        if is_class_entry(entry):
+            return _class_regex_ok(entry[6:])
+        return is_hostname(entry) or entry in load_catalog()
     if not isinstance(entry, dict):
         return False
     name = entry.get("name")
@@ -81,17 +116,19 @@ def valid_list_entry(entry):
     has_c, has_h = "class" in entry, "hosts" in entry
     if not has_c and not has_h:
         return False
-    if has_c and not (isinstance(entry["class"], str) and entry["class"]):
+    if has_c and not _class_regex_ok(entry["class"]):
         return False
-    if has_h:
-        hosts = entry["hosts"]
-        if not (isinstance(hosts, list) and hosts and all(isinstance(h, str) and is_hostname(h) for h in hosts)):
-            return False
+    if has_h and not _hosts_ok(entry["hosts"]):
+        return False
+    if "senders" in entry and not _senders_ok(entry["senders"]):
+        return False
+    if "audio" in entry and not _audio_ok(entry["audio"]):
+        return False
     return True
 
 
 def parse_add_entry(s):
-    if is_class_entry(s) or is_hostname(s) or s in load_catalog():
+    if valid_list_entry(s):
         return s
     raise Invalid(f"list: invalid entry {s!r}")
 
@@ -142,39 +179,70 @@ def _read_json(path: Path):
         return None
 
 
-def _app_list_names():
-    data = _read_json(_omarchy_dir() / "app-list.json")
-    if not isinstance(data, list):
-        return []
-    out = []
-    for item in data:
-        if isinstance(item, dict):
-            n = item.get("name")
-            if isinstance(n, str) and n:
-                out.append(n)
-    return out
+def _legacy_to_entry(item):
+    if valid_list_entry(item):
+        return item
+    if not isinstance(item, dict):
+        return None
+    name = item.get("name")
+    if not (isinstance(name, str) and name):
+        return None
+    built = {"name": name}
+    klass = item.get("class")
+    if not (isinstance(klass, str) and klass):
+        klass = item.get("window_class")
+    if _class_regex_ok(klass):
+        built["class"] = klass
+    hosts = item.get("hosts")
+    if isinstance(hosts, list):
+        kept = [h for h in hosts if isinstance(h, str) and is_hostname(h)]
+        if kept:
+            built["hosts"] = kept
+    if "senders" in item and _senders_ok(item["senders"]):
+        built["senders"] = list(item["senders"])
+    if "audio" in item and _audio_ok(item["audio"]):
+        built["audio"] = dict(item["audio"])
+    if "class" in built or "hosts" in built:
+        return built if valid_list_entry(built) else None
+    return name if valid_list_entry(name) else None
 
 
-def _focus_seed():
-    data = _read_json(_omarchy_dir() / "focus.json")
-    if not isinstance(data, dict):
-        return [], None
-    dest = data.get("destinations")
-    names = [x for x in dest if isinstance(x, str) and x] if isinstance(dest, list) else []
-    log = data.get("log")
-    return names, log if isinstance(log, str) and log else None
+def _legacy_sources():
+    items = []
+    found = False
+    log = None
+    app_data = _read_json(_omarchy_dir() / "app-list.json")
+    if isinstance(app_data, list):
+        found = True
+        items.extend(app_data)
+    focus_data = _read_json(_omarchy_dir() / "focus.json")
+    if isinstance(focus_data, dict):
+        raw_log = focus_data.get("log")
+        if isinstance(raw_log, str) and raw_log:
+            log = raw_log
+        dest = focus_data.get("destinations")
+        if isinstance(dest, list):
+            found = True
+            items.extend(dest)
+    return items, found, log
 
 
 def _seed():
     cfg = copy.deepcopy(DEFAULTS)
-    dest, log = _focus_seed()
-    seen = []
-    for n in _app_list_names() + dest:
-        if n not in seen:
-            seen.append(n)
-    valid = [n for n in seen if valid_list_entry(n)]
-    if valid:
-        cfg["list"] = valid
+    items, found, log = _legacy_sources()
+    if found:
+        seen = []
+        names = set()
+        for item in items:
+            entry = _legacy_to_entry(item)
+            if entry is None:
+                continue
+            key = display_name(entry)
+            if key in names:
+                continue
+            names.add(key)
+            seen.append(entry)
+        cfg["list"] = seen
     if log:
         cfg["log"] = log
     return cfg
@@ -317,8 +385,11 @@ def cmd_config(args):
             return 0
         if cmd == "edit":
             load()
-            editor = os.environ.get("EDITOR") or "omarchy-launch-editor"
-            r = subprocess.run([editor, str(config_path())])
+            raw = os.environ.get("EDITOR")
+            cmdv = shlex.split(raw) if raw else []
+            if not cmdv:
+                cmdv = ["omarchy-launch-editor"]
+            r = subprocess.run([*cmdv, str(config_path())])
             return 0 if r.returncode == 0 else 1
     except KeyError:
         print(f"{getattr(args, 'key', '')}: unknown key", file=sys.stderr)

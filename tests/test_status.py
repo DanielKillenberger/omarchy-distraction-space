@@ -94,6 +94,28 @@ class StatusTests(unittest.TestCase):
         data = json.loads(r.stdout)
         self.assertIsNone(data["on_space"])
 
+    def test_status_json_ignores_missing_and_malformed_config(self):
+        box = self._box()
+        self.assertFalse(box.config_file.exists())
+        r = box.run("status", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        data = json.loads(r.stdout)
+        self.assertEqual(set(data), STATUS_KEYS)
+        self.assertFalse(box.config_file.exists())
+        box.config_file.write_text("{not json", encoding="utf-8")
+        r = box.run("status", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        data = json.loads(r.stdout)
+        self.assertEqual(set(data), STATUS_KEYS)
+        self.assertEqual(box.config_file.read_text(encoding="utf-8"), "{not json")
+        box.config_file.write_text(json.dumps({"list": 1}) + "\n", encoding="utf-8")
+        before = box.config_file.read_bytes()
+        r = box.run("status", "--json")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        data = json.loads(r.stdout)
+        self.assertEqual(set(data), STATUS_KEYS)
+        self.assertEqual(box.config_file.read_bytes(), before)
+
     def test_expired_lock_reads_unlocked(self):
         box = self._box()
         box.fake_bin("hyprctl", HYPRCTL_OFF)
