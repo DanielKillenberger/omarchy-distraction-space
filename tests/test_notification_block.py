@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import unittest
@@ -118,9 +119,45 @@ class StreamMatchTests(unittest.TestCase):
             distractions.match_stream(props, ["chrome --app=https://web.whatsapp.com/"]),
             "WhatsApp",
         )
+        self.assertEqual(
+            distractions.match_stream(props, ["chrome --app-id x.com"]),
+            "X",
+        )
+        self.assertEqual(
+            distractions.match_stream(props, ["google-chrome --class=chrome-discord.com__-Default"]),
+            "Discord",
+        )
+        self.assertEqual(
+            distractions.match_stream(props, ["chrome-web.whatsapp.com__-Default --type=app"]),
+            "WhatsApp",
+        )
         self.assertIsNone(distractions.match_stream(props, ["chrome --type=renderer"]))
         self.assertIsNone(
             distractions.match_stream(props, ["chrome --app=https://fox.com/news"])
+        )
+
+    def test_casual_chrome_url_is_never_pwa_identity(self):
+        props = {
+            "application.name": "Google Chrome",
+            "application.process.binary": "chrome",
+        }
+        self.assertIsNone(distractions.match_stream(props, ["google-chrome https://discord.com"]))
+        self.assertIsNone(
+            distractions.match_stream(props, ["google-chrome --new-window https://discord.com"])
+        )
+        self.assertIsNone(
+            distractions.match_stream(props, ["chrome https://web.whatsapp.com/ https://x.com/"])
+        )
+        self.assertIsNone(
+            distractions.match_stream(props, ["chrome --origin=https://discord.com"])
+        )
+        self.assertEqual(
+            distractions.cmdline_identity_tokens(["google-chrome https://discord.com"]),
+            set(),
+        )
+        self.assertEqual(
+            distractions.cmdline_identity_tokens(["chrome --app=https://web.whatsapp.com/"]),
+            {"web.whatsapp.com"},
         )
 
 
@@ -302,7 +339,14 @@ class ApplyLiftTests(unittest.TestCase):
 
     def test_rollback_rearms_from_acknowledged_status(self):
         distractions.write_watcher_status(
-            {"pid": os.getpid(), "generation": 2, "armed": True, "last_error": "", "muted": []}
+            {
+                "pid": os.getpid(),
+                "starttime": "99",
+                "generation": 2,
+                "armed": True,
+                "last_error": "",
+                "muted": [],
+            }
         )
         distractions.write_watcher_request(2, True)
         self.ping = ""
@@ -393,6 +437,121 @@ class ApplyLiftTests(unittest.TestCase):
             with mock.patch.object(distractions, "pactl_mute", return_value=False):
                 _seen, _muted, error = distractions.evaluate_sink_inputs(True, members, set(), [])
         self.assertIn("failed to mute", error)
+
+
+class WatcherAckLivenessTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        root = Path(self.tmp.name)
+        self.runtime = root / "run"
+        self.state = root / "state"
+        self.runtime.mkdir()
+        self.state.mkdir()
+        self.patches = [
+            mock.patch.object(distractions, "STATE_DIR", self.state),
+            mock.patch.object(distractions, "FOCUS", self.state / "distractions.focus"),
+            mock.patch.object(distractions, "MUTED_PATH", self.state / "distractions.muted.json"),
+            mock.patch.object(distractions, "NOTIFY_LOCK", self.runtime / "notify.lock"),
+            mock.patch.object(distractions, "WATCHER_REQUEST", self.runtime / "request.json"),
+            mock.patch.object(distractions, "WATCHER_STATUS", self.runtime / "status.json"),
+            mock.patch.object(distractions, "APPLY_WAIT_S", 0.35),
+            mock.patch.object(distractions, "notify", lambda *args, **kwargs: None),
+            mock.patch.object(distractions, "shell_ipc", self.fake_shell),
+            mock.patch.object(distractions, "which_cmd", lambda _name: True),
+        ]
+        for patch in self.patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        distractions.FOCUS.write_text("on\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fake_shell(self, *args, timeout=4.0):
+        if args[:2] == ("notifications", "dndState"):
+            return 0, "off"
+        if args[:2] == (distractions.PLUGIN_IPC, "ping"):
+            return 0, "ready"
+        if args[:2] == (distractions.PLUGIN_IPC, "arm"):
+            return 0, "ok"
+        if args[:2] == (distractions.PLUGIN_IPC, "disarm"):
+            return 0, "drained"
+        if args[:2] == (distractions.PLUGIN_IPC, "drainState"):
+            return 0, "drained"
+        return 1, "unknown"
+
+    def test_stale_status_without_live_listener_is_rejected(self):
+        distractions.write_watcher_status(
+            {"pid": 1, "generation": 1, "armed": True, "last_error": "", "muted": []}
+        )
+        with mock.patch.object(distractions, "read_proc_starttime", return_value=None):
+            ok, err = distractions.wait_watcher_ack(1, True)
+        self.assertFalse(ok)
+        self.assertIn("not running", err)
+
+    def test_status_without_starttime_cannot_ack(self):
+        distractions.write_watcher_status(
+            {"pid": os.getpid(), "generation": 1, "armed": True, "last_error": "", "muted": []}
+        )
+        status = distractions.read_watcher_status()
+        status.pop("starttime", None)
+        distractions.WATCHER_STATUS.write_text(json.dumps(status) + "\n")
+        with mock.patch.object(distractions, "read_proc_starttime", return_value="99"):
+            ok, err = distractions.wait_watcher_ack(1, True)
+        self.assertFalse(ok)
+        self.assertIn("not running", err)
+
+    def test_pid_reuse_with_mismatched_starttime_is_rejected(self):
+        distractions.write_watcher_status(
+            {
+                "pid": 4242,
+                "starttime": "111",
+                "generation": 1,
+                "armed": True,
+                "last_error": "",
+                "muted": [],
+            }
+        )
+        with mock.patch.object(distractions, "read_proc_starttime", return_value="222"):
+            ok, err = distractions.wait_watcher_ack(1, True)
+        self.assertFalse(ok)
+        self.assertIn("not running", err)
+
+    def test_live_listener_ack_is_accepted(self):
+        distractions.write_watcher_status(
+            {
+                "pid": os.getpid(),
+                "starttime": "99",
+                "generation": 4,
+                "armed": True,
+                "last_error": "",
+                "muted": [],
+            }
+        )
+        with mock.patch.object(distractions, "read_proc_starttime", return_value="99"):
+            ok, err = distractions.wait_watcher_ack(4, True)
+        self.assertTrue(ok)
+        self.assertEqual(err, "")
+
+    def test_apply_rejects_malformed_request_plus_stale_status(self):
+        distractions.WATCHER_REQUEST.write_text('{"generation":"broken","want_armed":true}\n')
+        distractions.write_watcher_status(
+            {"pid": 1, "generation": 1, "armed": True, "last_error": "", "muted": []}
+        )
+        with mock.patch.object(distractions, "read_proc_starttime", return_value=None):
+            with mock.patch.object(distractions, "notify") as notify:
+                self.assertFalse(distractions.apply_notification_block())
+                notify.assert_called()
+        self.assertFalse(distractions.watcher_acknowledged_armed())
+
+    def test_lift_rejects_stale_disarmed_status(self):
+        distractions.write_watcher_status(
+            {"pid": 1, "generation": 1, "armed": False, "last_error": "", "muted": []}
+        )
+        with mock.patch.object(distractions, "read_proc_starttime", return_value=None):
+            with mock.patch.object(distractions, "notify") as notify:
+                self.assertFalse(distractions.lift_notification_block())
+                notify.assert_called()
 
 
 class QmlFilterContractTests(unittest.TestCase):
