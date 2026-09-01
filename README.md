@@ -61,7 +61,9 @@ Reasons append to the log path in `~/.config/omarchy/focus.json` (default `~/.lo
 
 ```json
 {
-  "log": "~/.local/state/omarchy/focus-disable.log"
+  "log": "~/.local/state/omarchy/focus-disable.log",
+  "agent_summaries": false,
+  "summary_agent": null
 }
 ```
 
@@ -77,12 +79,24 @@ Edit the list without rebuilding the plugin. Product names from the catalog and 
 
 `destinations-add` / `destinations-remove` write a `destinations` array into `~/.config/omarchy/focus.json`. Until that key exists, the plugin keeps using the shipped defaults.
 
+## Agent summaries
+
+Agent summaries stay off until you enable them in the plugin. An Omarchy default agent is not consent.
+
+Use `distractions agent-summaries` to turn the path on or off. Use `distractions summary-agent` to pick Claude, Grok, or Omarchy default. The picker offers only `claude` and `grok`.
+
+While focus is on and summaries are enabled, a usable agent can parse blocked-ping text in the background. When focus turns off you see one summary of important things, not each original ping. After a shown summary you can mark it helpful or not helpful and leave an optional note. That ledger is stored at `~/.local/state/omarchy/focus-summary-ledger.jsonl` and shapes later parses.
+
+If summaries are off, no usable agent is resolved, ping-text is empty, or the parse or display fails, the mute grouped-count catch-up still runs. There is no history screen and no per-app notification toggle.
+
 ## Commands
 
 ```bash
 ~/.config/omarchy/plugins/distraction-space/distractions toggle
 ~/.config/omarchy/plugins/distraction-space/distractions focus
 ~/.config/omarchy/plugins/distraction-space/distractions focus-status
+~/.config/omarchy/plugins/distraction-space/distractions agent-summaries
+~/.config/omarchy/plugins/distraction-space/distractions summary-agent
 ~/.config/omarchy/plugins/distraction-space/distractions log-path
 ~/.config/omarchy/plugins/distraction-space/distractions destinations
 ~/.config/omarchy/plugins/distraction-space/distractions destinations-add <name-or-host>

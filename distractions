@@ -59,6 +59,7 @@ SUMMARY_AGENT_PICKER_OPTIONS = (
     "Omarchy default",
 )
 AGENT_SUMMARIES_OPTIONS = ("On", "Off")
+LEDGER_FEEDBACK_OPTIONS = ("Helpful", "Not helpful")
 GROK_FEATURE_DISABLES = {
     "GROK_MEMORY": "0",
     "GROK_SUBAGENTS": "0",
@@ -310,7 +311,7 @@ def summary_agent_picker_ids() -> tuple[str | None, ...]:
     return tuple(ids)
 
 
-def menu_select(prompt: str, options: list[str]) -> str | None:
+def menu_select(prompt: str, options: list[str], *, quiet: bool = False) -> str | None:
     try:
         result = subprocess.run(
             [MENU_SELECT_BIN, prompt, *options],
@@ -319,10 +320,12 @@ def menu_select(prompt: str, options: list[str]) -> str | None:
             check=False,
         )
     except OSError:
-        notify("Focus mode", "Agent picker could not open; previous setting kept.")
+        if not quiet:
+            notify("Focus mode", "Agent picker could not open; previous setting kept.")
         return None
     if result.returncode != 0:
-        notify("Focus mode", "Agent picker closed; previous setting kept.")
+        if not quiet:
+            notify("Focus mode", "Agent picker closed; previous setting kept.")
         return None
     return (result.stdout or "").strip()
 
@@ -1698,6 +1701,79 @@ def read_ledger_prompt() -> str:
     return encoded[-LEDGER_PROMPT_BYTES:].decode("utf-8", "ignore")
 
 
+def _lock_summary_ledger():
+    handle = _open_exclusive_lock(SUMMARY_LEDGER_LOCK)
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def prompt_ledger_note() -> str:
+    try:
+        result = subprocess.run(
+            [
+                "zenity",
+                "--entry",
+                "--title=Summary feedback",
+                "--text=Optional note. Leave empty or cancel to skip the note.",
+                "--width=520",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return ""
+    if result.returncode != 0:
+        return ""
+    return (result.stdout or "").strip()
+
+
+def append_ledger_entry(helpful: bool, note: str) -> bool:
+    if not isinstance(helpful, bool) or not isinstance(note, str):
+        notify("Focus mode", "Could not save summary feedback.")
+        return False
+    payload = {
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "helpful": helpful,
+        "note": note,
+    }
+    try:
+        line = json.dumps(payload, separators=(",", ":")) + "\n"
+    except (TypeError, ValueError):
+        notify("Focus mode", "Could not save summary feedback.")
+        return False
+    lock = _lock_summary_ledger()
+    try:
+        path = summary_ledger_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        write_private_atomic(path, existing + line)
+        return True
+    except OSError:
+        notify("Focus mode", "Could not save summary feedback.")
+        return False
+    finally:
+        lock.close()
+
+
+def collect_summary_feedback() -> dict | None:
+    selected = menu_select(
+        "Was this summary helpful?",
+        list(LEDGER_FEEDBACK_OPTIONS),
+        quiet=True,
+    )
+    if selected == "Helpful":
+        helpful = True
+    elif selected == "Not helpful":
+        helpful = False
+    else:
+        return None
+    note = prompt_ledger_note()
+    if append_ledger_entry(helpful, note):
+        return {"helpful": helpful, "note": note}
+    return None
+
+
 def _record_prompt_piece(row: dict) -> str:
     return f"{row.get('title') or ''}\n{row.get('body') or ''}\n"
 
@@ -1862,6 +1938,7 @@ def apply_summary_xor() -> str:
             result_path = summary_result_path()
             if result_path.exists():
                 result_path.unlink()
+            collect_summary_feedback()
             return "summary"
         show_grouped_notice()
         _discard_summary_result()
