@@ -1,5 +1,10 @@
 {
   "log": "~/.local/state/omarchy/focus-disable.log",
   "agent_summaries": false,
-  "summary_agent": null
+  "summary_agent": null,
+  "session_start_ui": true,
+  "session_start_purpose": true,
+  "session_close_ui": true,
+  "session_close_purpose": true,
+  "session_close_eval": true
 }
