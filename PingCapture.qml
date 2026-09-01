@@ -16,6 +16,8 @@ Item {
       return env + "/omarchy/focus.json"
     return Quickshell.env("HOME") + "/.config/omarchy/focus.json"
   }
+  readonly property int captureQueueLimit: 8
+  readonly property int captureFieldLimit: 4096
 
   property bool summariesEnabled: false
   property bool sessionReady: false
@@ -27,9 +29,26 @@ Item {
   property var captureQueue: []
   property bool captureBusy: false
   property string capturePayload: ""
+  property bool parserOwned: false
+
+  function clipField(value) {
+    var text = String(value || "")
+    if (text.length <= capture.captureFieldLimit)
+      return text
+    return text.substring(0, capture.captureFieldLimit)
+  }
+
+  function stopCaptureWork() {
+    capture.captureQueue = []
+    capture.captureBusy = false
+    if (captureProc.running)
+      captureProc.running = false
+  }
 
   function enqueueMemberToast(row) {
     if (!capture.summariesEnabled || !row)
+      return
+    if (capture.captureQueue.length >= capture.captureQueueLimit)
       return
     var title = ""
     if (row.summary)
@@ -37,15 +56,19 @@ Item {
     else if (row.title)
       title = String(row.title)
     capture.captureQueue = capture.captureQueue.concat([{
-      app: String(row.app || ""),
-      title: title,
-      body: String(row.body || ""),
-      at: new Date().toISOString()
+      app: capture.clipField(row.app || ""),
+      title: capture.clipField(title),
+      body: capture.clipField(row.body || ""),
+      at: capture.clipField(new Date().toISOString())
     }])
     pumpCapture()
   }
 
   function pumpCapture() {
+    if (!capture.summariesEnabled) {
+      stopCaptureWork()
+      return
+    }
     if (capture.captureBusy || capture.captureQueue.length === 0)
       return
     var job = capture.captureQueue[0]
@@ -82,22 +105,28 @@ Item {
   }
 
   function shouldRunParser() {
-    return capture.summariesEnabled && capture.sessionReady && !capture.parserClosed && !capture.finishRequested
+    return capture.summariesEnabled && capture.sessionReady && !capture.parserClosed && !capture.finishRequested && capture.sessionId.length > 0
+  }
+
+  function parserCommand(restart) {
+    var argv = [capture.helperPath, "summarize-session", "--session", capture.sessionId]
+    if (restart)
+      argv.splice(2, 0, "--restart")
+    return argv
   }
 
   function syncParser() {
     if (!shouldRunParser()) {
       if (parserProc.running && (!capture.summariesEnabled || capture.finishRequested || capture.parserClosed))
         parserProc.running = false
+      if (!capture.summariesEnabled || capture.finishRequested)
+        capture.parserOwned = false
       return
     }
     if (parserProc.running)
       return
-    if (capture.parserActive) {
-      parserProc.command = [capture.helperPath, "summarize-session", "--restart"]
-    } else {
-      parserProc.command = [capture.helperPath, "summarize-session"]
-    }
+    parserProc.command = capture.parserCommand(capture.parserOwned || capture.parserActive)
+    capture.parserOwned = true
     parserProc.running = true
   }
 
@@ -106,12 +135,16 @@ Item {
     path: capture.configPath
     watchChanges: true
     onLoaded: {
+      var enabled = false
       try {
         var parsed = JSON.parse(configFile.text())
-        capture.summariesEnabled = !!(parsed && parsed.agent_summaries)
+        enabled = !!(parsed && parsed.agent_summaries)
       } catch (e) {
-        capture.summariesEnabled = false
+        enabled = false
       }
+      if (capture.summariesEnabled && !enabled)
+        capture.stopCaptureWork()
+      capture.summariesEnabled = enabled
       capture.syncParser()
     }
     onFileChanged: configFile.reload()
@@ -144,7 +177,10 @@ Item {
     stderr: StdioCollector {}
     onExited: function () {
       capture.captureBusy = false
-      capture.pumpCapture()
+      if (capture.summariesEnabled)
+        capture.pumpCapture()
+      else
+        capture.stopCaptureWork()
     }
   }
 
@@ -152,9 +188,14 @@ Item {
     id: parserProc
     stdout: StdioCollector {}
     stderr: StdioCollector {}
-    onExited: function () {
-      if (!capture.shouldRunParser())
+    onExited: function (exitCode) {
+      if (exitCode === 2)
         return
+      if (!capture.shouldRunParser()) {
+        capture.parserOwned = false
+        return
+      }
+      capture.parserOwned = true
       capture.syncParser()
     }
   }

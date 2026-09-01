@@ -226,7 +226,8 @@ class RestartBudgetTests(SessionHarness):
             again = distractions.apply_parser_restart()
         self.assertEqual(again["parser_restarts"], 2)
         qml = CAPTURE.read_text()
-        self.assertIn('summarize-session", "--restart"', qml)
+        self.assertIn("--restart", qml)
+        self.assertIn("--session", qml)
         self.assertNotIn("parser_restarts +", qml)
         self.assertNotIn("parser_restarts +=", qml)
 
@@ -264,7 +265,7 @@ class ParserObserveTests(SessionHarness):
         self.addCleanup(first.close)
         self.assertIsNone(distractions.try_summarize_session_lock())
         with mock.patch.object(distractions.time, "sleep"):
-            distractions.run_summarize_session(once=True)
+            self.assertEqual(distractions.run_summarize_session(once=True), 2)
         self.assertFalse(distractions.read_summary_control()["parser_active"])
 
     def test_files_are_0600_and_session_bound(self):
@@ -287,7 +288,7 @@ class CliSilenceTests(SessionHarness):
                 except SystemExit:
                     pass
             distractions.cmd_summarize_session = distractions.cmd_summarize_session
-            with mock.patch.object(distractions, "run_summarize_session"):
+            with mock.patch.object(distractions, "run_summarize_session", return_value=0):
                 distractions.cmd_summarize_session()
         text = buf.getvalue()
         self.assertNotIn("SECRET-PING", text)
@@ -299,6 +300,61 @@ class CliSilenceTests(SessionHarness):
         main = source[source.find("def main()") :]
         for name in ('"dump-pings"', '"show-summary"', '"ping-text"', '"print-result"'):
             self.assertNotIn(name, main)
+
+
+class ReviewFixTests(SessionHarness):
+    def test_mid_session_enable_republishes_ready(self):
+        self.ready_session(finish_requested=True, session_ready=False)
+        self.cfg.write_text(json.dumps({"agent_summaries": False}) + "\n")
+        with mock.patch.object(distractions, "menu_select", return_value="On"):
+            distractions.cmd_agent_summaries()
+        control = distractions.read_summary_control()
+        self.assertTrue(control["session_ready"])
+        self.assertFalse(control["finish_requested"])
+        self.assertEqual(control["session_id"], "sess-1")
+        written = distractions.capture_ping(self.record(title="after-on"))
+        self.assertEqual(written["seq"], 1)
+
+    def test_restart_rejects_foreign_session_and_busy_lock(self):
+        self.ready_session(session_id="keep")
+        with mock.patch.object(distractions.time, "sleep"):
+            self.assertIsNone(distractions.apply_parser_restart("other"))
+        self.assertEqual(distractions.read_summary_control()["parser_restarts"], 0)
+        with mock.patch.object(distractions.time, "sleep"):
+            self.assertIsNotNone(distractions.apply_parser_restart("keep"))
+        self.assertEqual(distractions.read_summary_control()["parser_restarts"], 1)
+        guard = distractions.try_summarize_session_lock()
+        self.addCleanup(guard.close)
+        self.assertEqual(distractions.run_summarize_session(restart=True, expected_session="keep"), 2)
+        self.assertEqual(distractions.read_summary_control()["parser_restarts"], 1)
+
+    def test_seq_is_reserved_before_jsonl_publish(self):
+        self.ready_session()
+        with mock.patch.object(distractions, "write_ping_jsonl", side_effect=OSError("disk")):
+            with self.assertRaises(OSError):
+                distractions.capture_ping(self.record())
+        self.assertEqual(distractions.read_summary_control()["next_seq"], 2)
+        self.assertEqual(distractions.read_ping_records(), [])
+        written = distractions.capture_ping(self.record(title="gap"))
+        self.assertEqual(written["seq"], 2)
+
+    def test_disabled_summaries_reject_capture(self):
+        self.ready_session()
+        self.cfg.write_text(json.dumps({"agent_summaries": False}) + "\n")
+        with self.assertRaises(ValueError):
+            distractions.capture_ping(self.record())
+
+    def test_config_path_follows_xdg_config_home(self):
+        with mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": "/tmp/xdg-config"}):
+            self.assertEqual(distractions.config_home(), Path("/tmp/xdg-config"))
+
+    def test_capture_stdin_is_bounded(self):
+        self.ready_session()
+        huge = json.dumps(self.record(body="x" * (distractions.CAPTURE_STDIN_MAX + 8)))
+        with mock.patch.object(distractions.sys, "stdin", io.StringIO(huge)):
+            with self.assertRaises(SystemExit):
+                distractions.cmd_capture_ping()
+        self.assertEqual(distractions.read_ping_records(), [])
 
 
 class ServiceCompositionTests(unittest.TestCase):
@@ -320,6 +376,9 @@ class ServiceCompositionTests(unittest.TestCase):
         text = CAPTURE.read_text()
         self.assertIn("interval: 250", text)
         self.assertIn("summarize-session", text)
+        self.assertIn("--session", text)
+        self.assertIn("captureQueueLimit", text)
+        self.assertIn("stopCaptureWork", text)
         self.assertIn("sessionReady", text)
         self.assertNotIn("is_focus", text)
         self.assertNotIn("focus-status", text)
