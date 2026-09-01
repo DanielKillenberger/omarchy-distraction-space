@@ -1,0 +1,163 @@
+{
+  "branch_name": "fn-8-off-space-block-feedback-page-and",
+  "completion_review_status": "unknown",
+  "completion_reviewed_at": null,
+  "created_at": "2026-09-01T16:05:19.733149Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
+  "depends_on_epics": [
+    "fn-7-one-time-setup-privilege-and-helper"
+  ],
+  "id": "fn-8-off-space-block-feedback-page-and",
+  "impl_review_rounds": {},
+  "next_task": 1,
+  "plan_review_rounds": 0,
+  "plan_review_status": "ship",
+  "plan_reviewed_at": "2026-09-01T16:25:24.172714Z",
+  "ready": true,
+  "review_attempts": [
+    {
+      "artifact_sha256": "51c4477b1e07ff108c23bf8a574176fac1df75d82968c017f6658ad2a9ec3412",
+      "backend": "cursor",
+      "base_sha": "92b67661af4aed6e7efcd6e85bfa4d28923948f5",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-bbcd7ef682024d504eb0c3130b26dbfa",
+            "classification": "introduced",
+            "findingId": "finding-bbcd7ef682024d504eb0c3130b26dbfa",
+            "firstSeenThisRound": true,
+            "severity": "P0",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-bae83c76980e07dbebf81157d95563f5",
+            "classification": "introduced",
+            "findingId": "finding-bae83c76980e07dbebf81157d95563f5",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-e448dbb85c5c1705b03c1ab3cd837af9",
+            "classification": "introduced",
+            "findingId": "finding-e448dbb85c5c1705b03c1ab3cd837af9",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "92b67661af4aed6e7efcd6e85bfa4d28923948f5",
+      "head_sha_observed": true,
+      "kind": "plan",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 2020,
+      "output_sha256": "eede8ef19db70abadf12ca3c00aa84bfeb9da877abaded9aad3da11aeb1ceb6b",
+      "reservation_id": "7113282764304130aa6cea5b267b2818",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T16:22:03.889263Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "9169bcbd2c23e58170b57baa207e9209d1cd0cc171ed55a7e9b6b9ab98445765",
+      "backend": "cursor",
+      "base_sha": "92b67661af4aed6e7efcd6e85bfa4d28923948f5",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-bbcd7ef682024d504eb0c3130b26dbfa",
+            "classification": "introduced",
+            "findingId": "finding-bbcd7ef682024d504eb0c3130b26dbfa",
+            "firstSeenThisRound": false,
+            "severity": "P0",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-bae83c76980e07dbebf81157d95563f5",
+            "classification": "introduced",
+            "findingId": "finding-bae83c76980e07dbebf81157d95563f5",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-e448dbb85c5c1705b03c1ab3cd837af9",
+            "classification": "introduced",
+            "findingId": "finding-e448dbb85c5c1705b03c1ab3cd837af9",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "92b67661af4aed6e7efcd6e85bfa4d28923948f5",
+      "head_sha_observed": true,
+      "kind": "plan",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 82,
+      "output_sha256": "e718393904da640d281449d44191717e9b496d5ed7900449dbe8e72dd8bdcfe4",
+      "reservation_id": "b71954b97a9845a098193d9eefedbd10",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T16:25:24.169959Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "plan": 1,
+    "plan#completion": 0
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "plan": 0
+  },
+  "spec_path": ".flow/specs/fn-8-off-space-block-feedback-page-and.md",
+  "status": "done",
+  "title": "Off-space block feedback page and conscious entry confirm",
+  "tracker": {
+    "baseHashFlow": null,
+    "baseHashTracker": null,
+    "depRelations": [],
+    "id": null,
+    "identifier": null,
+    "lastSyncedAt": null,
+    "mergeBaseFlow": null,
+    "mergeBaseTracker": null,
+    "url": null
+  },
+  "updated_at": "2026-09-01T20:01:03.029313Z"
+}

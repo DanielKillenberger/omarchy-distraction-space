@@ -1,0 +1,20 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-01T19:59:28.986010Z",
+  "depends_on": [
+    "fn-9-rewrite-one-contained-distraction-space.2",
+    "fn-9-rewrite-one-contained-distraction-space.3",
+    "fn-9-rewrite-one-contained-distraction-space.4",
+    "fn-9-rewrite-one-contained-distraction-space.5",
+    "fn-9-rewrite-one-contained-distraction-space.6"
+  ],
+  "id": "fn-9-rewrite-one-contained-distraction-space.7",
+  "priority": null,
+  "spec": "fn-9-rewrite-one-contained-distraction-space",
+  "spec_path": ".flow/tasks/fn-9-rewrite-one-contained-distraction-space.7.md",
+  "status": "todo",
+  "title": "Listener: wire containment, network, feedback, lock, and state together",
+  "updated_at": "2026-09-01T19:59:28.986010Z"
+}

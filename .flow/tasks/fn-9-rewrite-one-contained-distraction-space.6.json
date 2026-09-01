@@ -1,0 +1,16 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-01T19:59:28.985971Z",
+  "depends_on": [
+    "fn-9-rewrite-one-contained-distraction-space.1"
+  ],
+  "id": "fn-9-rewrite-one-contained-distraction-space.6",
+  "priority": null,
+  "spec": "fn-9-rewrite-one-contained-distraction-space",
+  "spec_path": ".flow/tasks/fn-9-rewrite-one-contained-distraction-space.6.md",
+  "status": "todo",
+  "title": "Menus, prompts, and the bar widget",
+  "updated_at": "2026-09-01T19:59:28.985971Z"
+}

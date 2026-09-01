@@ -1,0 +1,14 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-01T16:16:37.243232Z",
+  "depends_on": [],
+  "id": "fn-8-off-space-block-feedback-page-and.1",
+  "priority": null,
+  "spec": "fn-8-off-space-block-feedback-page-and",
+  "spec_path": ".flow/tasks/fn-8-off-space-block-feedback-page-and.1.md",
+  "status": "todo",
+  "title": "Wrapper redirect chain: nat output redirect to 28080/28443, drop to reject",
+  "updated_at": "2026-09-01T16:24:42.866391Z"
+}
