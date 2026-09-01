@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import sys
 import time
 import unittest
@@ -70,6 +71,7 @@ class LockTests(unittest.TestCase):
         self.notify_patch = patch("ds.ui.notify", self._notify)
         self.notify_patch.start()
         self.addCleanup(self.notify_patch.stop)
+        lock._cfg_warned = False
 
     def _notify(self, title, body, *, glyph=None, action=None, urgent=False):
         self.notices.append((title, body))
@@ -313,6 +315,141 @@ class LockTests(unittest.TestCase):
         self.assertFalse(raw["locked"])
         r = self.box.run("enter")
         self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_expire_race_does_not_drop_new_lock(self):
+        self._cfg()
+        script = r"""
+import os, sys, time
+from pathlib import Path
+sys.path.insert(0, os.environ["DS_ROOT"])
+from ds import lock
+go = Path(os.environ["DS_GO"])
+out = Path(os.environ["DS_OUT"])
+Path(os.environ["DS_READY"]).write_text("1")
+deadline = time.monotonic() + 5
+while not go.exists() and time.monotonic() < deadline:
+    time.sleep(0.001)
+if sys.argv[1] == "expire":
+    out.write_text("true" if lock.expire_if_due() else "false")
+else:
+    lock.lock(40, "racer")
+    out.write_text("done")
+"""
+        env = self.box.env()
+        env["DS_ROOT"] = str(ROOT)
+        for i in range(12):
+            go = self.box.runtime / f"race-go-{i}"
+            if go.exists():
+                go.unlink()
+            state.write_json(
+                state.state_path("lock.json"),
+                {
+                    "locked": True,
+                    "since": _iso(-30),
+                    "until": _iso(-1),
+                    "purpose": "old",
+                },
+            )
+            expire_out = self.box.runtime / f"race-eout-{i}"
+            lock_out = self.box.runtime / f"race-lout-{i}"
+            expire_ready = self.box.runtime / f"race-eready-{i}"
+            lock_ready = self.box.runtime / f"race-lready-{i}"
+            pe = subprocess.Popen(
+                [sys.executable, "-c", script, "expire"],
+                env={**env, "DS_GO": str(go), "DS_OUT": str(expire_out), "DS_READY": str(expire_ready)},
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            pl = subprocess.Popen(
+                [sys.executable, "-c", script, "lock"],
+                env={**env, "DS_GO": str(go), "DS_OUT": str(lock_out), "DS_READY": str(lock_ready)},
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline and not (
+                    expire_ready.exists() and lock_ready.exists()
+                ):
+                    time.sleep(0.005)
+                self.assertTrue(
+                    expire_ready.exists() and lock_ready.exists(),
+                    f"racers did not start on round {i}",
+                )
+                go.write_text("1", encoding="utf-8")
+                try:
+                    erc = pe.wait(timeout=5)
+                    lrc = pl.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pe.kill()
+                    pl.kill()
+                    pe.wait(timeout=2)
+                    pl.wait(timeout=2)
+                    self.fail(f"racer timed out on round {i}")
+                if erc != 0:
+                    self.fail(f"expire racer failed round {i}: {pe.stderr.read()}")
+                if lrc != 0:
+                    self.fail(f"lock racer failed round {i}: {pl.stderr.read()}")
+            finally:
+                for proc in (pe, pl):
+                    if proc.poll() is None:
+                        proc.kill()
+                        proc.wait(timeout=2)
+                    if proc.stderr:
+                        proc.stderr.close()
+            raw = self._raw_lock()
+            self.assertTrue(raw["locked"], i)
+            self.assertEqual(raw["purpose"], "racer", i)
+            self.assertTrue(lock.is_locked(), i)
+
+    def test_config_load_merges_partial_and_rejects_invalid(self):
+        self.box.config_file.write_text(
+            json.dumps({"lock": {"default_minutes": 40}}), encoding="utf-8"
+        )
+        with patch("ds.ui.prompt_lock", return_value=None) as prompt:
+            rc = lock._cli_lock(Namespace(duration=None, purpose=[]))
+        self.assertEqual(rc, 0)
+        prompt.assert_called_once()
+        cfg = prompt.call_args[0][0]
+        self.assertEqual(cfg["lock"]["default_minutes"], 40)
+        self.assertEqual(cfg["lock"]["reason_min_chars"], 50)
+        self.assertIn("list", cfg)
+        self.assertIn("nudges", cfg)
+
+        lock._cfg_warned = False
+        self.notices.clear()
+        self.box.config_file.write_text(
+            json.dumps({"lock": {"reason_min_chars": -1, "default_minutes": 25, "ask_purpose": True}}),
+            encoding="utf-8",
+        )
+        self.assertEqual(lock._reason_min(), 50)
+        self.assertEqual(lock._reason_min(), 50)
+        cfg_notices = [
+            (t, b) for t, b in self.notices
+            if "config" in (t + b).lower() or "default" in (t + b).lower()
+        ]
+        self.assertEqual(len(cfg_notices), 1)
+        self.assertEqual(lock.lock(10, "stay locked"), 0)
+        rc = lock.unlock("short")
+        self.assertEqual(rc, 1)
+        self.assertTrue(lock.is_locked())
+        self.assertEqual(self._raw_lock()["purpose"], "stay locked")
+
+    def test_unlock_log_failure_keeps_lock(self):
+        log_as_dir = self.box.state_dir / "not-a-log-file"
+        log_as_dir.mkdir()
+        self._cfg(log=str(log_as_dir), hooks={"unlock": [self._hook_argv()]})
+        self.assertEqual(lock.lock(25, "stay"), 0)
+        self.notices.clear()
+        rc = lock.unlock("x" * 50)
+        self.assertEqual(rc, 1)
+        self.assertTrue(lock.is_locked())
+        self.assertEqual(self._raw_lock()["purpose"], "stay")
+        self.assertTrue(self.notices)
+        time.sleep(0.15)
+        self.assertFalse(self.hook_out.exists())
 
 
 if __name__ == "__main__":

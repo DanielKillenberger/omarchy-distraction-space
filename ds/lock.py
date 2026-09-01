@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import copy
 import fcntl
-import json
 import os
 import subprocess
 import sys
@@ -14,6 +14,21 @@ from ds import config, hypr, state, ui
 from ds.config import DEFAULTS
 
 _alive = []
+_cfg_warned = False
+
+
+def _with_lockfile(fn):
+    path = state.runtime_path("distraction-space.lockfile.lock")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a+", encoding="utf-8") as fh:
+        fcntl.flock(fh, fcntl.LOCK_EX)
+        try:
+            return fn()
+        finally:
+            try:
+                fcntl.flock(fh, fcntl.LOCK_UN)
+            except OSError:
+                pass
 
 
 def is_locked():
@@ -21,56 +36,75 @@ def is_locked():
 
 
 def lock(minutes, purpose):
-    if is_locked():
-        return 0
     purpose = purpose or ""
     until = None if minutes is None else _until_iso(minutes)
-    state.write_lock(True, until, purpose)
-    run_hook("lock", {
-        "DS_EVENT": "lock",
-        "DS_PURPOSE": purpose,
-        "DS_MINUTES": "" if minutes is None else str(minutes),
-        "DS_REASON": "",
-        "DS_HELD": "{}",
-    })
+
+    def _do():
+        if is_locked():
+            return False
+        state.write_lock(True, until, purpose)
+        return True
+
+    if _with_lockfile(_do):
+        run_hook("lock", {
+            "DS_EVENT": "lock",
+            "DS_PURPOSE": purpose,
+            "DS_MINUTES": "" if minutes is None else str(minutes),
+            "DS_REASON": "",
+            "DS_HELD": "{}",
+        })
     return 0
 
 
 def unlock(reason):
-    if not is_locked():
-        return 0
     reason = reason or ""
-    n = _reason_min()
-    if n and len(reason) < n:
-        _notify("Reason too short", f"Write at least {n} characters.")
-        print(f"unlock needs at least {n} characters", file=sys.stderr)
+
+    def _do():
+        if not is_locked():
+            return ("noop", None)
+        n = _reason_min()
+        if n and len(reason) < n:
+            return ("short", n)
+        purpose = state.read_lock().get("purpose") or ""
+        try:
+            _append_log(
+                f"{state.now_iso()} unlock purpose={_one_line(purpose)} reason={_one_line(reason)}"
+            )
+        except OSError:
+            return ("log", None)
+        state.write_lock(False, None, "")
+        return ("ok", purpose)
+
+    kind, extra = _with_lockfile(_do)
+    if kind == "short":
+        _notify("Reason too short", f"Write at least {extra} characters.")
+        print(f"unlock needs at least {extra} characters", file=sys.stderr)
         return 1
-    purpose = state.read_lock().get("purpose") or ""
-    state.write_lock(False, None, "")
-    try:
-        _append_log(
-            f"{state.now_iso()} unlock purpose={_one_line(purpose)} reason={_one_line(reason)}"
-        )
-    except OSError:
-        pass
-    run_hook("unlock", {
-        "DS_EVENT": "unlock",
-        "DS_PURPOSE": purpose,
-        "DS_MINUTES": "",
-        "DS_REASON": reason,
-        "DS_HELD": "{}",
-    })
+    if kind == "log":
+        _notify("Could not write unlock log", "The lock is unchanged.")
+        return 1
+    if kind == "ok":
+        run_hook("unlock", {
+            "DS_EVENT": "unlock",
+            "DS_PURPOSE": extra,
+            "DS_MINUTES": "",
+            "DS_REASON": reason,
+            "DS_HELD": "{}",
+        })
     return 0
 
 
 def expire_if_due():
-    data = state.read_json(state.state_path("lock.json"), None)
-    if not isinstance(data, dict) or not data.get("locked"):
-        return False
-    if is_locked():
-        return False
-    state.write_lock(False, None, "")
-    return True
+    def _do():
+        data = state.read_json(state.state_path("lock.json"), None)
+        if not isinstance(data, dict) or not data.get("locked"):
+            return False
+        if is_locked():
+            return False
+        state.write_lock(False, None, "")
+        return True
+
+    return _with_lockfile(_do)
 
 
 def run_hook(name, env):
@@ -184,7 +218,7 @@ def _cli_lock(args):
     purpose_words = getattr(args, "purpose", None) or []
     if duration is None:
         try:
-            result = ui.prompt_lock(_cfg_or_defaults())
+            result = ui.prompt_lock(_load_cfg())
         except ui.Unavailable:
             _notify("Lock prompt unavailable", "Pass minutes and purpose as arguments.")
             print("lock prompt unavailable; pass minutes and purpose as arguments", file=sys.stderr)
@@ -236,44 +270,27 @@ def _one_line(text):
     return (text or "").replace("\n", " ").replace("\r", " ")
 
 
-def _try_cfg():
+def _load_cfg():
+    global _cfg_warned
     try:
-        path = config.config_path()
-        if not path.exists():
-            return None
-        data = json.loads(path.read_text(encoding="utf-8"))
-        return data if isinstance(data, dict) else None
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        return None
-
-
-def _cfg_or_defaults():
-    cfg = _try_cfg()
-    return cfg if cfg is not None else DEFAULTS
+        return config.load()
+    except Exception:
+        if not _cfg_warned:
+            _cfg_warned = True
+            _notify("Config invalid", "Using defaults.")
+        return copy.deepcopy(DEFAULTS)
 
 
 def _reason_min():
-    cfg = _try_cfg()
-    if isinstance(cfg, dict):
-        lk = cfg.get("lock")
-        if isinstance(lk, dict) and type(lk.get("reason_min_chars")) is int:
-            return lk["reason_min_chars"]
-    return 50
+    return int(_load_cfg()["lock"]["reason_min_chars"])
 
 
 def _entry_confirm_on():
-    cfg = _try_cfg()
-    if not isinstance(cfg, dict):
-        return True
-    nudges = cfg.get("nudges")
-    if not isinstance(nudges, dict) or "entry_confirm" not in nudges:
-        return True
-    return bool(nudges["entry_confirm"])
+    return bool(_load_cfg()["nudges"]["entry_confirm"])
 
 
 def _log_path():
-    cfg = _try_cfg()
-    raw = cfg.get("log") if isinstance(cfg, dict) else None
+    raw = _load_cfg()["log"]
     if not isinstance(raw, str) or not raw or raw == DEFAULTS["log"]:
         return state.state_path("log")
     return Path(os.path.expanduser(raw))
@@ -296,13 +313,7 @@ def _append_log(line):
 
 
 def _hook_argvs(name):
-    cfg = _try_cfg()
-    if not isinstance(cfg, dict):
-        return []
-    hooks = cfg.get("hooks")
-    if not isinstance(hooks, dict):
-        return []
-    raw = hooks.get(name) or []
+    raw = _load_cfg().get("hooks", {}).get(name) or []
     if not isinstance(raw, list):
         return []
     out = []
