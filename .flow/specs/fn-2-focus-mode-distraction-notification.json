@@ -979,7 +979,7 @@
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-2-focus-mode-distraction-notification.md",
-  "status": "open",
+  "status": "done",
   "title": "Focus-mode distraction notification block",
   "tracker": {
     "baseHashFlow": null,
@@ -992,5 +992,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T02:19:47.167379Z"
+  "updated_at": "2026-09-01T07:19:15.903998Z"
 }
