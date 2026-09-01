@@ -17,6 +17,7 @@ import tempfile
 import threading
 import time
 import tomllib
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -101,6 +102,13 @@ FOCUS = STATE_DIR / "distractions.focus"
 MUTED_PATH = STATE_DIR / "distractions.muted.json"
 LISTEN_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.listen.lock"
 NOTIFY_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.lock"
+SUMMARY_STATE_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summary-state.lock"
+SUMMARIZE_SESSION_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summarize-session.lock"
+CAPTURE_LOCK_TIMEOUT_S = 0.25
+PING_JSONL_MAX_BYTES = 64 * 1024
+PARSER_RESTART_MAX = 2
+PARSER_RESTART_SLEEPS = (1.0, 4.0)
+PARSER_POLL_S = 0.25
 WATCHER_REQUEST = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.request"
 WATCHER_STATUS = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.status"
 DEFAULT_LOG = STATE_DIR / "focus-disable.log"
@@ -308,6 +316,8 @@ def cmd_agent_summaries() -> None:
         return
     if selected == "Off":
         update_focus_config(agent_summaries=False)
+        if is_focus():
+            request_summary_finish()
         return
     notify("Focus mode", "Rejected agent-summaries setting; previous setting kept.")
 
@@ -1034,6 +1044,344 @@ def write_json_atomic(path: Path, payload) -> None:
     tmp.replace(path)
 
 
+def ping_text_path() -> Path:
+    return STATE_DIR / "focus-summary.jsonl"
+
+
+def summary_control_path() -> Path:
+    return STATE_DIR / "focus-summary-control.json"
+
+
+def summary_result_path() -> Path:
+    return STATE_DIR / "focus-summary-result.json"
+
+
+def default_summary_control() -> dict:
+    return {
+        "session_id": "",
+        "next_seq": 1,
+        "invocations": 0,
+        "last_consumed_seq": 0,
+        "parser_restarts": 0,
+        "parser_active": False,
+        "session_ready": False,
+        "finish_requested": False,
+        "lift_fail_pending": False,
+        "parser_closed": False,
+        "agent_pid": None,
+    }
+
+
+def _chmod_private(path: Path) -> None:
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def read_summary_control() -> dict:
+    data = read_json(summary_control_path(), default_summary_control())
+    if not isinstance(data, dict):
+        return default_summary_control()
+    merged = default_summary_control()
+    merged.update(data)
+    return merged
+
+
+def write_summary_control(payload: dict) -> None:
+    path = summary_control_path()
+    write_json_atomic(path, payload)
+    _chmod_private(path)
+
+
+def _open_exclusive_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return open(path, "w")
+
+
+def _lock_summary_state(timeout_s: float | None = None):
+    timeout = CAPTURE_LOCK_TIMEOUT_S if timeout_s is None else timeout_s
+    handle = _open_exclusive_lock(SUMMARY_STATE_LOCK)
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return handle
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                handle.close()
+                raise TimeoutError("summary-state.lock")
+            time.sleep(0.01)
+
+
+def try_summarize_session_lock():
+    handle = _open_exclusive_lock(SUMMARIZE_SESSION_LOCK)
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def _kill_pid(pid: int | None) -> None:
+    if not pid:
+        return
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+    except (OSError, TypeError, ValueError):
+        return
+    try:
+        os.killpg(int(pid), signal.SIGTERM)
+    except OSError:
+        pass
+
+
+def reap_summary_children(control: dict | None = None) -> None:
+    payload = control if control is not None else read_summary_control()
+    _kill_pid(payload.get("agent_pid"))
+    if control is not None:
+        control["agent_pid"] = None
+
+
+def prepare_summary_session(*, force_new: bool = False) -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if control.get("lift_fail_pending") and not force_new:
+            control["finish_requested"] = False
+            control["parser_closed"] = False
+            control["session_ready"] = False
+            write_summary_control(control)
+            reap_summary_children(control)
+            write_summary_control(control)
+            return control
+        control = default_summary_control()
+        control["session_id"] = uuid.uuid4().hex
+        write_summary_control(control)
+        result = summary_result_path()
+        if result.exists():
+            result.unlink()
+        ping = ping_text_path()
+        if ping.exists():
+            ping.unlink()
+        reap_summary_children(control)
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def mark_summary_session_ready() -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if not control.get("session_id"):
+            return control
+        control["session_ready"] = True
+        control["finish_requested"] = False
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def request_summary_finish() -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        control["finish_requested"] = True
+        control["parser_active"] = False
+        control["session_ready"] = False
+        reap_summary_children(control)
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def _capture_record_valid(payload) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    app = payload.get("app")
+    title = payload.get("title")
+    body = payload.get("body")
+    at = payload.get("at")
+    if not isinstance(app, str) or not isinstance(title, str) or not isinstance(body, str):
+        return None
+    if not isinstance(at, str) or not at.strip():
+        return None
+    return {"app": app, "title": title, "body": body, "at": at}
+
+
+def _trim_jsonl_lines(lines: list[str], max_bytes: int) -> list[str]:
+    kept = list(lines)
+    while kept and sum(len(line.encode()) for line in kept) > max_bytes:
+        kept.pop(0)
+    return kept
+
+
+def write_ping_jsonl(lines: list[str]) -> None:
+    path = ping_text_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "".join(lines)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(text)
+    tmp.replace(path)
+    _chmod_private(path)
+
+
+def read_ping_records() -> list[dict]:
+    path = ping_text_path()
+    if not path.exists():
+        return []
+    records = []
+    for raw in path.read_text().splitlines():
+        if not raw.strip():
+            continue
+        try:
+            item = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict) and isinstance(item.get("seq"), int):
+            records.append(item)
+    return records
+
+
+def capture_ping(payload) -> dict:
+    record = _capture_record_valid(payload)
+    if record is None:
+        raise ValueError("invalid capture payload")
+    if not is_focus():
+        raise ValueError("not focused")
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if (
+            not control.get("session_ready")
+            or not control.get("session_id")
+            or control.get("parser_closed")
+            or control.get("finish_requested")
+        ):
+            raise ValueError("stale session")
+        seq = int(control.get("next_seq") or 1)
+        line = json.dumps({"seq": seq, **record}, separators=(",", ":")) + "\n"
+        existing = []
+        path = ping_text_path()
+        if path.exists():
+            existing = [ln if ln.endswith("\n") else ln + "\n" for ln in path.read_text().splitlines() if ln]
+        kept = _trim_jsonl_lines(existing + [line], PING_JSONL_MAX_BYTES)
+        write_ping_jsonl(kept)
+        control["next_seq"] = seq + 1
+        write_summary_control(control)
+        return {"seq": seq, **record}
+    finally:
+        lock.close()
+
+
+def cmd_capture_ping() -> None:
+    try:
+        raw = sys.stdin.read()
+        payload = json.loads(raw) if raw.strip() else None
+        capture_ping(payload)
+    except (json.JSONDecodeError, TypeError, ValueError, TimeoutError, OSError):
+        raise SystemExit(1)
+
+
+def mark_parser_active() -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        control["parser_active"] = True
+        control["finish_requested"] = False
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def apply_parser_restart() -> dict | None:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        current = int(control.get("parser_restarts") or 0)
+        if current >= PARSER_RESTART_MAX:
+            control["parser_closed"] = True
+            control["parser_active"] = False
+            control["session_ready"] = False
+            write_summary_control(control)
+            return None
+        control["parser_restarts"] = current + 1
+        control["parser_active"] = True
+        control["finish_requested"] = False
+        write_summary_control(control)
+        sleep_for = PARSER_RESTART_SLEEPS[current]
+    finally:
+        lock.close()
+    time.sleep(sleep_for)
+    return read_summary_control()
+
+
+def clear_parser_running() -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        control["parser_active"] = False
+        if control.get("finish_requested") or control.get("parser_closed"):
+            control["session_ready"] = False
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def should_stop_parser(control: dict | None = None) -> bool:
+    payload = control if control is not None else read_summary_control()
+    return bool(
+        payload.get("finish_requested")
+        or payload.get("parser_closed")
+        or not payload.get("session_ready")
+        or not agent_summaries_enabled()
+    )
+
+
+def observe_ping_records(last_seen_seq: int) -> list[dict]:
+    unseen = [row for row in read_ping_records() if int(row.get("seq") or 0) > last_seen_seq]
+    unseen.sort(key=lambda row: int(row.get("seq") or 0))
+    return unseen
+
+
+def run_summarize_session(*, restart: bool = False, once: bool = False) -> None:
+    guard = try_summarize_session_lock()
+    if guard is None:
+        return
+    try:
+        if restart:
+            if apply_parser_restart() is None:
+                return
+        else:
+            mark_parser_active()
+        last_seen = int(read_summary_control().get("last_consumed_seq") or 0)
+        while True:
+            control = read_summary_control()
+            if should_stop_parser(control):
+                clear_parser_running()
+                return
+            unseen = observe_ping_records(last_seen)
+            if unseen:
+                last_seen = int(unseen[-1]["seq"])
+            if once:
+                return
+            time.sleep(PARSER_POLL_S)
+    finally:
+        guard.close()
+
+
+def cmd_summarize_session() -> None:
+    restart = "--restart" in sys.argv[2:]
+    run_summarize_session(restart=restart, once=os.environ.get("DISTRACTIONS_SUMMARY_ONCE") == "1")
+
+
 def count_path() -> Path:
     return STATE_DIR / "distractions.notify-count.json"
 
@@ -1750,6 +2098,7 @@ def install_notification_service() -> bool:
 
 
 def enable_focus() -> None:
+    prepare_summary_session()
     with focus_block.network_lock():
         try:
             apply_network_block()
@@ -1758,7 +2107,8 @@ def enable_focus() -> None:
         set_focus(True)
         if on_distractions():
             hide()
-    apply_notification_block()
+    if apply_notification_block():
+        mark_summary_session_ready()
     notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
@@ -1771,6 +2121,7 @@ def disable_focus(reason: str) -> None:
     stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     with log_path().open("a", encoding="utf-8") as handle:
         handle.write(f"{stamp}  {reason}\n")
+    request_summary_finish()
     with focus_block.network_lock():
         set_focus(False)
         try:
@@ -1885,6 +2236,10 @@ def main() -> None:
         cmd_agent_summaries()
     elif command == "summary-agent":
         cmd_summary_agent()
+    elif command == "capture-ping":
+        cmd_capture_ping()
+    elif command == "summarize-session":
+        cmd_summarize_session()
     elif command == "log-path":
         print(log_path())
     elif command == "destinations":
