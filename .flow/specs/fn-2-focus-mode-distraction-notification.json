@@ -9,7 +9,7 @@
   "depends_on_epics": [],
   "id": "fn-2-focus-mode-distraction-notification",
   "impl_review_rounds": {
-    "fn-2-focus-mode-distraction-notification.1": 7
+    "fn-2-focus-mode-distraction-notification.1": 8
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -650,6 +650,71 @@
       "task": "fn-2-focus-mode-distraction-notification.1",
       "timestamp": "2026-09-01T00:59:17.256082Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "2f1d691894a39da675b32cac72991d2c6c9c84ef570820f1d191e078cc6453e5",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ec41f4688a7bf1da3389371008e7b0e1",
+            "classification": "introduced",
+            "findingId": "finding-ec41f4688a7bf1da3389371008e7b0e1",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-50d5f1062c291c71e15c3c3bd90296b1",
+            "classification": "introduced",
+            "findingId": "finding-50d5f1062c291c71e15c3c3bd90296b1",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-0aec57c314e689b5d80efc854d99fd5b",
+            "classification": "introduced",
+            "findingId": "finding-0aec57c314e689b5d80efc854d99fd5b",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-3e84794bfabd6c9cab8afb9858496182",
+            "classification": "introduced",
+            "findingId": "finding-3e84794bfabd6c9cab8afb9858496182",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "4eeefd69d021d8c01cf5fc46083a9b3a32a0bfd1",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1785,
+      "output_sha256": "a2fd1919123238d6d7573dfa2cda906debd33910a55fd5ad39cd07ddea84d271",
+      "reservation_id": "1f141aa8eb7e41e7ac9ecb02cb481974",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T01:03:51.129454Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -676,5 +741,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T00:59:17.798394Z"
+  "updated_at": "2026-09-01T01:03:51.655108Z"
 }
