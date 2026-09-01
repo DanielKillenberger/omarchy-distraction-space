@@ -49,9 +49,16 @@ Compose capture into mute's one Quickshell service, own ping-text JSONL, and sta
 - [ ] Manual Quickshell service smoke observes a newly published ready marker within 500 ms, starts exactly one parser, and selects `--restart` once after a forced unexpected exit; Python tests cover the backoff delay and cap.
 
 ## Done summary
-TBD
+# fn-3.2 done
 
+One Quickshell service still owns mute. Capture is a child. Session prepare happens before the focus flag. Mute always applies on focus-on, including when summaries are off. Ready, capture, and summarize-session start only after mute apply succeeds for this session and summaries are enabled. Mid-session enable re-applies mute before publishing ready. Later listen/focus retries share the same refresh gate.
+
+Host impl-review (gpt-5.6-sol-high) SHIP. Lineage #13 closed. Picker remains claude+grok only.
+
+stage: impl-review - ran (model: gpt-5.6-sol-high)
+baseline: green
+focused: tests.test_summary_session 35 OK
 ## Evidence
-- Commits:
-- Tests:
-- PRs:
+- Commits: b34717f31ccbea3e79c5643e92ece27c8709a005, 1a33485b14f6af8dd040c760afe84f2ebe5fe6e8, 6bda85a4898ddf23609b4e73a5a5fb98fb960528, 4d99e20279373b9298a5e68ccf1bba375aa23e5a, dd5d542b7a2a600ac560c0a82be9c557f32fdbe7, f91f5d6aad64c6700debe726f9d92a02a06df079, 771ee833d7ea56aa95de3601dfbc5b6d52ef25e2, f6715231ac112720e83152fc9125e48120f8844f
+- Tests: python3 -m py_compile distractions, python3 -m unittest tests.test_summary_session, python3 -m unittest discover -s tests -p 'test_*.py'
+- PRs: https://github.com/DanielKillenberger/omarchy-distraction-space/pull/3
