@@ -7,6 +7,7 @@ import fcntl
 import json
 import os
 import re
+import resource
 import select
 import shutil
 import signal
@@ -109,6 +110,8 @@ LISTEN_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.li
 NOTIFY_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.lock"
 SUMMARY_STATE_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summary-state.lock"
 SUMMARIZE_SESSION_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summarize-session.lock"
+SUMMARY_RESULT_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summary-result.lock"
+SUMMARY_LEDGER_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summary-ledger.lock"
 CAPTURE_LOCK_TIMEOUT_S = 0.25
 PING_JSONL_MAX_BYTES = 64 * 1024
 PARSER_RESTART_MAX = 2
@@ -117,6 +120,20 @@ PARSER_POLL_S = 0.25
 SESSION_BUSY_EXIT = 2
 CAPTURE_STDIN_MAX = 32 * 1024
 CAPTURE_FIELD_MAX = 4096
+PARSE_DEBOUNCE_S = 20.0
+PARSE_MAX_INVOCATIONS = 3
+PARSE_MAX_RECORDS = 40
+PARSE_MAX_PROMPT_BYTES = 24 * 1024
+PARSE_STDOUT_MAX = 8 * 1024
+PARSE_RESULT_MAX = 8 * 1024
+PARSE_NOTIFY_BODY_MAX = 800
+PARSE_RLIMIT_AS = 512 * 1024 * 1024
+PARSE_RLIMIT_FSIZE = 1024 * 1024
+PARSE_RLIMIT_NPROC = 16
+LEDGER_PROMPT_LINES = 20
+LEDGER_PROMPT_BYTES = 4 * 1024
+SUMMARY_NOTIFY_MS = 12000
+FINISH_WAIT_S = 60.0
 WATCHER_REQUEST = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.request"
 WATCHER_STATUS = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.status"
 DEFAULT_LOG = STATE_DIR / "focus-disable.log"
@@ -468,6 +485,14 @@ def _run_agent(
     prompt: str | None = None,
 ) -> subprocess.CompletedProcess:
     stdin = subprocess.PIPE if prompt is not None else subprocess.DEVNULL
+    def apply_rlimits() -> None:
+        try:
+            resource.setrlimit(resource.RLIMIT_AS, (PARSE_RLIMIT_AS, PARSE_RLIMIT_AS))
+            resource.setrlimit(resource.RLIMIT_FSIZE, (PARSE_RLIMIT_FSIZE, PARSE_RLIMIT_FSIZE))
+            resource.setrlimit(resource.RLIMIT_NPROC, (PARSE_RLIMIT_NPROC, PARSE_RLIMIT_NPROC))
+        except (ValueError, OSError):
+            return
+
     proc = subprocess.Popen(
         argv,
         cwd=str(cwd),
@@ -477,7 +502,9 @@ def _run_agent(
         stderr=subprocess.PIPE,
         text=True,
         start_new_session=True,
+        preexec_fn=apply_rlimits,
     )
+    _record_agent_pid(proc.pid)
     try:
         stdout, stderr = proc.communicate(input=prompt, timeout=AGENT_CHILD_TIMEOUT_S)
     except subprocess.TimeoutExpired:
@@ -488,7 +515,11 @@ def _run_agent(
             _kill_process_group(proc)
             stdout, stderr = proc.communicate()
         raise
-    return subprocess.CompletedProcess(argv, proc.returncode, stdout or "", stderr or "")
+    finally:
+        _record_agent_pid(None)
+    return subprocess.CompletedProcess(
+        argv, proc.returncode, (stdout or "")[:PARSE_STDOUT_MAX], stderr or ""
+    )
 
 
 def prepare_grok_home() -> Path:
@@ -1165,6 +1196,23 @@ def _kill_pid(pid: int | None) -> None:
         pass
 
 
+def _record_agent_pid(pid: int | None) -> None:
+    try:
+        lock = _lock_summary_state()
+    except (TimeoutError, OSError):
+        return
+    try:
+        control = read_summary_control()
+        if not control.get("session_id"):
+            return
+        control["agent_pid"] = int(pid) if pid else None
+        write_summary_control(control)
+    except Exception:
+        return
+    finally:
+        lock.close()
+
+
 def reap_summary_children(control: dict | None = None) -> None:
     payload = control if control is not None else read_summary_control()
     _kill_pid(payload.get("agent_pid"))
@@ -1486,6 +1534,189 @@ def observe_ping_records(last_seen_seq: int) -> list[dict]:
     return unseen
 
 
+def summary_ledger_path() -> Path:
+    return STATE_DIR / "focus-summary-ledger.jsonl"
+
+
+def _lock_summary_result():
+    handle = _open_exclusive_lock(SUMMARY_RESULT_LOCK)
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def read_ledger_prompt() -> str:
+    path = summary_ledger_path()
+    if not path.exists():
+        return ""
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-LEDGER_PROMPT_LINES:]
+    text = "\n".join(lines)
+    encoded = text.encode()
+    if len(encoded) <= LEDGER_PROMPT_BYTES:
+        return text
+    return encoded[-LEDGER_PROMPT_BYTES:].decode("utf-8", "ignore")
+
+
+def build_summary_prompt(records: list[dict]) -> str:
+    chosen = records[-PARSE_MAX_RECORDS:]
+    chunks: list[str] = []
+    used = 0
+    for row in chosen:
+        piece = f"{row.get('title') or ''}\n{row.get('body') or ''}\n"
+        extra = len(piece.encode())
+        if used + extra > PARSE_MAX_PROMPT_BYTES:
+            break
+        chunks.append(piece)
+        used += extra
+    ledger = read_ledger_prompt()
+    if ledger:
+        chunks.append(ledger if ledger.endswith("\n") else ledger + "\n")
+    return "".join(chunks)
+
+
+def read_summary_result() -> dict:
+    data = read_json(summary_result_path(), {})
+    return data if isinstance(data, dict) else {}
+
+
+def publish_summary_result(text: str, session_id: str) -> dict:
+    payload = {
+        "session_id": session_id,
+        "text": (text or "")[:PARSE_RESULT_MAX],
+    }
+    lock = _lock_summary_result()
+    try:
+        write_private_atomic(summary_result_path(), json.dumps(payload) + "\n")
+        return payload
+    finally:
+        lock.close()
+
+
+def reserve_parse_invocation(
+    records: list[dict],
+    expected_session: str | None = None,
+    *,
+    finishing: bool = False,
+) -> dict | None:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        session_id = control.get("session_id")
+        if expected_session and session_id != expected_session:
+            return None
+        if not session_id:
+            return None
+        if int(control.get("invocations") or 0) >= PARSE_MAX_INVOCATIONS:
+            return None
+        if finishing:
+            if int(control.get("parser_restarts") or 0) >= PARSER_RESTART_MAX:
+                return None
+            if control.get("parser_closed") and not control.get("finish_requested"):
+                return None
+        elif not _parser_may_start(control, expected_session):
+            return None
+        control["invocations"] = int(control.get("invocations") or 0) + 1
+        if records:
+            control["last_consumed_seq"] = max(int(row.get("seq") or 0) for row in records)
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def run_one_parse(
+    records: list[dict],
+    expected_session: str | None = None,
+    *,
+    finishing: bool = False,
+) -> str:
+    reserved = reserve_parse_invocation(records, expected_session, finishing=finishing)
+    if reserved is None:
+        return ""
+    session_id = reserved.get("session_id") or ""
+    agent = resolve_summary_agent()
+    if not agent:
+        return ""
+    prompt = build_summary_prompt(records)
+    try:
+        raw = invoke_summary_agent(agent, prompt)
+    except (SummaryAgentError, OSError, subprocess.TimeoutExpired):
+        raw = ""
+    if not raw:
+        return ""
+    if read_summary_control().get("session_id") != session_id:
+        return ""
+    publish_summary_result(raw, session_id)
+    return raw
+
+
+def mark_lift_fail_pending(pending: bool = True) -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        control["lift_fail_pending"] = bool(pending)
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def apply_summary_xor() -> str:
+    mark_lift_fail_pending(False)
+    result = read_summary_result()
+    text = str(result.get("text") or "").strip()
+    if (
+        agent_summaries_enabled()
+        and resolve_summary_agent()
+        and text
+        and result.get("session_id") == read_summary_control().get("session_id")
+    ):
+        body = text[:PARSE_NOTIFY_BODY_MAX]
+        if notify("Focus summary", body, timeout_ms=SUMMARY_NOTIFY_MS):
+            clear_counts()
+            result_path = summary_result_path()
+            if result_path.exists():
+                result_path.unlink()
+            return "summary"
+        show_grouped_notice()
+        return "grouped"
+    show_grouped_notice()
+    return "grouped"
+
+
+def summarize_finish(expected_session: str | None = None) -> dict:
+    request_summary_finish()
+    deadline = time.monotonic() + FINISH_WAIT_S
+    while time.monotonic() < deadline:
+        guard = try_summarize_session_lock()
+        if guard is not None:
+            guard.close()
+            break
+        time.sleep(0.2)
+    else:
+        reap_summary_children()
+    control = read_summary_control()
+    session_id = expected_session or control.get("session_id")
+    unseen = observe_ping_records(int(control.get("last_consumed_seq") or 0))
+    if (
+        unseen
+        and int(control.get("invocations") or 0) < PARSE_MAX_INVOCATIONS
+        and int(control.get("parser_restarts") or 0) < PARSER_RESTART_MAX
+    ):
+        run_one_parse(unseen, session_id, finishing=True)
+    request_summary_finish()
+    return read_summary_control()
+
+
+def cmd_summarize_finish() -> None:
+    session = None
+    args = sys.argv[2:]
+    if "--session" in args:
+        index = args.index("--session")
+        if index + 1 < len(args):
+            session = args[index + 1]
+    summarize_finish(session)
+
+
 def run_summarize_session(
     *,
     restart: bool = False,
@@ -1504,15 +1735,34 @@ def run_summarize_session(
                 mark_parser_active(expected_session)
             except ValueError:
                 return 0
-        last_seen = int(read_summary_control().get("last_consumed_seq") or 0)
+        child: threading.Thread | None = None
+        last_started = 0.0
         while True:
             control = read_summary_control()
             if not _session_matches(control, expected_session) or should_stop_parser(control):
+                if child is not None and child.is_alive():
+                    child.join(timeout=FINISH_WAIT_S)
                 clear_parser_running(expected_session)
                 return 0
+            last_seen = int(control.get("last_consumed_seq") or 0)
             unseen = observe_ping_records(last_seen)
-            if unseen:
-                last_seen = int(unseen[-1]["seq"])
+            now = time.monotonic()
+            if (
+                unseen
+                and child is None
+                and not once
+                and (last_started == 0.0 or (now - last_started) >= PARSE_DEBOUNCE_S)
+            ):
+                child = threading.Thread(
+                    target=run_one_parse,
+                    args=(list(unseen), expected_session),
+                    kwargs={"finishing": False},
+                    daemon=True,
+                )
+                child.start()
+                last_started = now
+            if child is not None and not child.is_alive():
+                child = None
             if once:
                 return 0
             time.sleep(PARSER_POLL_S)
@@ -1595,6 +1845,20 @@ def increment_count(label: str) -> None:
 def format_grouped_notice(counts: dict[str, int]) -> tuple[str, str]:
     lines = [f"{label} {counts[label]}" for label in sorted(counts) if counts[label] > 0]
     return "While you were focused", "\n".join(lines)
+
+
+def clear_counts() -> None:
+    lock = _lock_count()
+    try:
+        path = count_path()
+        if path.exists():
+            path.unlink()
+    finally:
+        lock.close()
+
+
+def show_grouped_notice() -> bool:
+    return send_catchup_notice()
 
 
 def send_catchup_notice() -> bool:
@@ -1815,10 +2079,10 @@ def apply_notification_block() -> bool:
         lock.close()
 
 
-def lift_notification_block() -> bool:
+def lift_notification_block(*, catchup: bool = True) -> bool:
     lock = _lock_notify()
     try:
-        return _lift_notification_block()
+        return _lift_notification_block(catchup=catchup)
     finally:
         lock.close()
 
@@ -1903,7 +2167,7 @@ def _apply_notification_block() -> bool:
         return False
 
 
-def _lift_notification_block() -> bool:
+def _lift_notification_block(*, catchup: bool = True) -> bool:
     generation = next_generation()
     try:
         code, out = plugin_call("disarm")
@@ -1927,7 +2191,8 @@ def _lift_notification_block() -> bool:
             time.sleep(0.2)
         if not drained:
             raise RuntimeError("notification filter did not drain")
-        send_catchup_notice()
+        if catchup:
+            send_catchup_notice()
         return True
     except Exception as exc:
         notify(
@@ -2284,14 +2549,28 @@ def disable_focus(reason: str) -> None:
     stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     with log_path().open("a", encoding="utf-8") as handle:
         handle.write(f"{stamp}  {reason}\n")
+    summaries_on = agent_summaries_enabled()
     with focus_block.network_lock():
         set_focus(False)
-        try:
-            lift_network_block()
-        except focus_block.BlockError:
-            pass
-    request_summary_finish()
-    lift_notification_block()
+        if not summaries_on:
+            try:
+                lift_network_block()
+            except focus_block.BlockError:
+                pass
+    if summaries_on:
+        summarize_finish()
+        if lift_notification_block(catchup=False):
+            apply_summary_xor()
+        else:
+            mark_lift_fail_pending()
+        with focus_block.network_lock():
+            try:
+                lift_network_block()
+            except focus_block.BlockError:
+                pass
+    else:
+        request_summary_finish()
+        lift_notification_block()
     notify("Focus mode off", "Super+D opens the distraction space.")
 
 
@@ -2403,6 +2682,8 @@ def main() -> None:
         cmd_capture_ping()
     elif command == "summarize-session":
         cmd_summarize_session()
+    elif command == "summarize-finish":
+        cmd_summarize_finish()
     elif command == "log-path":
         print(log_path())
     elif command == "destinations":
