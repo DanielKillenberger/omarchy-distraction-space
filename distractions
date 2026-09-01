@@ -4015,6 +4015,20 @@ class _PinnedAncestors:
 
 def _rmdir_created(pinned: _PinnedAncestors) -> None:
     created = set(pinned.created)
+    if pinned.entries:
+        parent_fd = pinned.parent_fd
+        pinned_names = {name for name, _fd, _st in pinned.entries}
+        for name in list(pinned.created):
+            if name in pinned_names:
+                continue
+            try:
+                os.rmdir(name, dir_fd=parent_fd)
+            except OSError:
+                pass
+            try:
+                pinned.created.remove(name)
+            except ValueError:
+                pass
     while len(pinned.entries) > 1:
         name, fd, _st = pinned.entries[-1]
         if name not in created:
@@ -4052,33 +4066,34 @@ def _pin_or_create_ancestors(
         pinned.entries.append((str(root), root_fd, root_st))
         for name in relative.parts:
             parent_fd = pinned.parent_fd
+            pending = None
             try:
-                st = os.lstat(name, dir_fd=parent_fd)
-            except FileNotFoundError:
-                if not create:
-                    raise _SetupClosed(f"missing dest directory: {name}")
-                pending = name
                 try:
+                    st = os.lstat(name, dir_fd=parent_fd)
+                except FileNotFoundError:
+                    if not create:
+                        raise _SetupClosed(f"missing dest directory: {name}")
+                    pending = name
                     os.mkdir(name, 0o755, dir_fd=parent_fd)
                     pinned.created.append(name)
-                    pending = None
-                finally:
-                    if pending:
-                        try:
-                            os.rmdir(name, dir_fd=parent_fd)
-                        except OSError:
-                            pass
-                st = os.lstat(name, dir_fd=parent_fd)
-            if stat.S_ISLNK(st.st_mode):
-                raise _SetupClosed(f"refusing symlink ancestor: {name}")
-            if not _trusted_dir(st, trusted_uid):
-                raise _SetupClosed(f"untrusted ancestor: {name}")
-            child_fd = _open_nofollow_dir(name, parent_fd)
-            opened = os.fstat(child_fd)
-            if _stat_identity(opened) != _stat_identity(st):
-                os.close(child_fd)
-                raise _SetupClosed(f"ancestor changed during pin: {name}")
-            pinned.entries.append((name, child_fd, opened))
+                    st = os.lstat(name, dir_fd=parent_fd)
+                if stat.S_ISLNK(st.st_mode):
+                    raise _SetupClosed(f"refusing symlink ancestor: {name}")
+                if not _trusted_dir(st, trusted_uid):
+                    raise _SetupClosed(f"untrusted ancestor: {name}")
+                child_fd = _open_nofollow_dir(name, parent_fd)
+                opened = os.fstat(child_fd)
+                if _stat_identity(opened) != _stat_identity(st):
+                    os.close(child_fd)
+                    raise _SetupClosed(f"ancestor changed during pin: {name}")
+                pinned.entries.append((name, child_fd, opened))
+                pending = None
+            finally:
+                if pending:
+                    try:
+                        os.rmdir(pending, dir_fd=parent_fd)
+                    except OSError:
+                        pass
         return pinned
     except _SetupClosed:
         _rmdir_created(pinned)
