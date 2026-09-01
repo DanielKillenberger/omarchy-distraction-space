@@ -257,6 +257,36 @@ class RestartBudgetTests(SessionHarness):
         self.assertTrue(closed["parser_closed"])
         self.assertFalse(closed["session_ready"])
         self.assertFalse(closed["parser_active"])
+        self.assertTrue(closed["parse_failed"])
+
+    def test_restart_cap_reports_failure_before_grouped_catchup(self):
+        self.ready_session()
+        with mock.patch.object(distractions.time, "sleep"):
+            distractions.apply_parser_restart()
+            distractions.apply_parser_restart()
+            distractions.apply_parser_restart()
+
+        events: list[tuple[str, str]] = []
+
+        def record_notice(_title, body="", **_kwargs):
+            events.append(("notice", body))
+            return True
+
+        with mock.patch.object(distractions, "notify", record_notice):
+            with mock.patch.object(
+                distractions,
+                "show_grouped_notice",
+                side_effect=lambda: events.append(("grouped", "")) or True,
+            ):
+                self.assertEqual(distractions.apply_summary_xor(), "grouped")
+
+        self.assertEqual(
+            events,
+            [
+                ("notice", "Could not summarize blocked notifications."),
+                ("grouped", ""),
+            ],
+        )
 
     def test_quickshell_restart_cannot_reset_or_double_count(self):
         self.ready_session(parser_restarts=1, parser_active=True)

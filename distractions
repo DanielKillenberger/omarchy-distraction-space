@@ -1630,6 +1630,7 @@ def apply_parser_restart(expected_session: str | None = None) -> dict | None:
             control["parser_closed"] = True
             control["parser_active"] = False
             control["session_ready"] = False
+            control["parse_failed"] = True
             write_summary_control(control)
             return None
         control["parser_restarts"] = current + 1
