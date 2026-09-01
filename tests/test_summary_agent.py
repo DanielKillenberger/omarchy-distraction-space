@@ -56,6 +56,7 @@ class ResolveTests(unittest.TestCase):
             (None, "", ""),
             (None, "codex", ""),
             (None, "omp", ""),
+            ("", "claude", ""),
             ("claude", "codex", "claude"),
             ("grok", "", "grok"),
             ("codex", "claude", ""),
@@ -113,6 +114,7 @@ class ConfigWriteTests(unittest.TestCase):
             self.assertTrue(distractions.update_focus_config(summary_agent=None))
         self.assertEqual(calls, ["fsync", "replace"])
         self.assertIsNone(json.loads(self.cfg.read_text())["summary_agent"])
+        self.assertFalse((self.cfg.parent / (self.cfg.name + ".tmp")).exists())
 
 
 class PickerTests(unittest.TestCase):
@@ -195,6 +197,39 @@ class ClaudeVectorTests(unittest.TestCase):
                 distractions.invoke_claude("ping text")
         self.assertIn("2.1.200", str(raised.exception))
 
+    def test_claude_copies_credentials_and_passes_auth_env(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        cred = Path(tmp.name) / ".credentials.json"
+        cred.write_text('{"oauth":"token"}\n')
+        os.chmod(cred, 0o600)
+        captured: dict = {}
+
+        def fake_popen(argv, **kwargs):
+            captured["env"] = kwargs.get("env") or {}
+            captured["cwd"] = kwargs.get("cwd")
+            proc = mock.Mock()
+            proc.pid = 4242
+            proc.returncode = 0
+            proc.communicate.return_value = ("ok\n", "")
+            return proc
+
+        def fake_version(cmd, **kwargs):
+            if list(cmd)[:2] == ["claude", "--version"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="2.1.248\n", stderr="")
+            raise AssertionError(cmd)
+
+        with mock.patch.object(distractions, "CLAUDE_CREDENTIAL_SOURCE", cred):
+            with mock.patch.dict(os.environ, {"ANTHROPIC_API_KEY": "sk-test"}, clear=False):
+                with mock.patch.object(subprocess, "run", fake_version):
+                    with mock.patch.object(subprocess, "Popen", fake_popen):
+                        self.assertEqual(distractions.invoke_claude("hello"), "ok")
+        self.assertEqual(captured["env"]["ANTHROPIC_API_KEY"], "sk-test")
+        home = Path(captured["env"]["HOME"])
+        self.assertEqual(captured["env"]["CLAUDE_CONFIG_DIR"], str(home / ".claude"))
+        self.assertTrue((home / ".claude" / ".credentials.json").exists() or not home.exists())
+        self.assertFalse(home.exists())
+
 
 class GrokVectorTests(unittest.TestCase):
     def setUp(self):
@@ -208,8 +243,8 @@ class GrokVectorTests(unittest.TestCase):
         self.addCleanup(self.patch.stop)
         self.addCleanup(self.tmp.cleanup)
 
-    def _ok_run(self, stdout="summary ok\n", returncode=0, stderr=""):
-        def fake_run(cmd, **kwargs):
+    def _ok_popen(self, stdout="summary ok\n", returncode=0, stderr=""):
+        def fake_popen(cmd, **kwargs):
             argv = list(cmd)
             if argv and argv[0] == "grok":
                 env = kwargs.get("env") or {}
@@ -217,9 +252,17 @@ class GrokVectorTests(unittest.TestCase):
                 self.last_argv = argv
                 self.last_env = env
                 self.last_cwd = kwargs.get("cwd")
-            return subprocess.CompletedProcess(cmd, returncode, stdout=stdout, stderr=stderr)
+            proc = mock.Mock()
+            proc.pid = 1
+            proc.returncode = returncode
 
-        return fake_run
+            def communicate(input=None, timeout=None):
+                return (stdout, stderr)
+
+            proc.communicate = communicate
+            return proc
+
+        return fake_popen
 
     def test_grok_argv_prompt_is_final_token_after_dash_p(self):
         argv = distractions.grok_argv("BOUNDED PROMPT", "/empty")
@@ -237,7 +280,7 @@ class GrokVectorTests(unittest.TestCase):
         canary_file = Path(self.tmp.name) / "hostname"
         canary_file.write_text("unique-canary-hostname-xyz\n")
         with mock.patch.object(distractions, "GROK_CANARY_FILE", canary_file):
-            with mock.patch.object(subprocess, "run", self._ok_run("UNAVAILABLE\n")):
+            with mock.patch.object(subprocess, "Popen", self._ok_popen("UNAVAILABLE\n")):
                 out = distractions.prove_grok()
             self.assertEqual(out, "UNAVAILABLE")
             self.assertTrue(self.homes)
@@ -258,15 +301,88 @@ class GrokVectorTests(unittest.TestCase):
             self.assertIn("max_completion_tokens = 512", written)
             self.assertIn("max_retries = 0", written)
             self.assertIn('default = "grok-4.6"', written)
-            with mock.patch.object(subprocess, "run", self._ok_run("unique-canary-hostname-xyz\nFOCUS_GROK_CANARY_PWNED\n")):
+            with mock.patch.object(subprocess, "Popen", self._ok_popen("unique-canary-hostname-xyz\nFOCUS_GROK_CANARY_PWNED\n")):
                 with self.assertRaises(distractions.SummaryAgentError):
                     distractions.prove_grok()
+
+    def test_grok_proof_requires_explicit_unavailable(self):
+        with mock.patch.object(subprocess, "Popen", self._ok_popen("I completed both operations\n")):
+            with self.assertRaises(distractions.SummaryAgentError) as raised:
+                distractions.prove_grok()
+        self.assertIn("refuse", str(raised.exception).lower())
+
+    def test_invoke_summary_agent_proves_grok_once(self):
+        distractions._grok_proven = False
+        prompts: list[str] = []
+
+        def fake_popen(cmd, **kwargs):
+            argv = list(cmd)
+            stdout = "UNAVAILABLE\n"
+            if argv and argv[0] == "grok":
+                prompts.append(argv[-1])
+                env = kwargs.get("env") or {}
+                self.homes.append(env.get("GROK_HOME", ""))
+                if "Read the file" not in argv[-1]:
+                    stdout = "summary ok\n"
+            proc = mock.Mock()
+            proc.pid = 1
+            proc.returncode = 0
+            proc.communicate.return_value = (stdout, "")
+            return proc
+
+        with mock.patch.object(subprocess, "Popen", fake_popen):
+            out = distractions.invoke_summary_agent("grok", "real ping")
+            again = distractions.invoke_summary_agent("grok", "second ping")
+        self.assertEqual(out, "summary ok")
+        self.assertEqual(again, "summary ok")
+        self.assertEqual(sum(1 for item in prompts if "Read the file" in item), 1)
+        self.assertIn("real ping", prompts)
+        self.assertIn("second ping", prompts)
+        distractions._grok_proven = False
+
+    def test_prepare_grok_home_cleans_up_on_failure(self):
+        seen: list[Path] = []
+        real_empty = distractions._empty_workdir
+
+        def track(prefix: str) -> Path:
+            path = real_empty(prefix)
+            seen.append(path)
+            return path
+
+        def boom(*_args, **_kwargs):
+            raise OSError("disk full")
+
+        with mock.patch.object(distractions, "_empty_workdir", track):
+            with mock.patch.object(Path, "write_text", boom):
+                with self.assertRaises(OSError):
+                    distractions.prepare_grok_home()
+        self.assertTrue(seen)
+        self.assertFalse(seen[0].exists())
+
+    def test_timeout_kills_process_group(self):
+        killed: list[int] = []
+
+        class FakeProc:
+            pid = 7777
+            returncode = -9
+
+            def communicate(self, input=None, timeout=None):
+                raise subprocess.TimeoutExpired(["grok"], timeout or 1)
+
+            def kill(self):
+                killed.append(self.pid)
+
+        with mock.patch.object(subprocess, "Popen", return_value=FakeProc()):
+            with mock.patch.object(os, "killpg", side_effect=lambda pid, sig: killed.append(pid)):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    distractions._run_agent(["grok"], cwd=Path(self.tmp.name), env={})
+        self.assertIn(7777, killed)
 
     def test_grok_rejected_control_fails_closed(self):
         with mock.patch.object(
             subprocess,
-            "run",
-            self._ok_run(stdout="", returncode=2, stderr="unknown flag --sandbox"),
+            "Popen",
+            self._ok_popen(stdout="", returncode=2, stderr="unknown flag --sandbox"),
         ):
             with self.assertRaises(distractions.SummaryAgentError) as raised:
                 distractions.invoke_grok("ping text")
@@ -286,9 +402,19 @@ class ClosedSpawnTests(unittest.TestCase):
                 return subprocess.CompletedProcess(cmd, 0, stdout="2.1.248\n", stderr="")
             return subprocess.CompletedProcess(cmd, 0, stdout="ok\n", stderr="")
 
+        def fake_popen(cmd, **kwargs):
+            argv = list(cmd)
+            seen.append(argv)
+            proc = mock.Mock()
+            proc.pid = 1
+            proc.returncode = 0
+            proc.communicate.return_value = ("ok\n", "")
+            return proc
+
         with mock.patch.object(subprocess, "run", fake_run):
-            distractions.invoke_claude("hello")
-            distractions.invoke_grok("hello")
+            with mock.patch.object(subprocess, "Popen", fake_popen):
+                distractions.invoke_claude("hello")
+                distractions.invoke_grok("hello")
         for argv in seen:
             self.assertNotEqual(argv[:2], ["omarchy", "agent"])
             self.assertNotEqual(argv[:3], ["omarchy", "agent", "prompt"])

@@ -10,7 +10,9 @@
     "fn-2-focus-mode-distraction-notification"
   ],
   "id": "fn-3-focus-mode-agent-notification-summary",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-3-focus-mode-agent-notification-summary.1": 1
+  },
   "next_task": 1,
   "plan_review_rounds": 0,
   "plan_review_status": "ship",
@@ -1286,6 +1288,87 @@
       "task": null,
       "timestamp": "2026-09-01T07:45:54.840437Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "c9e4ce27e43875e076974bc0946ea81e1cd2a88f77b4e65bf208bcb4f1966373",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-9fee359c4f78e1f0f3697fec30e56f4a",
+            "classification": "introduced",
+            "findingId": "finding-9fee359c4f78e1f0f3697fec30e56f4a",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-b90c8cb09c4ad02be1e41dc66ef9112c",
+            "classification": "introduced",
+            "findingId": "finding-b90c8cb09c4ad02be1e41dc66ef9112c",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-455deec1055974072d9f7de462473d80",
+            "classification": "introduced",
+            "findingId": "finding-455deec1055974072d9f7de462473d80",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-96e28a96f2fa237f557b3f3eec777a20",
+            "classification": "introduced",
+            "findingId": "finding-96e28a96f2fa237f557b3f3eec777a20",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-4fba17c52c904a1c1a2d3eb44437af2b",
+            "classification": "introduced",
+            "findingId": "finding-4fba17c52c904a1c1a2d3eb44437af2b",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-3e9cb48767ac21d315add1459ac88c32",
+            "classification": "introduced",
+            "findingId": "finding-3e9cb48767ac21d315add1459ac88c32",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "fd1b14633b8c869a1509b25f4113d06a31a8d5f9",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 5116,
+      "output_sha256": "1eb9a588bfe7af65b4205f3b6133153f05c3a66adbb589ae715481c9b1f5eab2",
+      "reservation_id": "8afbb49fe6b04148a2facfdfe22aaad7",
+      "round_consumed": true,
+      "scope": "impl:fn-3-focus-mode-agent-notification-summary.1",
+      "superseded_by": null,
+      "task": "fn-3-focus-mode-agent-notification-summary.1",
+      "timestamp": "2026-09-01T08:04:06.395881Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -1295,6 +1378,7 @@
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "impl:fn-3-focus-mode-agent-notification-summary.1": 0,
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-3-focus-mode-agent-notification-summary.md",
@@ -1311,5 +1395,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T07:45:55.412502Z"
+  "updated_at": "2026-09-01T08:04:06.928586Z"
 }

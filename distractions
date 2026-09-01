@@ -9,6 +9,7 @@ import os
 import re
 import select
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -36,8 +37,11 @@ ALLOWED_SUMMARY_AGENTS = frozenset({"claude", "grok"})
 CLAUDE_MIN_VERSION = (2, 1, 248)
 MENU_SELECT_BIN = os.environ.get("DISTRACTIONS_MENU_SELECT", "omarchy-menu-select")
 GROK_AUTH_SOURCE = Path.home() / ".grok" / "auth.json"
+CLAUDE_CREDENTIAL_SOURCE = Path.home() / ".claude" / ".credentials.json"
+CLAUDE_AUTH_ENV = ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN")
 GROK_CANARY_FILE = Path("/etc/hostname")
 GROK_CANARY_MARK = "FOCUS_GROK_CANARY_PWNED"
+GROK_PROOF_OK = "UNAVAILABLE"
 AGENT_CHILD_TIMEOUT_S = 60
 SUMMARY_AGENT_PICKER_OPTIONS = (
     "󰛄\tClaude\tclaude",
@@ -196,12 +200,17 @@ def write_focus_config(data: dict) -> None:
     payload["summary_agent"] = agent
     path = CONFIG_PATH
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(path.name + ".tmp")
-    with tmp.open("w", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, indent=2) + "\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    os.replace(tmp, path)
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    tmp = Path(tmp_name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 def update_focus_config(**changes) -> bool:
@@ -238,7 +247,7 @@ def resolve_summary_agent(config: dict | None = None) -> str:
     override = cfg.get("summary_agent")
     if override in ALLOWED_SUMMARY_AGENTS:
         return str(override)
-    if override not in (None, ""):
+    if override is not None:
         return ""
     default = omarchy_default_agent()
     return default if default in ALLOWED_SUMMARY_AGENTS else ""
@@ -403,6 +412,19 @@ def _agent_base_env() -> dict[str, str]:
     return keep
 
 
+def _kill_process_group(proc: subprocess.Popen) -> None:
+    if proc.pid is None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    try:
+        proc.kill()
+    except ProcessLookupError:
+        pass
+
+
 def _run_agent(
     argv: list[str],
     *,
@@ -410,32 +432,66 @@ def _run_agent(
     env: dict[str, str],
     prompt: str | None = None,
 ) -> subprocess.CompletedProcess:
-    kwargs: dict = {
-        "cwd": str(cwd),
-        "env": env,
-        "capture_output": True,
-        "text": True,
-        "timeout": AGENT_CHILD_TIMEOUT_S,
-        "check": False,
-        "start_new_session": True,
-    }
-    if prompt is None:
-        kwargs["stdin"] = subprocess.DEVNULL
-    else:
-        kwargs["input"] = prompt
-    return subprocess.run(argv, **kwargs)
+    stdin = subprocess.PIPE if prompt is not None else subprocess.DEVNULL
+    proc = subprocess.Popen(
+        argv,
+        cwd=str(cwd),
+        env=env,
+        stdin=stdin,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = proc.communicate(input=prompt, timeout=AGENT_CHILD_TIMEOUT_S)
+    except subprocess.TimeoutExpired:
+        _kill_process_group(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=1)
+        except subprocess.TimeoutExpired:
+            _kill_process_group(proc)
+            stdout, stderr = proc.communicate()
+        raise
+    return subprocess.CompletedProcess(argv, proc.returncode, stdout or "", stderr or "")
 
 
 def prepare_grok_home() -> Path:
-    home = _empty_workdir("focus-grok-home-")
-    if GROK_AUTH_SOURCE.is_file():
-        dest = home / "auth.json"
-        dest.write_bytes(GROK_AUTH_SOURCE.read_bytes())
-        os.chmod(dest, 0o600)
-    dest_cfg = home / "config.toml"
-    dest_cfg.write_text(GROK_CONFIG_TOML, encoding="utf-8")
-    os.chmod(dest_cfg, 0o600)
-    return home
+    home = None
+    try:
+        home = _empty_workdir("focus-grok-home-")
+        if GROK_AUTH_SOURCE.is_file():
+            dest = home / "auth.json"
+            dest.write_bytes(GROK_AUTH_SOURCE.read_bytes())
+            os.chmod(dest, 0o600)
+        dest_cfg = home / "config.toml"
+        dest_cfg.write_text(GROK_CONFIG_TOML, encoding="utf-8")
+        os.chmod(dest_cfg, 0o600)
+        return home
+    except Exception:
+        _cleanup_dir(home)
+        raise
+
+
+def prepare_claude_home(cwd: Path) -> None:
+    if not CLAUDE_CREDENTIAL_SOURCE.is_file():
+        return
+    dest_dir = cwd / ".claude"
+    dest_dir.mkdir(mode=0o700, exist_ok=True)
+    dest = dest_dir / ".credentials.json"
+    dest.write_bytes(CLAUDE_CREDENTIAL_SOURCE.read_bytes())
+    os.chmod(dest, 0o600)
+
+
+def claude_invoke_env(cwd: Path) -> dict[str, str]:
+    env = _agent_base_env()
+    env["HOME"] = str(cwd)
+    env["CLAUDE_CONFIG_DIR"] = str(cwd / ".claude")
+    for key in CLAUDE_AUTH_ENV:
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    return env
 
 
 def inspect_grok_config(home: Path) -> dict:
@@ -496,8 +552,8 @@ def invoke_claude(prompt: str) -> str:
         raise SummaryAgentError(f"claude version {version or 'unknown'} is below 2.1.248")
     cwd = _empty_workdir("focus-claude-cwd-")
     try:
-        env = _agent_base_env()
-        env["HOME"] = str(cwd)
+        prepare_claude_home(cwd)
+        env = claude_invoke_env(cwd)
         try:
             result = _run_agent(claude_argv(), cwd=cwd, env=env, prompt=prompt)
         except FileNotFoundError:
@@ -552,9 +608,23 @@ def prove_claude() -> str:
 
 
 def prove_grok() -> str:
-    out = invoke_grok(grok_canary_prompt())
+    out = invoke_grok(grok_canary_prompt()).strip()
     if grok_canary_leaked(out):
         raise SummaryAgentError("grok performed a proof-requested file read or shell command")
+    if out != GROK_PROOF_OK:
+        raise SummaryAgentError("grok did not refuse the file/shell proof prompt")
+    return out
+
+
+_grok_proven = False
+
+
+def ensure_grok_proven() -> str:
+    global _grok_proven
+    if _grok_proven:
+        return GROK_PROOF_OK
+    out = prove_grok()
+    _grok_proven = True
     return out
 
 
@@ -562,6 +632,7 @@ def invoke_summary_agent(agent_id: str, prompt: str) -> str:
     if agent_id == "claude":
         return invoke_claude(prompt)
     if agent_id == "grok":
+        ensure_grok_proven()
         return invoke_grok(prompt)
     raise SummaryAgentError(f"rejected summary agent {agent_id!r}")
 
