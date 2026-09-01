@@ -9,7 +9,8 @@
   "depends_on_epics": [],
   "id": "fn-6-focus-mode-start-popup",
   "impl_review_rounds": {
-    "fn-6-focus-mode-start-popup.1": 0
+    "fn-6-focus-mode-start-popup.1": 0,
+    "fn-6-focus-mode-start-popup.2": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -560,10 +561,121 @@
       "task": "fn-6-focus-mode-start-popup.1",
       "timestamp": "2026-09-01T15:35:42.596227Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "3984a618cc21990cd9ae97d5568e9ccefbd17b0890d4bd0a72d4a65dfdce382f",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1d336eb78cd2881ae0926632f06cb365dd837d84",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 2807,
+      "output_sha256": "bc777bf745f16e1fceff64c1eb804c92a679743c95c1f9ae609cda9d448a2054",
+      "reservation_id": "dd428f68bdc5476591cca64f73cebee3",
+      "round_consumed": true,
+      "scope": "impl:fn-6-focus-mode-start-popup.2",
+      "superseded_by": null,
+      "task": "fn-6-focus-mode-start-popup.2",
+      "timestamp": "2026-09-01T15:49:29.063825Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "c6db3ab69397206b5698da6e7ed9967f225e5d28bfd192fde93456e1d3e9b340",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "3b65c3cf2642af3010f99a37ec7e98dd358ffb8f",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1916,
+      "output_sha256": "af1d8ed015b6b533ecf4346b3d7f1df1de28bd2b4a1463ccc239e71f9757d705",
+      "reservation_id": "58da1784b8aa4ebea8bdfbd1e78088f4",
+      "round_consumed": true,
+      "scope": "impl:fn-6-focus-mode-start-popup.2",
+      "superseded_by": null,
+      "task": "fn-6-focus-mode-start-popup.2",
+      "timestamp": "2026-09-01T15:56:31.251603Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "0b44d60930af75cd779272d852fec1d9550924b1144e626e21728e824503276c",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "7d836347e29e8584c5a73e5d56643d08d775b010",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1890,
+      "output_sha256": "a68e4e212ea7f6d27e245b462886e49965c3c41ca4114cd3f92591a0612ee6b4",
+      "reservation_id": "30efd78fbe754540bc1374dd3ed61a51",
+      "round_consumed": true,
+      "scope": "impl:fn-6-focus-mode-start-popup.2",
+      "superseded_by": null,
+      "task": "fn-6-focus-mode-start-popup.2",
+      "timestamp": "2026-09-01T16:02:19.039316Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "9c89526a7aa07b1ad3480ef643e8efbcdc2e984aa6ee7a51daeb046fb4a98426",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "4bc72070ca321df9b5b0b2a1320ceabeac3bd738",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 660,
+      "output_sha256": "c3e61f6459c815da5df1e3bc9c3ebca1c30e11607e9e1a8d816036ed9c98dc39",
+      "reservation_id": "703f45436a1b400fbc0ea8dfd90eaa22",
+      "round_consumed": true,
+      "scope": "impl:fn-6-focus-mode-start-popup.2",
+      "superseded_by": null,
+      "task": "fn-6-focus-mode-start-popup.2",
+      "timestamp": "2026-09-01T16:06:05.464978Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-6-focus-mode-start-popup.1": 1,
+    "impl:fn-6-focus-mode-start-popup.2": 1,
     "plan": 1,
     "plan#completion": 0
   },
@@ -571,6 +683,7 @@
   "review_reservations": {},
   "review_transport_failures": {
     "impl:fn-6-focus-mode-start-popup.1": 0,
+    "impl:fn-6-focus-mode-start-popup.2": 0,
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-6-focus-mode-start-popup.md",
@@ -587,5 +700,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T15:35:43.025602Z"
+  "updated_at": "2026-09-01T16:06:05.899124Z"
 }
