@@ -1,0 +1,16 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-01T13:56:34.289849Z",
+  "depends_on": [
+    "fn-6-focus-mode-start-popup.1"
+  ],
+  "id": "fn-6-focus-mode-start-popup.2",
+  "priority": null,
+  "spec": "fn-6-focus-mode-start-popup",
+  "spec_path": ".flow/tasks/fn-6-focus-mode-start-popup.2.md",
+  "status": "todo",
+  "title": "Session timer auto-disable",
+  "updated_at": "2026-09-01T14:17:22.761228Z"
+}

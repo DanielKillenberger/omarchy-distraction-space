@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>fn-6 Focus-mode start popup</title>
+<style>
+:root {
+  --bg: #0c0b09; --panel: #14120e; --panel-2: #1a1712;
+  --line: #2c2719; --line-soft: #211d14;
+  --ink: #e8e2d4; --dim: #9a917c; --faint: #645d4c;
+  --amber: #ffb454; --amber-deep: #cc8b33;
+  --green: #87d96c; --red: #f07178; --cyan: #5ccfe6; --violet: #c9a7f5;
+  --mono: "Berkeley Mono", "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 14px; line-height: 1.65; }
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 999;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,180,84,0.012) 2px 4px),
+    radial-gradient(ellipse 120% 60% at 50% -10%, rgba(255,180,84,0.05), transparent 60%);
+}
+.wrap { max-width: 1080px; margin: 0 auto; padding: 28px 24px 72px; }
+nav.rail {
+  position: sticky; top: 0; z-index: 20; display: flex; gap: 18px; flex-wrap: wrap;
+  padding: 10px 0 12px; margin: 0 0 22px; border-bottom: 1px solid var(--line);
+  background: rgba(12,11,9,.82); backdrop-filter: blur(6px);
+}
+nav.rail a { color: var(--faint); text-decoration: none; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; }
+nav.rail a:hover { color: var(--amber); }
+.kicker { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--faint); }
+h1 { font-size: 26px; font-weight: 500; margin: 8px 0 18px; }
+h1 .id { color: var(--amber); }
+.dials { display: flex; border: 1px solid var(--line); background: var(--panel); margin: 0 0 28px; }
+.dial { flex: 1; padding: 12px 16px; border-right: 1px solid var(--line); min-width: 120px; }
+.dial:last-child { border-right: 0; }
+.dial .val { display: block; font-size: 19px; font-weight: 700; color: var(--ink); }
+.tldr { font-family: var(--serif); font-size: 20px; line-height: 1.6; max-width: 920px; margin: 0 0 16px; }
+.tldr strong { color: var(--amber); }
+.tldr em { color: var(--cyan); font-style: italic; }
+.thesis { border-left: 3px solid var(--amber); background: var(--panel); padding: 12px 16px; margin: 0 0 32px; }
+section { animation: rise .45s ease both; }
+section:nth-of-type(1) { animation-delay: .05s; }
+section:nth-of-type(2) { animation-delay: .10s; }
+section:nth-of-type(3) { animation-delay: .15s; }
+section:nth-of-type(4) { animation-delay: .20s; }
+section:nth-of-type(5) { animation-delay: .25s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.shead { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--line); margin: 0 0 14px; padding: 0 0 8px; }
+.shead .num { color: var(--amber); font-size: 17px; }
+.shead h2 { margin: 0; font-size: 17px; letter-spacing: .12em; text-transform: uppercase; font-weight: 500; }
+.shead .note { margin-left: auto; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+table { width: 100%; border-collapse: collapse; margin: 0 0 8px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+th { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+tbody tr:hover { background: #1c170d; color: var(--ink); }
+.tagchip { display: inline-block; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid var(--line); padding: 1px 6px; }
+.tagchip.user { color: var(--green); border-color: var(--green); }
+.tagchip.paraphrase { color: var(--cyan); border-color: var(--cyan); }
+.isnot { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 0 0 28px; }
+.col { background: var(--panel); border: 1px solid var(--line); padding: 14px; }
+.col.is { border-left: 3px solid var(--green); }
+.col.not { border-left: 3px solid var(--red); }
+.col ul { margin: 8px 0 0; padding-left: 18px; }
+.col.is li::marker { content: "✓ "; color: var(--green); }
+.col.not li::marker { content: "✕ "; color: var(--red); }
+.dec { background: var(--panel); border: 1px solid var(--line); padding: 14px; margin: 0 0 12px; }
+.dec .dtags { color: var(--amber); font-size: 10px; letter-spacing: .16em; text-transform: uppercase; }
+.dec em { color: var(--green); }
+footer { border-top: 1px solid var(--line); padding-top: 16px; color: var(--dim); font-size: 12px; }
+.stamp { border: 1px solid var(--line); padding: 8px 12px; margin-top: 10px; color: var(--faint); }
+@media (max-width: 760px) {
+  .wrap { padding: 18px 14px 56px; }
+  .dials, .isnot { display: block; }
+  .dial, .col { margin-bottom: 10px; border-right: 0; }
+}
+@media print {
+  :root { --bg:#fff; --panel:#fafaf7; --panel-2:#f2f0ea; --line:#ccc7ba; --line-soft:#e2ded2;
+          --ink:#1a1812; --dim:#4a463c; --faint:#8a8678; --amber:#9a6a10; --amber-deep:#9a6a10;
+          --green:#2e7d32; --red:#b3261e; --cyan:#0a6e8a; --violet:#6a3fae; }
+  body::before { display: none; }
+  nav.rail, .progress { display: none; }
+  section { break-inside: avoid-page; animation: none; }
+  @page { size: A4; margin: 1.2cm; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">spec lens · interview · 2026-09-01</div>
+  <h1><span class="id">fn-6</span> Focus-mode start popup</h1>
+  <div class="dials">
+    <div class="dial"><span class="val">open / ready</span><span class="kicker">Status</span></div>
+    <div class="dial"><span class="val">4</span><span class="kicker">R-IDs</span></div>
+    <div class="dial"><span class="val">0 tasks</span><span class="kicker">Plan</span></div>
+    <div class="dial"><span class="val">business</span><span class="kicker">Last pass</span></div>
+  </div>
+  <nav class="rail">
+    <a href="#thesis">Thesis</a>
+    <a href="#acceptance">Acceptance</a>
+    <a href="#boundaries">Boundaries</a>
+    <a href="#decision">Decision</a>
+  </nav>
+
+  <section id="thesis">
+    <p class="tldr"><strong>One session:</strong> purpose and minutes at start, then a configurable close that hosts the shipped missed-summary. <em>The parser is already merged.</em> This spec hosts it. It does not rebuild it.</p>
+    <div class="thesis">Timer expiry skips the 50-character leave reason. Leaving by hand still requires it. Hiding purpose or self-eval never hides a shipped summary.</div>
+  </section>
+
+  <section id="acceptance">
+    <div class="shead"><span class="num">01</span><h2>Acceptance</h2><span class="note">scope: both · 4 R-IDs</span></div>
+    <table>
+      <thead><tr><th>ID</th><th>Criterion</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr data-rid="R1"><td>R1</td><td>Omarchy-styled start popup. Required purpose (any non-empty). Minutes start at 25, accept 1 to 240, refuse the rest. Confirm starts focus. Dismiss or invalid input leaves focus off.</td><td><span class="tagchip user">user</span></td></tr>
+        <tr data-rid="R2"><td>R2</td><td>Timer turns focus off without the 50-character reason. Hand-off still requires it. Purpose goes to the disable log. The bar stays an eye.</td><td><span class="tagchip user">user</span></td></tr>
+        <tr data-rid="R3"><td>R3</td><td>After focus is off, one window can show purpose, shipped missed-summary, optional self-eval, and helpful / not-helpful. Hosts fn-3. Drops the extra summary notify and helpful dialog.</td><td><span class="tagchip user">user</span></td></tr>
+        <tr data-rid="R4"><td>R4</td><td>Fully configurable in existing focus settings, including an agent-editable config. Defaults on for window, purpose, eval; summary if enabled. Hiding purpose or eval never hides a shipped summary.</td><td><span class="tagchip user">user</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="boundaries">
+    <div class="shead"><span class="num">02</span><h2>Boundaries</h2><span class="note">scope: business</span></div>
+    <div class="isnot">
+      <div class="col is">
+        <div class="kicker">Is</div>
+        <ul>
+          <li>Start popup with purpose and minutes</li>
+          <li>Timer auto-disable</li>
+          <li>Configurable closing window that hosts the shipped summary</li>
+        </ul>
+      </div>
+      <div class="col not">
+        <div class="kicker">Is not</div>
+        <ul>
+          <li>A second parser, capture path, or ledger</li>
+          <li>Changing the written reason to leave by hand</li>
+          <li>Session history or a purpose archive</li>
+          <li>Contingency UI for a dialog that did not open</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="decision">
+    <div class="shead"><span class="num">03</span><h2>Decision</h2><span class="note">scope: both</span></div>
+    <div class="dec">
+      <div class="dtags">Motivation</div>
+      One session that starts with purpose and time and closes with one window.
+      <p><em>“we should have a ui popup when entering focus mode that matches the omarchy style to input the purpose of the focus session and the time after which it will be automatically disabled”</em></p>
+    </div>
+  </section>
+
+  <footer>
+    Render lens, not record. Source: .flow/specs/fn-6-focus-mode-start-popup.md
+    <div class="stamp">staleness stamp · spec updated_at 2026-09-01T13:36:08.493524Z · repo commit 1bc8623 · rendered 2026-09-01</div>
+  </footer>
+</div>
+</body>
+</html>
