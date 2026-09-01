@@ -50,36 +50,28 @@ XOR runs only after `lift_notification_block()` returns ok. On lift failure, tel
 
 The existing "Focus mode off" toast stays.
 
-**Consent and identity.** Plugin config gains `agent_summaries` (boolean, default false) and `summary_agent` (open-table id or null). Null means "use Omarchy's default." Resolve the default with `omarchy default agent` (no args). That command prints the id in `~/.config/omarchy/defaults/agent` and prints nothing when unset ([Omarchy AI manual](https://omarchy.org/manual/ai/), [`bin/omarchy-default-agent`](https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-default-agent)). A plugin override does not write that Omarchy file. A rejected config write uses a temp-file rename and leaves the previous object unchanged.
+**Consent and identity.** Plugin config gains `agent_summaries` (boolean, default false) and `summary_agent` (`claude`, `grok`, or null). Null means "use Omarchy's default." Resolve the default with `omarchy default agent` (no args). That command prints the id in `~/.config/omarchy/defaults/agent` and prints nothing when unset ([Omarchy AI manual](https://omarchy.org/manual/ai/), [`bin/omarchy-default-agent`](https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-default-agent)). Only resolved ids `claude` and `grok` are usable. A plugin override does not write that Omarchy file. A rejected config write uses a temp-file rename and leaves the previous object unchanged.
 
-**Picker.** Enable and override use `omarchy-menu-select`. That binary summons `omarchy.menu` in `mode: "select"` and blocks on a tempfile handshake ([`docs/menu.md`](https://github.com/basecamp/omarchy/blob/quattro/docs/menu.md), [`bin/omarchy-menu-select`](https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-menu-select)). It is the same visual plugin Omarchy uses as dmenu, which satisfies "same kind" (R12). It is not the Setup > Defaults > Agent submenu. That submenu is routed checked rows with actions. Select mode has no checkmarks. Agent row labels reuse `setup.default.agent.*` from [`default/omarchy/omarchy-menu.jsonc`](https://github.com/basecamp/omarchy/blob/quattro/default/omarchy/omarchy-menu.jsonc). The offered set is only ids in the open table, plus an "Omarchy default" row on the override picker.
+**Picker.** Enable and override use `omarchy-menu-select`. That binary summons `omarchy.menu` in `mode: "select"` and blocks on a tempfile handshake ([`docs/menu.md`](https://github.com/basecamp/omarchy/blob/quattro/docs/menu.md), [`bin/omarchy-menu-select`](https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-menu-select)). It is the same visual plugin Omarchy uses as dmenu, which satisfies "same kind" (R12). It is not the Setup > Defaults > Agent submenu. That submenu is routed checked rows with actions. Select mode has no checkmarks. Agent row labels reuse `setup.default.agent.*` from [`default/omarchy/omarchy-menu.jsonc`](https://github.com/basecamp/omarchy/blob/quattro/default/omarchy/omarchy-menu.jsonc). The closed offered set is exactly `claude` and `grok`, plus an "Omarchy default" row on the override picker. No other Omarchy agent id is offered or accepted as an override.
 
-**Headless invoke.** The plugin does not call `omarchy agent` or `omarchy agent prompt`. Those launch an unattended interactive TUI with each agent's don't-stop-to-ask flags ([`bin/omarchy-agent`](https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-agent), [`bin/omarchy-agent-prompt`](https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-agent-prompt), [legacy Omarchy CLI page](https://learn.omacom.io/2/the-omarchy-manual/115/omarchy-cli)). The current Quattro manual is [omarchy.org/manual](https://omarchy.org/manual/) and [omarchy.org/manual/ai](https://omarchy.org/manual/ai/). The plugin spawns the agent's own one-shot from the open table, passes ping text plus ledger as the prompt, and captures stdout. Shared spawn rules for every open row. Dedicated empty cwd (not `$HOME`, not the plugin tree). Process group. Sanitized environment. No session-resume flags. No auto-approve / yolo / bypass-permissions flags.
+**Headless invoke.** The plugin does not call `omarchy agent` or `omarchy agent prompt`. Those launch an unattended interactive TUI with each agent's don't-stop-to-ask flags ([`bin/omarchy-agent`](https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-agent), [`bin/omarchy-agent-prompt`](https://github.com/basecamp/omarchy/blob/quattro/bin/omarchy-agent-prompt), [legacy Omarchy CLI page](https://learn.omacom.io/2/the-omarchy-manual/115/omarchy-cli)). The current Quattro manual is [omarchy.org/manual](https://omarchy.org/manual/) and [omarchy.org/manual/ai](https://omarchy.org/manual/ai/). The plugin spawns the selected agent's own one-shot from the closed table, passes ping text plus ledger as the prompt, and captures stdout. Shared spawn rules for both rows. Dedicated empty cwd (not `$HOME`, not the plugin tree). Process group. Sanitized environment. No session-resume flags. No auto-approve / yolo / bypass-permissions flags.
 
-Open table (exact argv). Prompt on stdin. Only ids whose CLI documents a tool-free print path and a provider-side spend bound.
+Closed table (exact argv). Claude reads the prompt on stdin. Grok's `-p` / `--single` consumes the next argv token, so the bounded prompt is that final token and no flag follows it.
 
 | id | Argv | Prompt | Bound | Source |
 |----|------|--------|-------|--------|
 | claude | `claude -p --output-format text --tools "" --disallowedTools "mcp__*" --max-turns 1 --max-budget-usd 0.25 --restricted` | stdin | 1 turn, $0.25 | [Claude Code CLI](https://code.claude.com/docs/en/cli-reference) (`--tools ""` disables built-ins; `--disallowedTools "mcp__*"` drops MCP; `--restricted` skips user/project hooks) |
+| grok | `grok --no-auto-update --output-format plain --tools "" --max-turns 1 --no-plan --no-subagents --no-memory --disable-web-search --cwd <empty-cwd> -m grok-4.6 -p <prompt>` | final argv token | 1 turn, 512 completion tokens, zero inference retries | [Grok headless](https://docs.x.ai/build/cli/headless-scripting), [CLI flags](https://docs.x.ai/build/cli/reference), [settings reference](https://docs.x.ai/build/settings/reference) |
 
-Gated closed until a documented CLI-level no-tools contract exists. Not offered. An Omarchy default that is one of these ids resolves empty (R7 then R4).
+For Grok, each invocation creates a private mode-`0700` temporary `GROK_HOME`; copy only the user's Grok `auth.json` into it at mode `0600` when present, or pass through `XAI_API_KEY`. Write a controlled `config.toml` with `[models] default = "grok-4.6"`, `allowed_models = ["grok-4.6"]`, `max_completion_tokens = 512`, and `max_retries = 0`; `[cli] auto_update = false`; `[features] write_file = false` and `tool_search = false`; `[subagents] enabled = false`; and `[memory] enabled = false`. Set every `GROK_CURSOR_*_ENABLED` and `GROK_CLAUDE_*_ENABLED` compatibility scanner to `0`, plus `GROK_MEMORY=0`, `GROK_SUBAGENTS=0`, `GROK_WRITE_FILE=0`, `GROK_TOOL_SEARCH=0`, `GROK_LSP_TOOLS=0`, and `GROK_WEB_FETCH=0`. The exact `--tools ""` row removes built-in tools; the private home contains no MCP, plugin, skill, hook, rule, or session config. Delete the private home after the process exits. If installed Grok rejects any required flag or config key, cannot authenticate in the private home, or does not honor the 512-token cap in an early proof, treat Grok as unavailable for that invocation and use R4/R6; do not weaken the vector.
 
-| id | Why closed |
-|----|------------|
-| omp | Tool-free print mode and wall-time bounds exist, but normal requests have no documented completion-token, reasoning-token, request, or monetary ceiling. |
-| codex | `codex exec --sandbox read-only` still exposes file and command tools. No shipped empty tool-router flag. |
-| grok | `grok -p` is a coding-agent one-shot. Official CLI has no verified `--no-tools`. |
-| agy | `agy -p` auto-allows workspace file ops. No `--no-tools`. Empty stdout on a pipe is also a documented miss. |
-
-Dropped from the picker (unsafe or incorrect one-shot). `ori` (Omarchy's `ori code` prompt-alone path is wrong. Ori wants `ori code -p` / `--prompt-file` and defaults to approving command asks). `pi` (tools on, no permission popups). `copilot` (Omarchy launches `copilot --allow-all --interactive`. Print mode without `-s` pollutes stdout).
-
-Omitted until a documented tool-free one-shot exists. `opencode` (`opencode run` is non-interactive. No verified no-tools flag). `crush` (`crush run` is a one-shot. Tool permissions stay on and `crush run` is treated as yolo).
+Every id other than `claude` and `grok` is outside this feature's closed set. An Omarchy default with any other id resolves empty (R7 then R4).
 
 If the user enables summaries while the resolved id is unusable and no override is set, tell them and leave grouped-count catch-up in place.
 
-Empty stdout, non-zero exit, missing binary, timeout, over-limit output, or an id outside the open table is a parse failure (R1 then R6).
+Empty stdout, non-zero exit, missing binary, timeout, over-limit output, rejected Grok isolation/bounds, or an id outside the closed table is a parse failure (R1 then R6).
 
-**Parse bounds (deterministic).** One active child. The durable session control file reserves invocation count and consumed record sequence atomically before each spawn; crashes and parser restarts neither replay records nor reset budget. At most two parser crash restarts use 1 s / 4 s backoff; exhausting them defers to R6 at focus-off. First unseen record after the session starts the first one-shot. Replacement runs only after the child exits, after a 20 second debounce, and only when unseen records exist. At most 3 invocations per focus session, including one optional final parse at focus-off. Prompt payload is at most 40 records and 24 KiB of concatenated title plus body. The JSONL file itself is at most 64 KiB. Drop oldest records first on disk and in the prompt, and tell the model that older pings were truncated. Captured stdout is at most 8 KiB. The stored result is at most 8 KiB. The user-visible notify body is at most 800 bytes (truncate a longer valid result for display). Child timeout is 60 seconds, then kill the process group. Resource limits on the child process group. `RLIMIT_AS` 512 MiB. `RLIMIT_FSIZE` 1 MiB. `RLIMIT_NPROC` 16. Zero retries. Crossing any bound kills the child and uses the last valid non-empty stdout, or R6 if none. Enabling summaries mid-session arms capture on the next member toast. It does not rewrite already-dismissed toasts. Disabling summaries mid-session cancels the child, discards unread stdout, and stops capture. Mute counts stay. Changing `summary_agent` mid-session applies on the next invocation.
+**Parse bounds (deterministic).** One active child. The durable session control file reserves invocation count and consumed record sequence atomically before each spawn; crashes and parser restarts neither replay records nor reset budget. At most two parser crash restarts use 1 s / 4 s backoff; exhausting them defers to R6 at focus-off. First unseen record after the session starts the first one-shot. Replacement runs only after the child exits, after a 20 second debounce, and only when unseen records exist. At most 3 invocations per focus session, including one optional final parse at focus-off. Prompt payload is at most 40 records and 24 KiB of concatenated title plus body. The JSONL file itself is at most 64 KiB. Drop oldest records first on disk and in the prompt, and tell the model that older pings were truncated. Captured stdout is at most 8 KiB. The stored result is at most 8 KiB. The user-visible notify body is at most 800 bytes (truncate a longer valid result for display). Child timeout is 60 seconds, then kill the process group. Resource limits on the child process group. `RLIMIT_AS` 512 MiB. `RLIMIT_FSIZE` 1 MiB. `RLIMIT_NPROC` 16. Zero application retries. Crossing any bound kills the child and uses the last valid non-empty stdout, or R6 if none. Claude adds one turn and `$0.25` provider-side limits. Grok adds one turn, 512 completion tokens, and zero provider retries through its private controlled config. Enabling summaries mid-session arms capture on the next member toast. It does not rewrite already-dismissed toasts. Disabling summaries mid-session cancels the child, discards unread stdout, and stops capture. Mute counts stay. Changing `summary_agent` mid-session applies on the next invocation.
 
 **Result storage and R2.** Stdout lands in an XDG state file, mode `0600`, bound to a per-session id, published by atomic rename, flocked like `listen()`. Ping-text JSONL is also `0600`. R2 means no plugin UI or CLI reads ping-text, the running parse, or the result while focus is on. The QML `Process` does not bind session stdout to any bar property or `IpcHandler`. No new status command prints those files. Same-user filesystem read is outside the product threat model. Delete the result on a clean focus-on reset, successful XOR, and startup recovery. A pending lift-fail catch-up is not a clean reset. A missing or stale session id without pending catch-up is R1. Reason zenity cancel leaves the session running and keeps any result for the next successful leave.
 
@@ -116,7 +108,7 @@ Plugin config in `~/.config/omarchy/focus.json` (existing `log` key unchanged):
 }
 ```
 
-`summary_agent` is null or one open-table id. A rejected write leaves the previous object unchanged.
+`summary_agent` is null, `claude`, or `grok`. A rejected write leaves the previous object unchanged.
 
 Ping-text record this spec writes (not the mute count file):
 
@@ -141,7 +133,7 @@ Ledger line, append-only JSONL at `~/.local/state/omarchy/focus-summary-ledger.j
 CLI additions on `distractions`, same style as `focus` / `focus-status`:
 
 - `agent-summaries` opens the select modal for on / off and writes `agent_summaries`.
-- `summary-agent` opens the select modal for open-table ids and writes `summary_agent`, or clears the override when the user picks "Omarchy default".
+- `summary-agent` opens the select modal for `claude` and `grok` and writes `summary_agent`, or clears the override when the user picks "Omarchy default".
 - `summarize-session` is the flocked parser. It prints nothing about ping-text or the result.
 - `summarize-finish` is the focus-off shutdown. It prints nothing about those files while focus is on.
 - No command prints the running parse, the ping-text file, or the result file while focus is on.
@@ -154,8 +146,8 @@ Named mute functions this spec calls and does not reimplement. `lift_notificatio
 <!-- scope: technical -->
 
 - Empty ping-text at focus-off. No summary, no ledger prompt. Grouped notice still runs if mute has counts.
-- Summaries on, Omarchy default unset or unusable (dropped, omitted, or gated closed), no override. R4.
-- Binary missing or id not in the open table. R1 at focus-off, then R6.
+- Summaries on, Omarchy default unset or outside the closed `claude` / `grok` set, no override. R4.
+- Binary missing, Grok isolation/bounds rejected, or id not in the closed table. R1 at focus-off, then R6.
 - Child still running at focus-off. One 60 s wait, then kill, then R1 and R6 unless a prior valid result exists.
 - SIGINT or crash of `distractions` while a child is running. The pre-spawn reservation remains consumed. A permitted parser restart reloads the invocation count and `last_consumed_seq` and cannot replay that paid input. After two backoff restarts, leave state for R6 at focus-off. Next clean focus-on reaps a leftover process group from the pidfile. Next focus-off treats a missing or stale session result as R1 unless catch-up is pending.
 - Two focus toggles at once. Flock the session, result, ping-text, and ledger files. The bar already skips a second `Process` while one runs. Super+Ctrl+Shift+F and `focus-off` use the same flock.
@@ -167,7 +159,7 @@ Named mute functions this spec calls and does not reimplement. `lift_notificatio
 - Summary `notify()` failure. Do not clear counts. Call `show_grouped_notice()` (R6).
 - Enable mid-session. Arm capture on the next member toast. No backfill. Start the session Process if it is not running.
 - Disable mid-session. Cancel the child. Discard unread stdout. Stop capture. Mute counts stay.
-- Attacker-controlled toast body is prompt input. Open-table tool-free flags, empty cwd, rlimits, and gated-closed rows are the mitigation. Dropped and gated agents stay out of the picker.
+- Attacker-controlled toast body is prompt input. The two closed-table tool-free vectors, empty cwd, isolated Grok home, scanner disables, and rlimits are the mitigation. Every other agent stays out of the picker.
 - Hook order. Mute apply, then network apply if present, then arm capture and start the session. On leave. `summarize-finish`, then mute lift, then XOR, then network lift if present.
 
 ## Acceptance Criteria
@@ -179,15 +171,15 @@ Named mute functions this spec calls and does not reimplement. `lift_notificatio
 - **R4:** When summaries are off, no usable agent is resolved, or ping-text is empty, this spec does not change the mute spec's grouped-count catch-up. Errors: no error surface. [paraphrase]
 - **R5:** The user can point the plugin at an agent they already have, without rebuilding or reinstalling. Errors: a rejected setting leaves the previous agent setting unchanged. [paraphrase]
 - **R6:** If the agent path fails, the mute spec's grouped-count notice still applies. Errors: no error surface beyond R1 and R3. The notice must still be callable after a successful lift. Do not wait for an agent after the notice has already been sent and cleared.
-- **R7:** When no override is set, the plugin uses Omarchy's default agent if that id is in the open table. Errors: if Omarchy has no default agent, or the default is dropped, omitted, or gated closed, R4 applies. [user]
-- **R8:** The user can override the default to an open-table Omarchy agent. Errors: a rejected override leaves the previous setting unchanged. [user]
+- **R7:** When no override is set, the plugin uses Omarchy's default agent if that id is `claude` or `grok`. Errors: if Omarchy has no default agent or the default is outside that closed set, R4 applies. [user]
+- **R8:** The user can override the default to `claude` or `grok`. Errors: a rejected override leaves the previous setting unchanged. [user]
 - **R9:** After a summary, the user can mark it helpful or not helpful and leave feedback. Errors: cancel skips the ledger entry. A rejected note is not stored. Earlier ledger entries stay. Helpful and not-helpful are distinct from cancel. [user]
 - **R10:** The plugin stores that feedback in a ledger that informs the next summary parse. Errors: if the write fails, the plugin tells the user. The summary already shown stays. The next parse may lack the new entry. [user]
-- **R11:** The override set is only Omarchy-allowed agents that support a verified one-shot headless prompt with no interactive session and a tool-free contract. Errors: an agent that cannot run that way is not offered. Gated-closed ids stay out of the picker until a documented no-tools flag exists. [user]
+- **R11:** The override set is exactly `claude` and `grok`, each invoked through the closed one-shot table with no interactive session. No other Omarchy agent is offered. Errors: if an installed binary rejects its required safety or bound controls, that invocation fails closed to R4/R6; the implementation does not weaken the vector. [user, owner pin]
 - **R12:** The override picker is the same kind of selector modal Omarchy uses (`omarchy.menu` select mode). Errors: if the picker cannot open, the previous setting stays and the plugin tells the user. [user]
 - **R13:** Agent summaries stay off until the user enables them in the plugin. An Omarchy default agent alone does not turn them on. Errors: while off, R4 applies. [user]
 - **R14:** This spec owns blocked-ping text capture. It does not read a raw notification queue from the mute spec. Errors: append failure treats the session as empty ping-text for the summary path (R4). Mute counts stay unchanged. [paraphrase]
-- **R15:** Parse cost is bounded. One active child, 20 s debounce, 3 atomically reserved invocations per session, session-durable consumed-record cursor and crash-restart count, at most two parser crash restarts with 1 s / 4 s backoff, 40 records, 24 KiB prompt, 64 KiB JSONL, 8 KiB captured stdout, 8 KiB stored result, 800-byte notify body, 60 s timeout, `RLIMIT_AS` 512 MiB, `RLIMIT_FSIZE` 1 MiB, `RLIMIT_NPROC` 16, zero retries, one optional final parse at focus-off, plus the open-table turn and spend flags. Errors: over budget stops invoking and uses the last valid summary or R6. [paraphrase]
+- **R15:** Parse cost is bounded. One active child, 20 s debounce, 3 atomically reserved invocations per session, session-durable consumed-record cursor and crash-restart count, at most two parser crash restarts with 1 s / 4 s backoff, 40 records, 24 KiB prompt, 64 KiB JSONL, 8 KiB captured stdout, 8 KiB stored result, 800-byte notify body, 60 s timeout, `RLIMIT_AS` 512 MiB, `RLIMIT_FSIZE` 1 MiB, `RLIMIT_NPROC` 16, zero application retries, one optional final parse at focus-off, plus Claude's one-turn / `$0.25` bounds or Grok's one-turn / 512-completion-token / zero-inference-retry bounds. Errors: over budget stops invoking and uses the last valid summary or R6. [paraphrase]
 - **R16:** XOR and count-clear run only after a successful lift. A failed lift keeps the count file, ping-text, and any valid result. Errors: the plugin tells the user. Neither summary nor grouped notice is shown. The next successful lift retries the XOR.
 
 ## Boundaries
@@ -197,13 +189,13 @@ Named mute functions this spec calls and does not reimplement. `lift_notificatio
 - Network destination blocking stays the network spec. [paraphrase]
 - Focus mode does not require an agent, and an Omarchy default agent is not consent to send pings to it. [user]
 - Peeking at the running parse while focus is on is out of scope. [user]
-- An override that is not an Omarchy-allowed agent, or that cannot run a verified tool-free one-shot, is out of scope. [user]
+- An override other than `claude` or `grok` is out of scope. [owner pin]
 - `omarchy agent prompt` and any interactive TUI launch are out of scope.
-- `ori`, `pi`, and `copilot` are out of the picker. `omp`, `codex`, `grok`, and `agy` stay gated closed. `opencode` and `crush` stay omitted until a documented tool-free one-shot exists.
+- `omp`, `codex`, `agy`, `ori`, `pi`, `copilot`, `opencode`, `crush`, and every other non-Claude/non-Grok id are out of the picker.
 - A history screen of past summaries and per-app notification toggles stay declined (`.flow/memory/declined/notification-extra-ui.md`).
 - Allow-lists and urgent bypass stay declined (`.flow/memory/declined/notification-exceptions.md`).
 - Changing Omarchy's own default-agent file from this plugin is out of scope.
-- A second agent catalog is out of scope. Offered ids are the Omarchy list minus dropped, omitted, and gated-closed rows.
+- A full Omarchy agent catalog is out of scope. This feature owns the closed two-id `claude` / `grok` set.
 - A second `entryPoints.service` is out of scope. Capture is a child of the mute service.
 
 ## Decision Context
@@ -233,7 +225,7 @@ Host plan-review MAJOR_RETHINK (heads 611de37 and c5e21de) required this replan.
 
 **D4 · focus-off XOR (kept).** Finish session, lift, then one summary with silent count clear, or `show_grouped_notice()`. Rejected. Waiting after `disable_focus()` and suppressing a notice that already fired.
 
-**D5 · offered table.** Open only `claude`, with exact tool-free argv plus turn and monetary limits. Gate `omp`, `codex`, `grok`, and `agy` closed. OMP wall time does not cap provider token/spend cost. Drop `ori`, `pi`, `copilot`. Omit `opencode` and `crush`. Rejected. Shipping unverified tool-free argv as a closed table.
+**D5 · closed agent table (owner-pinned).** Offer exactly `claude` and `grok`. Claude has exact tool-free argv plus one-turn and monetary limits. Grok uses its official `-p` one-shot, `--tools ""`, one turn, and a private `GROK_HOME` whose controlled model config caps completion at 512 tokens and retries at zero. Compatibility scanners, tools, subagents, memory, updates, and web search are disabled. Any installed CLI that rejects those controls fails closed. Reject the full Omarchy list and every non-Claude/non-Grok id.
 
 **D6 · bounds.** 40 records, 24 KiB prompt, 64 KiB JSONL, 8 KiB stdout, 8 KiB stored result, 800-byte notify body, one child, 20 s debounce, 3 durably reserved invocations, 60 s kill, rlimits, zero retries, one final parse, and at most two durable 1 s / 4 s parser crash restarts. Consumed `seq` state prevents paid replay. Rejected. "A replacement parse may run" with no cap.
 
@@ -285,9 +277,9 @@ python3 -m unittest discover -s tests -p 'test_*.py'
 
 ## Early proof point
 
-Task fn-3-focus-mode-agent-notification-summary.1 proves the invoke path. `omarchy default agent` resolves, `omarchy-menu-select` can write an override, and one open-table argv returns stdout or a clear failure without opening a TUI and without tools.
+Task fn-3-focus-mode-agent-notification-summary.1 proves both invoke paths. `omarchy default agent` resolves, `omarchy-menu-select` can write either override, and each closed-table argv returns stdout or a clear failure without opening a TUI or exposing tools. The Grok proof additionally inspects the private effective configuration and confirms the 512-token / zero-retry controls before accepting Grok as usable.
 
-If it fails, re-evaluate the open table before capture or focus-off wiring.
+If either installed CLI rejects its required controls, that row fails closed at runtime; do not broaden the set or weaken the vector.
 
 ## Requirement coverage
 
