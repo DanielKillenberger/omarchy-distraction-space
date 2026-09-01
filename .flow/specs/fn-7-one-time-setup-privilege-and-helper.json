@@ -1008,7 +1008,7 @@
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-7-one-time-setup-privilege-and-helper.md",
-  "status": "open",
+  "status": "done",
   "title": "One-time setup privilege and helper resilience",
   "tracker": {
     "baseHashFlow": null,
@@ -1021,5 +1021,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T18:03:03.812288Z"
+  "updated_at": "2026-09-01T18:59:08.645898Z"
 }
