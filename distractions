@@ -4512,12 +4512,13 @@ def run_session_close_window(
     )
     if outcome is None:
         outcome = {"action": "dismiss", "eval": "", "note": ""}
-    eval_text = " ".join(str(outcome.get("eval") or "").split())
-    if eval_text:
-        stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
-        with log_path().open("a", encoding="utf-8") as handle:
-            handle.write(f"{stamp}  {eval_text}\n")
     action = outcome.get("action")
+    if action != "dismiss":
+        eval_text = " ".join(str(outcome.get("eval") or "").split())
+        if eval_text:
+            stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+            with log_path().open("a", encoding="utf-8") as handle:
+                handle.write(f"{stamp}  {eval_text}\n")
     if hosted and action in {"helpful", "not_helpful"}:
         append_ledger_entry(action == "helpful", str(outcome.get("note") or ""))
     consume_session_recap()

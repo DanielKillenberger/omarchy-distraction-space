@@ -1082,7 +1082,7 @@ class LiftFailCloseTests(CloseWindowHarness):
         self.assertEqual(distractions.read_summary_result()["text"], "keep-me")
         self.assertIsNone(distractions.read_session_recap())
         self.assertFalse(distractions.is_focus())
-        self.assertIn("ok-ish", self.log.read_text())
+        self.assertNotIn("ok-ish", self.log.read_text())
 
     def test_consumed_recap_blocks_second_window_retry_uses_notify(self):
         self.ready_session()
@@ -1112,6 +1112,28 @@ class LiftFailCloseTests(CloseWindowHarness):
         self.assertFalse(distractions.is_focus())
         self.assertNotIn("ignored", self.log.read_text())
         self.assertIsNone(distractions.read_session_recap())
+
+    def test_dismiss_skips_nonempty_eval_and_helpful(self):
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("shown")
+        with self.inject_close({"action": "dismiss", "eval": "typed eval", "note": "typed note"}):
+            self.disable()
+        self.assertFalse(distractions.is_focus())
+        self.assertNotIn("typed eval", self.log.read_text())
+        self.assertNotIn("typed note", self.log.read_text())
+        self.assertFalse(distractions.summary_ledger_path().exists())
+
+    def test_helpful_persists_self_eval(self):
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("shown")
+        with self.inject_close({"action": "helpful", "eval": "hit the purpose", "note": "good"}):
+            self.disable()
+        self.assertIn("hit the purpose", self.log.read_text())
+        row = json.loads(distractions.summary_ledger_path().read_text().splitlines()[-1])
+        self.assertEqual(row["helpful"], True)
+        self.assertEqual(row["note"], "good")
 
 
 if __name__ == "__main__":
