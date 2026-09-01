@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fn-4-plugin-owned-distraction-space-app-list</title>
+<style>
+:root {
+  --bg: #0c0b09; --panel: #14120e; --panel-2: #1a1712;
+  --line: #2c2719; --line-soft: #211d14;
+  --ink: #e8e2d4; --dim: #9a917c; --faint: #645d4c;
+  --amber: #ffb454; --amber-deep: #cc8b33;
+  --green: #87d96c; --red: #f07178; --cyan: #5ccfe6; --violet: #c9a7f5;
+  --mono: "Berkeley Mono", "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; background: var(--bg); color: var(--ink); }
+body {
+  font-family: var(--mono);
+  font-size: 14px;
+  line-height: 1.65;
+  padding: 28px 36px 72px;
+}
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 999;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,180,84,0.012) 2px 4px),
+    radial-gradient(ellipse 120% 60% at 50% -10%, rgba(255,180,84,0.05), transparent 60%);
+}
+nav.rail {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; gap: 18px; flex-wrap: wrap;
+  padding: 10px 0 12px;
+  background: rgba(12,11,9,0.86);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+  margin: 0 0 28px;
+}
+nav.rail a {
+  color: var(--faint); text-decoration: none;
+  font-size: 11px; letter-spacing: .16em; text-transform: uppercase;
+}
+nav.rail a:hover { color: var(--amber); }
+.kicker {
+  font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--amber); margin: 0 0 10px;
+}
+.kicker .sep { color: var(--faint); }
+h1 { font-size: 28px; font-weight: 700; margin: 0 0 18px; letter-spacing: -0.02em; }
+h1 .id { color: var(--amber); }
+.dials {
+  display: flex; flex-wrap: wrap;
+  border: 1px solid var(--line); background: var(--panel);
+  margin: 0 0 28px;
+}
+.dial {
+  flex: 1 1 120px; padding: 14px 16px;
+  border-right: 1px solid var(--line);
+}
+.dial:last-child { border-right: none; }
+.dial .v { font-size: 19px; font-weight: 700; color: var(--ink); }
+.dial .c { font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin-top: 4px; }
+.tldr {
+  font-family: var(--serif);
+  font-size: 21px; line-height: 1.6; max-width: 920px;
+  color: var(--ink); margin: 0 0 18px;
+}
+.tldr strong { color: var(--amber); font-weight: 600; }
+.tldr em { color: var(--cyan); font-style: italic; }
+.thesis {
+  border: 1px solid var(--line); border-left: 3px solid var(--amber);
+  background: var(--panel); padding: 14px 16px; margin: 0 0 32px;
+  color: var(--dim);
+}
+.shead {
+  display: flex; align-items: baseline; gap: 12px;
+  border-bottom: 1px solid var(--line); margin: 36px 0 16px; padding-bottom: 8px;
+}
+.shead .num { color: var(--amber); font-size: 17px; }
+.shead .ttl { font-size: 17px; letter-spacing: .14em; text-transform: uppercase; }
+.shead .note { margin-left: auto; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+section { animation: rise .45s ease both; }
+section:nth-of-type(1) { animation-delay: .05s; }
+section:nth-of-type(2) { animation-delay: .10s; }
+section:nth-of-type(3) { animation-delay: .15s; }
+section:nth-of-type(4) { animation-delay: .20s; }
+section:nth-of-type(5) { animation-delay: .25s; }
+section:nth-of-type(6) { animation-delay: .30s; }
+section:nth-of-type(7) { animation-delay: .35s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left; font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--faint); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--line);
+}
+td { padding: 10px; border-bottom: 1px solid var(--line-soft); color: var(--dim); vertical-align: top; }
+tr:hover td { color: var(--ink); background: #1c170d; }
+.tagchip {
+  display: inline-block; border: 1px solid var(--line); padding: 1px 7px;
+  font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+}
+.tagchip.user { color: var(--green); border-color: #2a4a28; }
+.tagchip.paraphrase { color: var(--cyan); border-color: #1a3a42; }
+.tagchip.inferred { color: var(--red); border-color: #4a2224; }
+.archgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.archbox { border: 1px solid var(--line); background: var(--panel); padding: 14px 16px; }
+.archbox h3 { margin: 0 0 6px; font-size: 13px; color: var(--amber); }
+.archbox p { margin: 0; color: var(--dim); }
+.bounds { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.bounds ul { margin: 0; padding: 0 0 0 18px; }
+.bounds .is li::marker { content: "✓ "; color: var(--green); }
+.bounds .isnot li::marker { content: "✕ "; color: var(--red); }
+.bounds h3 {
+  font-size: 10px; letter-spacing: .16em; text-transform: uppercase;
+  color: var(--faint); margin: 0 0 10px;
+}
+.dec { border: 1px solid var(--line); background: var(--panel); padding: 14px 16px; margin: 0 0 12px; }
+.dec .dtag { color: var(--amber); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; }
+.dec .q { color: var(--green); font-style: italic; margin: 8px 0; }
+.dec .rej { color: var(--red); margin: 0; }
+.edge { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.ecard { border: 1px solid var(--line); background: var(--panel); padding: 14px 16px; }
+.ecard.high { border-left: 3px solid var(--red); }
+.ecard.med { border-left: 3px solid var(--amber); }
+.ecard.low { border-left: 3px solid var(--cyan); }
+.ecard h3 { margin: 0 0 6px; font-size: 13px; }
+.ecard p { margin: 0; color: var(--dim); }
+.parked { border: 1px solid var(--line); background: var(--panel); padding: 8px 0; }
+.parked li { color: var(--dim); margin: 6px 18px; }
+footer {
+  margin-top: 48px; padding-top: 16px; border-top: 1px solid var(--line);
+  color: var(--dim); font-size: 13px;
+}
+.stamp {
+  margin-top: 10px; border: 1px solid var(--line); background: var(--panel);
+  padding: 8px 12px; color: var(--faint); font-size: 11px; letter-spacing: .06em;
+}
+@media (max-width: 760px) {
+  body { padding: 18px 14px 56px; }
+  .archgrid, .bounds, .edge { grid-template-columns: 1fr; }
+  .dial { border-right: none; border-bottom: 1px solid var(--line); }
+}
+@media print {
+  :root { --bg:#fff; --panel:#fafaf7; --panel-2:#f2f0ea; --line:#ccc7ba; --line-soft:#e2ded2;
+          --ink:#1a1812; --dim:#4a463c; --faint:#8a8678; --amber:#9a6a10; --amber-deep:#9a6a10;
+          --green:#2e7d32; --red:#b3261e; --cyan:#0a6e8a; --violet:#6a3fae; }
+  body::before { display: none; }
+  nav.rail, .progress { display: none; }
+  section { break-inside: avoid-page; animation: none; }
+  @page { size: A4; margin: 1.2cm; }
+}
+</style>
+</head>
+<body>
+<nav class="rail">
+  <a href="#thesis">Thesis</a>
+  <a href="#criteria">Criteria</a>
+  <a href="#architecture">Architecture</a>
+  <a href="#edges">Edges</a>
+  <a href="#boundaries">Boundaries</a>
+  <a href="#decisions">Decisions</a>
+  <a href="#parked">Parked</a>
+</nav>
+
+<p class="kicker">Spec lens <span class="sep">·</span> capture <span class="sep">·</span> 2026-09-01</p>
+<h1><span class="id">fn-4</span> Plugin-owned distraction-space app list</h1>
+<div class="dials">
+  <div class="dial"><div class="v">ready</div><div class="c">status</div></div>
+  <div class="dial"><div class="v">9</div><div class="c">R-IDs</div></div>
+  <div class="dial"><div class="v">0 / 9</div><div class="c">task coverage</div></div>
+  <div class="dial"><div class="v">ready</div><div class="c">activation</div></div>
+  <div class="dial"><div class="v">none</div><div class="c">tracker</div></div>
+</div>
+
+<section id="thesis">
+  <div class="shead"><span class="num">01</span><span class="ttl">Thesis</span><span class="note">scope: business</span></div>
+  <p class="tldr">The plugin owns a <strong>maintainable membership list</strong> with a plugin UI. Listed apps open only on the distraction workspace. <em>Website versions are network-blocked</em> on every other workspace.</p>
+  <div class="thesis">Load-bearing carve: one list, two enforcements. App windows land only on the distraction space. Corresponding sites do not load anywhere else. Focus-mode extra destinations (YouTube, Netflix) stay the sibling spec.</div>
+</section>
+
+<section id="criteria">
+  <div class="shead"><span class="num">02</span><span class="ttl">Acceptance</span><span class="note">9 criteria</span></div>
+  <table>
+    <thead>
+      <tr><th>R-ID</th><th>Criterion</th><th>Errors</th><th>Source</th><th>Owned by</th></tr>
+    </thead>
+    <tbody>
+      <tr data-rid="R1">
+        <td>R1</td>
+        <td>Apps on the plugin configuration list open on the distraction workspace automatically.</td>
+        <td>If apply fails, tell the user and leave prior window placement unchanged.</td>
+        <td><span class="tagchip paraphrase">paraphrase</span></td>
+        <td>TBD</td>
+      </tr>
+      <tr data-rid="R2">
+        <td>R2</td>
+        <td>The list is native plugin configuration. Maintaining it does not require copying window rules into the window manager.</td>
+        <td>A missing list tells the user and applies no automatic placement.</td>
+        <td><span class="tagchip paraphrase">paraphrase</span></td>
+        <td>TBD</td>
+      </tr>
+      <tr data-rid="R3">
+        <td>R3</td>
+        <td>Shipped defaults are Telegram, Discord, WhatsApp, X, Signal, and Google Messages.</td>
+        <td>A missing defaults set tells the user and starts with an empty list.</td>
+        <td><span class="tagchip paraphrase">paraphrase</span></td>
+        <td>TBD</td>
+      </tr>
+      <tr data-rid="R4">
+        <td>R4</td>
+        <td>The user can add, remove, and change list entries without rebuilding or reinstalling the plugin.</td>
+        <td>A rejected entry does not join the active list; other entries still apply.</td>
+        <td><span class="tagchip paraphrase">paraphrase</span></td>
+        <td>TBD</td>
+      </tr>
+      <tr data-rid="R5">
+        <td>R5</td>
+        <td>An app that is not on the list does not open on the distraction workspace because of this list.</td>
+        <td>No error surface beyond R1.</td>
+        <td><span class="tagchip inferred">inferred</span></td>
+        <td>TBD</td>
+      </tr>
+      <tr data-rid="R6">
+        <td>R6</td>
+        <td>A listed app does not open on any workspace other than the distraction workspace.</td>
+        <td>If exclusivity fails, tell the user and leave prior window placement unchanged.</td>
+        <td><span class="tagchip user">user</span></td>
+        <td>TBD</td>
+      </tr>
+      <tr data-rid="R7">
+        <td>R7</td>
+        <td>Website versions of listed apps are in the same set. They follow R1 and R6.</td>
+        <td>No error surface beyond R1 and R6.</td>
+        <td><span class="tagchip user">user</span></td>
+        <td>TBD</td>
+      </tr>
+      <tr data-rid="R8">
+        <td>R8</td>
+        <td>While the active workspace is not the distraction workspace, the plugin blocks network access to the website versions of listed apps.</td>
+        <td>If apply fails, tell the user and leave the previous network state unchanged.</td>
+        <td><span class="tagchip user">user</span></td>
+        <td>TBD</td>
+      </tr>
+      <tr data-rid="R9">
+        <td>R9</td>
+        <td>The user can add, remove, and change list entries through a plugin UI.</td>
+        <td>A rejected edit does not join the active list; other entries still apply.</td>
+        <td><span class="tagchip user">user</span></td>
+        <td>TBD</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="architecture">
+  <div class="shead"><span class="num">03</span><span class="ttl">Architecture</span><span class="note">scope: technical</span></div>
+  <div class="archgrid">
+    <div class="archbox">
+      <h3>One list + UI</h3>
+      <p>Plugin-owned membership. Each entry covers the app and its website version. A plugin UI edits the list. A file may back that UI.</p>
+    </div>
+    <div class="archbox">
+      <h3>Exclusive land</h3>
+      <p>A listed app window opens only on the named distraction workspace. It does not open on any other workspace.</p>
+    </div>
+    <div class="archbox">
+      <h3>Workspace-gated sites</h3>
+      <p>While the active workspace is not the distraction space, corresponding sites are network-blocked. A shared-browser tab stays put.</p>
+    </div>
+  </div>
+</section>
+
+<section id="edges">
+  <div class="shead"><span class="num">04</span><span class="ttl">Edges</span><span class="note">parked + apply</span></div>
+  <div class="edge">
+    <div class="ecard high">
+      <h3>Apply fails</h3>
+      <p>Tell the user. Leave prior window placement unchanged.</p>
+    </div>
+    <div class="ecard med">
+      <h3>Network apply fails</h3>
+      <p>Tell the user. Leave the previous network state unchanged.</p>
+    </div>
+    <div class="ecard low">
+      <h3>Mechanisms unset</h3>
+      <p>Plan picks window exclusive-placement and the workspace-gated network block.</p>
+    </div>
+  </div>
+</section>
+
+<section id="boundaries">
+  <div class="shead"><span class="num">05</span><span class="ttl">Boundaries</span><span class="note">scope: business</span></div>
+  <div class="bounds">
+    <div class="is">
+      <h3>Is</h3>
+      <ul>
+        <li>A plugin-owned list of apps that auto-open on the distraction workspace</li>
+        <li>Exclusive app-window placement plus a workspace-gated site block</li>
+        <li>A plugin UI to maintain the list, with shipped defaults</li>
+      </ul>
+    </div>
+    <div class="isnot">
+      <h3>Is not</h3>
+      <ul>
+        <li>Focus-mode extra destinations such as YouTube and Netflix (sibling spec)</li>
+        <li>Notification blocking (sibling spec)</li>
+        <li>A file-only maintenance path with no plugin UI</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section id="decisions">
+  <div class="shead"><span class="num">06</span><span class="ttl">Decisions</span><span class="note">flat context</span></div>
+  <div class="dec">
+    <div class="dtag">D1 · native list</div>
+    <p class="q">"that should be a native configuration list in the plugin"</p>
+    <p>Chosen path: the plugin owns membership. The user does not copy window rules to maintain it.</p>
+    <p class="rej">Rejected: leaving auto-assign as copied window-manager snippets.</p>
+  </div>
+  <div class="dec">
+    <div class="dtag">D2 · exclusive + websites</div>
+    <p class="q">"in any other workspace they don't open at all (even the website versions)"</p>
+    <p>Chosen path: exclusive placement stays in this spec. Website versions are the same membership.</p>
+    <p class="rej">Rejected: a separate spec for exclusivity, or shipping the list without website versions.</p>
+  </div>
+  <div class="dec">
+    <div class="dtag">D3 · workspace-gated sites</div>
+    <p class="q">"block corresponding sites on the network level as we are on any other workspace than distraction space"</p>
+    <p>Chosen path: network-block this list's sites while the active workspace is not the distraction space. The browser window stays put.</p>
+    <p class="rej">Rejected: moving a shared browser, or treating website matching as a later spec.</p>
+  </div>
+  <div class="dec">
+    <div class="dtag">D4 · plugin UI</div>
+    <p class="q">"i wouldn't decline extra ui by default"</p>
+    <p>Chosen path: a plugin UI is required to edit the list. A file may back that UI.</p>
+    <p class="rej">Rejected: importing the fn-2 no-extra-UI decline, or shipping file-only.</p>
+  </div>
+</section>
+
+<section id="parked">
+  <div class="shead"><span class="num">07</span><span class="ttl">Parked</span><span class="note">3 unknowns</span></div>
+  <ul class="parked">
+    <li>How the plugin applies the list so app windows land only on the workspace. Plan picks the mechanism.</li>
+    <li>How the workspace-gated network block is enforced. Plan picks the mechanism.</li>
+    <li>Whether this list is also the membership set the notification-block sibling uses.</li>
+  </ul>
+</section>
+
+<footer>
+  <p>Render lens, not record. Source: .flow/specs/fn-4-plugin-owned-distraction-space-app-list.md</p>
+  <div class="stamp">staleness stamp · spec updated_at 2026-09-01T08:24:38.349783Z · repo commit 1229dc9 · rendered 2026-09-01</div>
+</footer>
+</body>
+</html>

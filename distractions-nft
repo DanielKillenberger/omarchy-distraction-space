@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""Privileged helper: own table inet omarchy_ds and the ds address sets.
+
+One-time install copies this file to
+/usr/local/libexec/omarchy-distraction-space/distractions-nft and renders
+install/sudoers.omarchy-distraction-space. README documents those steps.
+A missing install skips only the network half.
+"""
+
+from __future__ import annotations
+
+import ipaddress
+import subprocess
+import sys
+
+FAMILY = "inet"
+TABLE = "omarchy_ds"
+SET4 = "omarchy_ds_v4"
+SET6 = "omarchy_ds_v6"
+
+
+def _fail(message: str, code: int = 2) -> None:
+    print(message, file=sys.stderr)
+    raise SystemExit(code)
+
+
+def _parse_address(token: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
+    if not token or token.startswith("/") or "/" in token or "\\" in token:
+        _fail(f"refused: not an address: {token}")
+    try:
+        return ipaddress.ip_address(token)
+    except ValueError:
+        _fail(f"refused: not an address: {token}")
+
+
+def _elements(addrs: list[str]) -> str:
+    if not addrs:
+        return ""
+    return "    elements = { " + ", ".join(addrs) + " }\n"
+
+
+def render_table(v4: list[str], v6: list[str]) -> str:
+    return (
+        f"destroy table {FAMILY} {TABLE}\n"
+        f"table {FAMILY} {TABLE} {{\n"
+        f"  set {SET4} {{\n"
+        f"    type ipv4_addr\n"
+        f"{_elements(v4)}"
+        f"  }}\n"
+        f"  set {SET6} {{\n"
+        f"    type ipv6_addr\n"
+        f"{_elements(v6)}"
+        f"  }}\n"
+        f"  chain output {{\n"
+        f"    type filter hook output priority filter; policy accept;\n"
+        f"    ip daddr @{SET4} drop\n"
+        f"    ip6 daddr @{SET6} drop\n"
+        f"  }}\n"
+        f"}}\n"
+    )
+
+
+def parse_replace_stdin(text: str) -> tuple[list[str], list[str]]:
+    v4: list[str] = []
+    v6: list[str] = []
+    seen: set[str] = set()
+    for raw in text.splitlines():
+        token = raw.strip()
+        if not token:
+            continue
+        addr = _parse_address(token)
+        rendered = str(addr)
+        if rendered in seen:
+            continue
+        seen.add(rendered)
+        if isinstance(addr, ipaddress.IPv4Address):
+            v4.append(rendered)
+        else:
+            v6.append(rendered)
+    return v4, v6
+
+
+def commit(script: str) -> int:
+    if f"table {FAMILY} {TABLE}" not in script:
+        _fail("refused: table confinement")
+    proc = subprocess.run(["nft", "-f", "-"], input=script, text=True, check=False)
+    return proc.returncode
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if len(args) != 2:
+        _fail("usage: distractions-nft replace|flush ds")
+    command, target = args
+    if target != "ds":
+        _fail("refused: only target ds is allowed")
+    if command not in {"replace", "flush"}:
+        _fail("usage: distractions-nft replace|flush ds")
+    if command == "flush":
+        v4, v6 = [], []
+    else:
+        v4, v6 = parse_replace_stdin(sys.stdin.read())
+    return commit(render_table(v4, v6))
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
