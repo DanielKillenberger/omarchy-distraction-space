@@ -227,6 +227,66 @@ class SetupTests(unittest.TestCase):
         last_sudo = lines[-1] if lines else ""
         self.assertFalse(last_sudo.endswith("rescanPlugins"))
 
+    def test_cli_setup_and_remove(self):
+        site = self.box.runtime / "pysite"
+        site.mkdir()
+        prefix = str(self.prefix.resolve())
+        (site / "sitecustomize.py").write_text(
+            "import os\n"
+            "from pathlib import Path\n"
+            f"_prefix = Path({prefix!r})\n"
+            "_real = os.access\n"
+            "def _access(path, mode, **kwargs):\n"
+            "    try:\n"
+            "        p = Path(path).resolve()\n"
+            "    except OSError:\n"
+            "        p = Path(path)\n"
+            "    try:\n"
+            "        if p != _prefix and _prefix.is_relative_to(p):\n"
+            "            return False\n"
+            "        if p != _prefix and p.is_relative_to(_prefix):\n"
+            "            return False\n"
+            "    except ValueError:\n"
+            "        pass\n"
+            "    return _real(path, mode, **kwargs)\n"
+            "os.access = _access\n",
+            encoding="utf-8",
+        )
+        extra = {
+            "PYTHONPATH": str(site),
+            "DS_WRAPPER_DEST": str(self.wrapper),
+            "DS_SUDOERS_DEST": str(self.sudoers),
+            "DS_SETUP_SUDO_LOG": str(self.sudo_log),
+            "DS_RESCAN_LOG": str(self.rescan_log),
+            "DS_LOCK_PREFIX": str(self.prefix),
+        }
+        r = self.box.run("setup", extra_env=extra)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self.sudoers.is_file())
+        self.assertTrue(self._rescan_text().strip().endswith("shell rescanPlugins"))
+        sudo_lines = self._sudo_lines()
+        self.assertTrue(sudo_lines)
+        self.assertFalse(sudo_lines[-1].endswith("rescanPlugins"))
+
+        self.sudo_log.write_text("", encoding="utf-8")
+        self.rescan_log.write_text("", encoding="utf-8")
+        r = self.box.run("setup", "--remove", extra_env=extra)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(self.wrapper.exists())
+        self.assertFalse(self.sudoers.exists())
+        self.assertTrue(self._rescan_text().strip().endswith("shell rescanPlugins"))
+        sudo_lines = self._sudo_lines()
+        self.assertTrue(any("flush ds" in ln or ln.endswith("flush ds") for ln in sudo_lines))
+        self.assertTrue(any(ln.startswith("rm ") for ln in sudo_lines))
+        self.assertFalse(sudo_lines[-1].endswith("rescanPlugins"))
+
+        (self.box.bin / "omarchy-shell").unlink()
+        r = self.box.run("setup", extra_env=extra)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self.sudoers.is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

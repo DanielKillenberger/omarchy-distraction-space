@@ -156,4 +156,6 @@ def remove():
 
 
 def cmd_setup(args):
-    raise NotImplementedError
+    if args.remove:
+        return remove()
+    return install()

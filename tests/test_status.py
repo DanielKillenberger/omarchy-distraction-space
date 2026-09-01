@@ -25,7 +25,6 @@ STUBS = (
     "menu",
     "listen",
     "reload",
-    "setup",
 )
 STATUS_KEYS = {
     "locked",
@@ -179,9 +178,6 @@ class StatusTests(unittest.TestCase):
                 r = box.run(cmd)
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("not yet", r.stderr)
-        r = box.run("setup", "--remove")
-        self.assertEqual(r.returncode, 2, r.stderr)
-        self.assertIn("not yet", r.stderr)
         r = box.run("lock", "25", "deep", "work")
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("not yet", r.stderr)
