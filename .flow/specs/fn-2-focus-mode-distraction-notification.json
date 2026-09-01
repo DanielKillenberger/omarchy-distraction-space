@@ -9,7 +9,7 @@
   "depends_on_epics": [],
   "id": "fn-2-focus-mode-distraction-notification",
   "impl_review_rounds": {
-    "fn-2-focus-mode-distraction-notification.1": 6
+    "fn-2-focus-mode-distraction-notification.1": 7
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -601,6 +601,55 @@
       "task": "fn-2-focus-mode-distraction-notification.1",
       "timestamp": "2026-09-01T00:55:08.307324Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "4ce80be51408fcc6fe6380d2d8ae78a1fd6f021aa3564c799387f12c7c45d017",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ec41f4688a7bf1da3389371008e7b0e1",
+            "classification": "introduced",
+            "findingId": "finding-ec41f4688a7bf1da3389371008e7b0e1",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-50d5f1062c291c71e15c3c3bd90296b1",
+            "classification": "introduced",
+            "findingId": "finding-50d5f1062c291c71e15c3c3bd90296b1",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "b78fdd8e601206c8906046375b9a215865da9d31",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1388,
+      "output_sha256": "49bb611d8be2e42c1d1c89850e456b747cad6a95d4e35d23b0ace751f3364c00",
+      "reservation_id": "f3a691615c75498b8d23f395d0e9e99f",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T00:59:17.256082Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -627,5 +676,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T00:55:08.866199Z"
+  "updated_at": "2026-09-01T00:59:17.798394Z"
 }

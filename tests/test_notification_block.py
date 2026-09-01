@@ -346,6 +346,20 @@ class ApplyLiftTests(unittest.TestCase):
                     mute.assert_not_called()
         self.assertEqual(distractions.muted_ids(), [10, 11])
 
+    def test_malformed_generation_still_notifies(self):
+        distractions.WATCHER_REQUEST.write_text('{"generation":"broken","want_armed":true}\n')
+        self.ping = ""
+        with mock.patch.object(distractions, "notify") as notify:
+            self.assertFalse(distractions.apply_notification_block())
+            notify.assert_called()
+            self.assertIn("Could not mute", notify.call_args[0][1])
+        request = distractions.read_watcher_request()
+        self.assertGreaterEqual(request["generation"], 1)
+
+    def test_next_generation_recovers_from_malformed_request(self):
+        distractions.WATCHER_REQUEST.write_text('{"generation":"broken"}\n')
+        self.assertEqual(distractions.next_generation(), 1)
+
     def test_muted_ids_rejects_corrupt_values(self):
         distractions.MUTED_PATH.write_text('["corrupt"]\n')
         with self.assertRaises(RuntimeError):
