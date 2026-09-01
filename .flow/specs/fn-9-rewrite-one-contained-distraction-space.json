@@ -9,7 +9,8 @@
   "depends_on_epics": [],
   "id": "fn-9-rewrite-one-contained-distraction-space",
   "impl_review_rounds": {
-    "fn-9-rewrite-one-contained-distraction-space.1": 0
+    "fn-9-rewrite-one-contained-distraction-space.1": 0,
+    "fn-9-rewrite-one-contained-distraction-space.4": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -551,10 +552,113 @@
       "task": "fn-9-rewrite-one-contained-distraction-space.1",
       "timestamp": "2026-09-01T22:54:47.490114Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "cd910c713b4d3512195d181205c0463e146aee5417d62d58def2ef18ed2960e6",
+      "backend": "cursor",
+      "base_sha": "69b7f490d2f7c1110f993dbc4395233bc517c815",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-effe7b965ab79d1cd15fffa510381608",
+            "classification": "introduced",
+            "findingId": "finding-effe7b965ab79d1cd15fffa510381608",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-215acea4a11ede39e8185e6b362716b9",
+            "classification": "introduced",
+            "findingId": "finding-215acea4a11ede39e8185e6b362716b9",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "f4dd6eca991042640448d58a7f741f85cafca5bb",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1409,
+      "output_sha256": "b3e7dce29f3b3f815385cf9fa4f56385cd549b5320a34e1eeefc93543f102935",
+      "reservation_id": "90343247c423439eb5b3fb022e20d01a",
+      "round_consumed": true,
+      "scope": "impl:fn-9-rewrite-one-contained-distraction-space.4",
+      "superseded_by": null,
+      "task": "fn-9-rewrite-one-contained-distraction-space.4",
+      "timestamp": "2026-09-01T23:05:40.495806Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "1a58facda9d074ca7cb3c5f0368b1bde04ed1e5e93eb9d9677053cb733c89881",
+      "backend": "cursor",
+      "base_sha": "69b7f490d2f7c1110f993dbc4395233bc517c815",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-effe7b965ab79d1cd15fffa510381608",
+            "classification": "introduced",
+            "findingId": "finding-effe7b965ab79d1cd15fffa510381608",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-215acea4a11ede39e8185e6b362716b9",
+            "classification": "introduced",
+            "findingId": "finding-215acea4a11ede39e8185e6b362716b9",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "245c38cec5824c6f3427481defa1dd135d50d0a5",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 508,
+      "output_sha256": "02def642539d837e5f5a9b195153ae198b4fdb6f670496c4bc027941d84c0d80",
+      "reservation_id": "c1a1696ac53c48e68e0646dd26734095",
+      "round_consumed": true,
+      "scope": "impl:fn-9-rewrite-one-contained-distraction-space.4",
+      "superseded_by": null,
+      "task": "fn-9-rewrite-one-contained-distraction-space.4",
+      "timestamp": "2026-09-01T23:10:03.186802Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-9-rewrite-one-contained-distraction-space.1": 1,
+    "impl:fn-9-rewrite-one-contained-distraction-space.4": 1,
     "plan": 1,
     "plan#completion": 0
   },
@@ -562,6 +666,7 @@
   "review_reservations": {},
   "review_transport_failures": {
     "impl:fn-9-rewrite-one-contained-distraction-space.1": 0,
+    "impl:fn-9-rewrite-one-contained-distraction-space.4": 0,
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-9-rewrite-one-contained-distraction-space.md",
