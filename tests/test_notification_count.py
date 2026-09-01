@@ -91,7 +91,12 @@ class NotifyTimeoutTests(unittest.TestCase):
             "check_call",
             side_effect=subprocess.TimeoutExpired(cmd="omarchy-notification-send", timeout=1),
         ):
-            self.assertFalse(distractions.notify("While you were focused", "Telegram 1"))
+            with mock.patch.object(
+                subprocess,
+                "call",
+                side_effect=subprocess.TimeoutExpired(cmd="notify-send", timeout=1),
+            ):
+                self.assertFalse(distractions.notify("While you were focused", "Telegram 1"))
 
 
 class CatchupNoticeTests(unittest.TestCase):

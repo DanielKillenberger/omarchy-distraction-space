@@ -529,6 +529,84 @@ class XorAndLiftTests(ParseHarness):
             with self.assertRaises(OSError):
                 distractions._apply_parse_rlimits()
 
+    def test_oversized_record_is_skipped_not_prompted(self):
+        self.ready_session()
+        huge = "h" * (distractions.PARSE_MAX_PROMPT_BYTES + 8)
+        rows = [
+            {
+                "seq": 1,
+                "app": "Telegram",
+                "title": huge,
+                "body": "x",
+                "at": "2026-09-01T00:00:00Z",
+            },
+            {
+                "seq": 2,
+                "app": "Telegram",
+                "title": "ok",
+                "body": "small",
+                "at": "2026-09-01T00:00:01Z",
+            },
+        ]
+        prompts: list[str] = []
+
+        def fake_invoke(agent, prompt):
+            prompts.append(prompt)
+            return "ok"
+
+        with mock.patch.object(distractions, "invoke_summary_agent", fake_invoke):
+            self.assertEqual(distractions.run_one_parse(rows, "sess-1"), "ok")
+        self.assertTrue(prompts)
+        self.assertNotIn(huge, prompts[0])
+        self.assertIn("ok", prompts[0])
+        self.assertEqual(distractions.read_summary_control()["last_consumed_seq"], 2)
+
+    def test_no_agent_does_not_reserve_or_mark_failure(self):
+        self.ready_session()
+        rows = self.write_records("later")
+        with mock.patch.object(distractions, "resolve_summary_agent", return_value=""):
+            self.assertEqual(distractions.run_one_parse(rows, "sess-1"), "")
+        control = distractions.read_summary_control()
+        self.assertEqual(control["invocations"], 0)
+        self.assertEqual(control["last_consumed_seq"], 0)
+        self.assertFalse(control.get("parse_failed"))
+
+    def test_finish_without_lock_skips_final_parse(self):
+        self.ready_session()
+        self.write_records("left")
+        with mock.patch.object(distractions, "try_summarize_session_lock", return_value=None):
+            with mock.patch.object(distractions, "invoke_summary_agent") as invoke:
+                distractions.summarize_finish("sess-1")
+                invoke.assert_not_called()
+
+    def test_restart_reaps_orphan_agent(self):
+        self.ready_session(agent_pid=4242, agent_starttime="99")
+        reaped: list[tuple] = []
+
+        def track_kill(pid, starttime=None):
+            reaped.append((pid, starttime))
+
+        with mock.patch.object(distractions, "_kill_pid", track_kill):
+            with mock.patch.object(distractions.time, "sleep"):
+                distractions.apply_parser_restart("sess-1")
+        self.assertEqual(reaped, [(4242, "99")])
+
+    def test_notify_timeout_tries_fallback(self):
+        calls: list[str] = []
+
+        def fake_check_call(cmd, **kwargs):
+            calls.append(cmd[0])
+            raise subprocess.TimeoutExpired(cmd, 1)
+
+        def fake_call(cmd, **kwargs):
+            calls.append(cmd[0])
+            return 0
+
+        with mock.patch.object(subprocess, "check_call", fake_check_call):
+            with mock.patch.object(subprocess, "call", fake_call):
+                self.assertTrue(distractions.notify("Focus summary", "body"))
+        self.assertEqual(calls, ["omarchy-notification-send", "notify-send"])
+
 
 if __name__ == "__main__":
     unittest.main()

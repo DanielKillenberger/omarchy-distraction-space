@@ -190,15 +190,13 @@ def notify(title: str, body: str = "", timeout_ms: int = 4000) -> bool:
     try:
         subprocess.check_call(cmd, timeout=NOTIFY_WAIT_S)
         return True
-    except subprocess.TimeoutExpired:
-        return False
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError):
         try:
             return subprocess.call(
                 ["notify-send", "-t", str(timeout_ms), title, body],
                 timeout=NOTIFY_WAIT_S,
             ) == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             return False
 
 
@@ -1221,6 +1219,7 @@ def default_summary_control() -> dict:
         "lift_fail_pending": False,
         "parser_closed": False,
         "agent_pid": None,
+        "agent_starttime": "",
         "last_parse_at": 0.0,
         "parse_failed": False,
     }
@@ -1276,9 +1275,22 @@ def try_summarize_session_lock():
     return handle
 
 
-def _kill_pid(pid: int | None) -> None:
+def _pid_starttime(pid: int | None) -> str:
+    if not pid:
+        return ""
+    try:
+        return Path(f"/proc/{int(pid)}/stat").read_text().split()[21]
+    except (OSError, IndexError, ValueError, TypeError):
+        return ""
+
+
+def _kill_pid(pid: int | None, starttime: str | None = None) -> None:
     if not pid:
         return
+    if starttime:
+        current = _pid_starttime(pid)
+        if current and current != str(starttime):
+            return
     try:
         os.kill(int(pid), signal.SIGTERM)
     except (OSError, TypeError, ValueError):
@@ -1298,7 +1310,12 @@ def _record_agent_pid(pid: int | None) -> None:
         control = read_summary_control()
         if not control.get("session_id"):
             return
-        control["agent_pid"] = int(pid) if pid else None
+        if pid:
+            control["agent_pid"] = int(pid)
+            control["agent_starttime"] = _pid_starttime(pid)
+        else:
+            control["agent_pid"] = None
+            control["agent_starttime"] = ""
         write_summary_control(control)
     except Exception:
         return
@@ -1308,9 +1325,10 @@ def _record_agent_pid(pid: int | None) -> None:
 
 def reap_summary_children(control: dict | None = None) -> None:
     payload = control if control is not None else read_summary_control()
-    _kill_pid(payload.get("agent_pid"))
+    _kill_pid(payload.get("agent_pid"), payload.get("agent_starttime"))
     if control is not None:
         control["agent_pid"] = None
+        control["agent_starttime"] = ""
 
 
 def prepare_summary_session(*, force_new: bool = False) -> dict:
@@ -1579,6 +1597,7 @@ def apply_parser_restart(expected_session: str | None = None) -> dict | None:
         control = read_summary_control()
         if not _parser_may_start(control, expected_session):
             return None
+        reap_summary_children(control)
         current = int(control.get("parser_restarts") or 0)
         if current >= PARSER_RESTART_MAX:
             control["parser_closed"] = True
@@ -1656,17 +1675,35 @@ def read_ledger_prompt() -> str:
     return encoded[-LEDGER_PROMPT_BYTES:].decode("utf-8", "ignore")
 
 
-def build_summary_prompt(records: list[dict]) -> str:
-    chosen = records[-PARSE_MAX_RECORDS:]
-    chunks: list[str] = []
+def _record_prompt_piece(row: dict) -> str:
+    return f"{row.get('title') or ''}\n{row.get('body') or ''}\n"
+
+
+def select_prompt_records(records: list[dict], consumed: int = 0) -> tuple[list[dict], int]:
+    fresh = [row for row in records if int(row.get("seq") or 0) > consumed]
+    included: list[dict] = []
+    skipped_to = consumed
     used = 0
-    for row in chosen:
-        piece = f"{row.get('title') or ''}\n{row.get('body') or ''}\n"
-        extra = len(piece.encode())
+    for row in fresh:
+        seq = int(row.get("seq") or 0)
+        extra = len(_record_prompt_piece(row).encode())
+        if extra > PARSE_MAX_PROMPT_BYTES:
+            if not included:
+                skipped_to = seq
+            continue
+        if len(included) >= PARSE_MAX_RECORDS:
+            break
         if used + extra > PARSE_MAX_PROMPT_BYTES:
             break
-        chunks.append(piece)
+        included.append(row)
         used += extra
+        skipped_to = seq
+    return included, skipped_to
+
+
+def build_summary_prompt(records: list[dict]) -> str:
+    chosen, _ = select_prompt_records(records, 0)
+    chunks = [_record_prompt_piece(row) for row in chosen]
     ledger = read_ledger_prompt()
     if ledger:
         chunks.append(ledger if ledger.endswith("\n") else ledger + "\n")
@@ -1715,15 +1752,19 @@ def reserve_parse_invocation(
         elif not _parser_may_start(control, expected_session):
             return None
         consumed = int(control.get("last_consumed_seq") or 0)
-        fresh = [row for row in records if int(row.get("seq") or 0) > consumed]
-        if not fresh:
+        included, consumed_through = select_prompt_records(records, consumed)
+        if consumed_through > consumed and not included:
+            control["last_consumed_seq"] = consumed_through
+            write_summary_control(control)
+            return None
+        if not included:
             return None
         control["invocations"] = int(control.get("invocations") or 0) + 1
-        control["last_consumed_seq"] = max(int(row.get("seq") or 0) for row in fresh)
+        control["last_consumed_seq"] = consumed_through
         control["last_parse_at"] = time.time()
         persist = {key: value for key, value in control.items() if not str(key).startswith("_")}
         write_summary_control(persist)
-        control["_prompt_records"] = fresh
+        control["_prompt_records"] = included
         return control
     finally:
         lock.close()
@@ -1735,19 +1776,18 @@ def run_one_parse(
     *,
     finishing: bool = False,
 ) -> str:
+    agent = resolve_summary_agent()
+    if not agent:
+        return ""
     reserved = reserve_parse_invocation(records, expected_session, finishing=finishing)
     if reserved is None:
         return ""
     session_id = reserved.get("session_id") or ""
-    agent = resolve_summary_agent()
     prompt_records = reserved.get("_prompt_records") or records
-    if not agent:
-        _mark_parse_failed()
-        return ""
     prompt = build_summary_prompt(prompt_records)
     try:
         raw = invoke_summary_agent(agent, prompt)
-    except (SummaryAgentError, OSError, subprocess.TimeoutExpired):
+    except (SummaryAgentError, OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
         raw = ""
     if not raw:
         _mark_parse_failed()
@@ -1835,7 +1875,8 @@ def summarize_finish(expected_session: str | None = None) -> dict:
         session_id = expected_session or control.get("session_id")
         unseen = observe_ping_records(int(control.get("last_consumed_seq") or 0))
         if (
-            unseen
+            guard is not None
+            and unseen
             and int(control.get("invocations") or 0) < PARSE_MAX_INVOCATIONS
             and int(control.get("parser_restarts") or 0) < PARSER_RESTART_MAX
         ):
