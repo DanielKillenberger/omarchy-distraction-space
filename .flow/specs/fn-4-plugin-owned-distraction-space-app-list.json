@@ -2012,7 +2012,7 @@
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-4-plugin-owned-distraction-space-app-list.md",
-  "status": "open",
+  "status": "done",
   "title": "Plugin-owned distraction-space app list",
   "tracker": {
     "baseHashFlow": null,
@@ -2025,5 +2025,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T12:17:08.627642Z"
+  "updated_at": "2026-09-01T15:35:54.809876Z"
 }
