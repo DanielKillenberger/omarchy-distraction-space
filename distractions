@@ -512,9 +512,24 @@ def claude_invoke_env(cwd: Path, config_dir: Path) -> dict[str, str]:
     env = _agent_base_env()
     env["HOME"] = str(cwd)
     env["CLAUDE_CONFIG_DIR"] = str(config_dir / ".claude")
-    _apply_closed_bundle(env, CLAUDE_API_BUNDLE)
-    _apply_closed_bundle(env, CLAUDE_GATEWAY_BUNDLE, require_all=True)
-    _apply_closed_bundle(env, CLAUDE_OAUTH_BUNDLE)
+    token = os.environ.get("ANTHROPIC_AUTH_TOKEN")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    base = os.environ.get("ANTHROPIC_BASE_URL")
+    oauth = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    if token:
+        if base:
+            env["ANTHROPIC_AUTH_TOKEN"] = token
+            env["ANTHROPIC_BASE_URL"] = base
+        return env
+    if api_key:
+        env["ANTHROPIC_API_KEY"] = api_key
+        if base:
+            env["ANTHROPIC_BASE_URL"] = base
+        return env
+    if oauth:
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth
+        if base:
+            env["ANTHROPIC_BASE_URL"] = base
     return env
 
 

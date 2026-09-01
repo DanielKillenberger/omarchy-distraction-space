@@ -291,6 +291,19 @@ class ClaudeVectorTests(unittest.TestCase):
                     distractions.invoke_claude("hello")
         self.assertEqual(captured["env"]["ANTHROPIC_AUTH_TOKEN"], "tok")
         self.assertEqual(captured["env"]["ANTHROPIC_BASE_URL"], "https://gw.example")
+        self.assertNotIn("ANTHROPIC_API_KEY", captured["env"])
+        with mock.patch.object(subprocess, "run", fake_version):
+            with mock.patch.object(subprocess, "Popen", fake_popen):
+                with mock.patch.dict(
+                    os.environ,
+                    {"ANTHROPIC_API_KEY": "sk-gw", "ANTHROPIC_BASE_URL": "https://gw.example"},
+                    clear=False,
+                ):
+                    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
+                    distractions.invoke_claude("hello")
+        self.assertEqual(captured["env"]["ANTHROPIC_API_KEY"], "sk-gw")
+        self.assertEqual(captured["env"]["ANTHROPIC_BASE_URL"], "https://gw.example")
+        self.assertNotIn("ANTHROPIC_AUTH_TOKEN", captured["env"])
 
 
 class GrokVectorTests(unittest.TestCase):
