@@ -1284,19 +1284,35 @@ def _pid_starttime(pid: int | None) -> str:
         return ""
 
 
+def _pid_matches(pid: int | None, starttime: str | None) -> bool:
+    if not pid or not starttime:
+        return False
+    current = _pid_starttime(pid)
+    return bool(current) and current == str(starttime)
+
+
 def _kill_pid(pid: int | None, starttime: str | None = None) -> None:
-    if not pid:
+    if not _pid_matches(pid, starttime):
         return
-    if starttime:
-        current = _pid_starttime(pid)
-        if current and current != str(starttime):
-            return
     try:
         os.kill(int(pid), signal.SIGTERM)
     except (OSError, TypeError, ValueError):
-        return
+        pass
     try:
         os.killpg(int(pid), signal.SIGTERM)
+    except OSError:
+        pass
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and _pid_matches(pid, starttime):
+        time.sleep(0.05)
+    if not _pid_matches(pid, starttime):
+        return
+    try:
+        os.killpg(int(pid), signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        os.kill(int(pid), signal.SIGKILL)
     except OSError:
         pass
 
@@ -1790,7 +1806,7 @@ def run_one_parse(
     except (SummaryAgentError, OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
         raw = ""
     if not raw:
-        _mark_parse_failed()
+        _mark_parse_failed(session_id)
         return ""
     if read_summary_control().get("session_id") != session_id:
         return ""
@@ -1798,10 +1814,12 @@ def run_one_parse(
     return raw
 
 
-def _mark_parse_failed() -> dict:
+def _mark_parse_failed(expected_session: str | None = None) -> dict:
     lock = _lock_summary_state()
     try:
         control = read_summary_control()
+        if expected_session and control.get("session_id") != expected_session:
+            return control
         control["parse_failed"] = True
         write_summary_control(control)
         return control
@@ -2725,6 +2743,7 @@ def disable_focus(reason: str) -> None:
     with log_path().open("a", encoding="utf-8") as handle:
         handle.write(f"{stamp}  {reason}\n")
     summaries_on = agent_summaries_enabled()
+    leaving_session = read_summary_control().get("session_id") or ""
     lift_fail_pending = bool(read_summary_control().get("lift_fail_pending"))
     with focus_block.network_lock():
         set_focus(False)
@@ -2734,7 +2753,12 @@ def disable_focus(reason: str) -> None:
             except focus_block.BlockError:
                 pass
     if summaries_on:
-        summarize_finish()
+        summarize_finish(leaving_session or None)
+        if is_focus() or (
+            leaving_session
+            and read_summary_control().get("session_id") != leaving_session
+        ):
+            return
         if lift_notification_block(catchup=False):
             apply_summary_xor()
         else:
@@ -2745,13 +2769,18 @@ def disable_focus(reason: str) -> None:
             except focus_block.BlockError:
                 pass
     elif lift_fail_pending:
-        request_summary_finish()
+        request_summary_finish(leaving_session or None)
+        if is_focus() or (
+            leaving_session
+            and read_summary_control().get("session_id") != leaving_session
+        ):
+            return
         if lift_notification_block(catchup=False):
             apply_summary_xor()
         else:
             mark_lift_fail_pending()
     else:
-        request_summary_finish()
+        request_summary_finish(leaving_session or None)
         lift_notification_block()
     notify("Focus mode off", "Super+D opens the distraction space.")
 

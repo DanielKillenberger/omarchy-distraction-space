@@ -607,6 +607,65 @@ class XorAndLiftTests(ParseHarness):
                 self.assertTrue(distractions.notify("Focus summary", "body"))
         self.assertEqual(calls, ["omarchy-notification-send", "notify-send"])
 
+    def test_kill_requires_matching_starttime_then_escalates(self):
+        import signal
+
+        signals: list[tuple[int, int]] = []
+        alive = {"ok": True}
+        clock = [0.0]
+
+        def fake_starttime(pid):
+            return "77" if alive["ok"] else ""
+
+        def fake_kill(pid, sig):
+            signals.append((pid, sig))
+            if sig == signal.SIGKILL:
+                alive["ok"] = False
+
+        def fake_mono():
+            return clock[0]
+
+        def fake_sleep(seconds):
+            clock[0] += seconds
+
+        with mock.patch.object(distractions, "_pid_starttime", fake_starttime):
+            with mock.patch.object(distractions.time, "monotonic", fake_mono):
+                with mock.patch.object(distractions.time, "sleep", fake_sleep):
+                    with mock.patch.object(os, "kill", fake_kill):
+                        with mock.patch.object(os, "killpg", fake_kill):
+                            distractions._kill_pid(4242, "")
+                            self.assertEqual(signals, [])
+                            distractions._kill_pid(4242, "77")
+        self.assertIn((4242, signal.SIGTERM), signals)
+        self.assertIn((4242, signal.SIGKILL), signals)
+
+    def test_stale_parse_failure_does_not_mark_new_session(self):
+        self.ready_session(session_id="new")
+        control = distractions._mark_parse_failed("old")
+        self.assertFalse(control.get("parse_failed"))
+        self.assertFalse(distractions.read_summary_control().get("parse_failed"))
+
+    def test_disable_aborts_when_session_rotates(self):
+        self.ready_session(session_id="leave-me")
+        xor_calls: list[str] = []
+
+        def rotate(_session=None):
+            control = distractions.read_summary_control()
+            control["session_id"] = "newer"
+            distractions.write_summary_control(control)
+            distractions.set_focus(True)
+            return control
+
+        with mock.patch.object(distractions, "log_path", return_value=self.state / "log"):
+            with mock.patch.object(distractions, "summarize_finish", rotate):
+                with mock.patch.object(distractions, "apply_summary_xor", lambda: xor_calls.append("xor")):
+                    with mock.patch.object(distractions, "lift_notification_block") as lift:
+                        with mock.patch.object(distractions, "lift_network_block"):
+                            distractions.disable_focus("x" * 50)
+                    lift.assert_not_called()
+        self.assertEqual(xor_calls, [])
+        self.assertTrue(distractions.is_focus())
+
 
 if __name__ == "__main__":
     unittest.main()
