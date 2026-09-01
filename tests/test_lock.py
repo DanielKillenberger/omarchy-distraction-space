@@ -21,6 +21,14 @@ from ds import config, lock, state
 from ds.config import DEFAULTS
 from ds.ui import Unavailable
 
+HYPRCTL_ON = """
+import json, sys
+if sys.argv[1:3] == ["-j", "activeworkspace"]:
+    print(json.dumps({"id": 5, "name": "distraction"}))
+else:
+    sys.exit(1)
+"""
+
 
 def _iso(delta_minutes: int) -> str:
     return (datetime.now(timezone.utc) + timedelta(minutes=delta_minutes)).replace(
@@ -289,6 +297,22 @@ class LockTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertTrue(lock.is_locked())
         self.assertEqual(self._raw_lock()["purpose"], "cli")
+
+    def test_cli_lock_unlock_enter(self):
+        self.box.fake_bin("hyprctl", HYPRCTL_ON)
+        r = self.box.run("lock", "25", "deep", "work")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        raw = self._raw_lock()
+        self.assertTrue(raw["locked"])
+        self.assertEqual(raw["purpose"], "deep work")
+        self.assertIsNotNone(raw["until"])
+        reason = "x" * 50
+        r = self.box.run("unlock", reason)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        raw = self._raw_lock()
+        self.assertFalse(raw["locked"])
+        r = self.box.run("enter")
+        self.assertEqual(r.returncode, 0, r.stderr)
 
 
 if __name__ == "__main__":

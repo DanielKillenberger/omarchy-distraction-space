@@ -17,11 +17,6 @@ sys.path.insert(0, str(ROOT))
 from ds import feedback, hypr, listener, lock, net, setup, ui
 
 STUBS = (
-    "enter",
-    "leave",
-    "toggle",
-    "lock",
-    "unlock",
     "menu",
     "listen",
     "reload",
@@ -178,12 +173,6 @@ class StatusTests(unittest.TestCase):
                 r = box.run(cmd)
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("not yet", r.stderr)
-        r = box.run("lock", "25", "deep", "work")
-        self.assertEqual(r.returncode, 2, r.stderr)
-        self.assertIn("not yet", r.stderr)
-        r = box.run("unlock", "x" * 50)
-        self.assertEqual(r.returncode, 2, r.stderr)
-        self.assertIn("not yet", r.stderr)
 
     def test_no_command_exits_2(self):
         box = self._box()

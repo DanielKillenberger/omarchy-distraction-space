@@ -158,31 +158,23 @@ def toggle():
 
 
 def cmd_lock(args):
-    raise NotImplementedError
+    return _cli_lock(args)
 
 
 def cmd_unlock(args):
-    raise NotImplementedError
+    return _cli_unlock(args)
 
 
 def cmd_enter(args):
-    raise NotImplementedError
+    return enter()
 
 
 def cmd_leave(args):
-    raise NotImplementedError
+    return leave()
 
 
 def cmd_toggle(args):
-    raise NotImplementedError
-
-
-# After tests/test_status.py drops lock/unlock/enter/leave/toggle from STUBS:
-#   def cmd_lock(args): return _cli_lock(args)
-#   def cmd_unlock(args): return _cli_unlock(args)
-#   def cmd_enter(args): return enter()
-#   def cmd_leave(args): return leave()
-#   def cmd_toggle(args): return toggle()
+    return toggle()
 
 
 def _cli_lock(args):
