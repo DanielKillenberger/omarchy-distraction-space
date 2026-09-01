@@ -516,10 +516,9 @@ def claude_invoke_env(cwd: Path, config_dir: Path) -> dict[str, str]:
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     base = os.environ.get("ANTHROPIC_BASE_URL")
     oauth = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
-    if token:
-        if base:
-            env["ANTHROPIC_AUTH_TOKEN"] = token
-            env["ANTHROPIC_BASE_URL"] = base
+    if token and base:
+        env["ANTHROPIC_AUTH_TOKEN"] = token
+        env["ANTHROPIC_BASE_URL"] = base
         return env
     if api_key:
         env["ANTHROPIC_API_KEY"] = api_key
