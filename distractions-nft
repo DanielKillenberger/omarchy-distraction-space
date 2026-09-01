@@ -18,6 +18,8 @@ FAMILY = "inet"
 TABLE = "omarchy_ds"
 SET4 = "omarchy_ds_v4"
 SET6 = "omarchy_ds_v6"
+HTTP_PORT = 28080
+TLS_PORT = 28443
 
 
 def _fail(message: str, code: int = 2) -> None:
@@ -54,8 +56,17 @@ def render_table(v4: list[str], v6: list[str]) -> str:
         f"  }}\n"
         f"  chain output {{\n"
         f"    type filter hook output priority filter; policy accept;\n"
-        f"    ip daddr @{SET4} drop\n"
-        f"    ip6 daddr @{SET6} drop\n"
+        f"    ip daddr @{SET4} tcp reject with tcp reset\n"
+        f"    ip daddr @{SET4} reject\n"
+        f"    ip6 daddr @{SET6} tcp reject with tcp reset\n"
+        f"    ip6 daddr @{SET6} reject\n"
+        f"  }}\n"
+        f"  chain output_nat {{\n"
+        f"    type nat hook output priority dstnat; policy accept;\n"
+        f"    ip daddr @{SET4} tcp dport 80 redirect to :{HTTP_PORT}\n"
+        f"    ip daddr @{SET4} tcp dport 443 redirect to :{TLS_PORT}\n"
+        f"    ip6 daddr @{SET6} tcp dport 80 redirect to :{HTTP_PORT}\n"
+        f"    ip6 daddr @{SET6} tcp dport 443 redirect to :{TLS_PORT}\n"
         f"  }}\n"
         f"}}\n"
     )
