@@ -66,12 +66,12 @@ Land apply and lift for the Quickshell notification service plus the session str
 
 Apply/lift for the Quickshell notification filter and the session stream watcher.
 
-Chromium PWA sounds match only `--app`, `--app-id`, `--class`, `--desktop-file-name`, and `chrome-<host>__` desktop-entry tokens. A casual `google-chrome https://discord.com` does not mute a browser sink.
+Completion-review NEEDS_WORK fixes:
+- Change events re-evaluate unmatched sink inputs so a late member identity is muted (R1/R6).
+- Ownership is recorded only when this spec transitions a sink from unmuted to muted; lift/rollback leave pre-muted foreign streams alone (R3/R8).
 
-`wait_watcher_ack` requires a live listener PID plus matching recorded starttime. A stale status file cannot fake apply or lift success.
-
-Host impl-review (gpt-5.6-sol-high) after reservation reset: SHIP. Prior P1s fixed. Focused suite green (42 tests).
+Host impl-review (gpt-5.6-sol-high) on `26eb648`: SHIP. Focused suite green.
 ## Evidence
-- Commits: 75fcebdb789d4ef8f1c68109e129d32dbe698f8c
-- Tests: python3 -m py_compile distractions, python3 -m unittest discover -s tests -p 'test_*.py'
+- Commits: 26eb64819e738c8ea219695a6946f3218c38465a
+- Tests: python3 -m py_compile distractions, python3 -m unittest tests.test_notification_block, python3 -m unittest discover -s tests -p 'test_*.py'
 - PRs: https://github.com/DanielKillenberger/omarchy-distraction-space/pull/2
