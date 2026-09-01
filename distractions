@@ -3265,18 +3265,56 @@ def hosted_summary_copy(control: dict, result: dict, recap: dict | None) -> str 
     return "You didn't miss anything"
 
 
+_XOR_HOSTED_DECISION: dict | None = None
+
+
+def _close_ui_snapshot(cfg: dict | None = None) -> dict:
+    cfg = cfg if cfg is not None else load_config()
+    return {
+        "session_close_ui": cfg.get("session_close_ui", True) is not False,
+        "session_close_purpose": cfg.get("session_close_purpose", True) is not False,
+        "session_close_eval": cfg.get("session_close_eval", True) is not False,
+    }
+
+
+def take_xor_hosted_decision() -> dict | None:
+    global _XOR_HOSTED_DECISION
+    decision = _XOR_HOSTED_DECISION
+    _XOR_HOSTED_DECISION = None
+    return decision
+
+
+def _fallback_hosted_summary(hosted_copy: str) -> str:
+    body = _truncate_bytes(hosted_copy, PARSE_NOTIFY_BODY_MAX)
+    if notify("Focus summary", body, timeout_ms=SUMMARY_NOTIFY_MS):
+        clear_counts()
+        _discard_summary_result()
+        collect_summary_feedback()
+        return "summary"
+    show_grouped_notice()
+    _discard_summary_result()
+    return "grouped"
+
+
 def apply_summary_xor() -> str:
+    global _XOR_HOSTED_DECISION
+    _XOR_HOSTED_DECISION = None
     mark_lift_fail_pending(False)
     control = read_summary_control()
     result = read_summary_result()
     recap = read_session_recap()
+    cfg = load_config()
     hosted = hosted_summary_copy(control, result, recap)
-    close_ui = load_config().get("session_close_ui", True) is not False
+    close_ui = cfg.get("session_close_ui", True) is not False
     if hosted is not None and close_ui:
+        _XOR_HOSTED_DECISION = {
+            "hosted_copy": hosted,
+            "cfg": _close_ui_snapshot(cfg),
+        }
         return "hosted"
     text = str(result.get("text") or "").strip()
     notify_body = ""
-    if text:
+    if text and not control.get("parse_failed"):
         notify_body = _truncate_bytes(text, PARSE_NOTIFY_BODY_MAX)
     elif hosted is not None:
         notify_body = hosted
@@ -3284,6 +3322,7 @@ def apply_summary_xor() -> str:
         agent_summaries_enabled()
         and resolve_summary_agent()
         and notify_body
+        and not control.get("parse_failed")
         and result.get("session_id") == control.get("session_id")
     ):
         if notify("Focus summary", notify_body, timeout_ms=SUMMARY_NOTIFY_MS):
@@ -4268,13 +4307,16 @@ def _disable_focus_locked(reason: str, *, timer: bool = False) -> None:
         request_summary_finish(leaving_session or None)
         lift_notification_block()
     hosted_copy = None
+    close_cfg = None
     if xor_arm == "hosted":
-        hosted_copy = hosted_summary_copy(
-            read_summary_control(),
-            read_summary_result(),
-            read_session_recap(),
-        )
-    run_session_close_window(hosted_copy=hosted_copy, xor_skipped=xor_skipped)
+        decision = take_xor_hosted_decision() or {}
+        hosted_copy = decision.get("hosted_copy")
+        close_cfg = decision.get("cfg")
+    run_session_close_window(
+        hosted_copy=hosted_copy,
+        xor_skipped=xor_skipped,
+        close_cfg=close_cfg,
+    )
     notify("Focus mode off", "Super+D opens the distraction space.")
 
 
@@ -4394,7 +4436,14 @@ def prompt_focus_close(
         summary_value = Gtk.Label(label=summary, xalign=0)
         summary_value.set_line_wrap(True)
         summary_value.set_selectable(True)
-        box.add(summary_value)
+        summary_value.set_max_width_chars(64)
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scrolled.set_min_content_height(80)
+        scrolled.set_max_content_height(280)
+        scrolled.set_shadow_type(Gtk.ShadowType.NONE)
+        scrolled.add(summary_value)
+        box.add(scrolled)
     eval_entry = None
     if ask_eval:
         eval_label = Gtk.Label(label="How well did you hit the purpose?", xalign=0)
@@ -4428,9 +4477,16 @@ def prompt_focus_close(
 _PROMPT_FOCUS_CLOSE_IMPL = prompt_focus_close
 
 
-def run_session_close_window(*, hosted_copy: str | None, xor_skipped: bool) -> None:
-    cfg = load_config()
+def run_session_close_window(
+    *,
+    hosted_copy: str | None,
+    xor_skipped: bool,
+    close_cfg: dict | None = None,
+) -> None:
+    cfg = close_cfg if close_cfg is not None else _close_ui_snapshot()
     if cfg.get("session_close_ui", True) is False:
+        if hosted_copy and not xor_skipped:
+            _fallback_hosted_summary(hosted_copy)
         return
     recap = read_session_recap()
     if recap is None:

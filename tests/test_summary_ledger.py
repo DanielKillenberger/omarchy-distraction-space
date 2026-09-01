@@ -207,6 +207,25 @@ class CloseDialogLedgerTests(LedgerHarness):
             def set_selectable(self, *_args):
                 return None
 
+            def set_max_width_chars(self, *_args):
+                return None
+
+        class FakeScrolled:
+            def set_policy(self, *_args):
+                return None
+
+            def set_min_content_height(self, *_args):
+                return None
+
+            def set_max_content_height(self, *_args):
+                return None
+
+            def set_shadow_type(self, *_args):
+                return None
+
+            def add(self, widget):
+                added.append(widget)
+
         added: list[object] = []
 
         class FakeBox:
@@ -254,8 +273,16 @@ class CloseDialogLedgerTests(LedgerHarness):
             class ResponseType:
                 CANCEL = 0
 
+            class PolicyType:
+                NEVER = 0
+                AUTOMATIC = 1
+
+            class ShadowType:
+                NONE = 0
+
             Dialog = FakeDialog
             Label = FakeLabel
+            ScrolledWindow = FakeScrolled
 
             class Entry:
                 created: list[FakeEntry] = []

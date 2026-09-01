@@ -582,6 +582,22 @@ class XorAndLiftTests(ParseHarness):
         self.assertEqual(notices[0], "Focus mode")
         self.assertIn("While you were focused", notices)
 
+    def test_parse_failed_stale_text_does_not_publish_summary(self):
+        self.ready_session(parse_failed=True)
+        self.seed_result("stale from an earlier parse")
+        self.seed_counts({"Telegram": 1})
+        notices: list[tuple[str, str]] = []
+
+        def fake_notify(title, body="", timeout_ms=4000):
+            notices.append((title, body))
+            return True
+
+        with mock.patch.object(distractions, "notify", fake_notify):
+            self.assertEqual(distractions.apply_summary_xor(), "grouped")
+        self.assertTrue(any("Could not summarize" in body for _, body in notices))
+        self.assertFalse(any(title == "Focus summary" for title, _ in notices))
+        self.assertIn("While you were focused", [title for title, _ in notices])
+
     def test_summaries_off_after_lift_fail_uses_xor_cleanup(self):
         self.cfg.write_text(json.dumps({"agent_summaries": False}) + "\n")
         self.ready_session(lift_fail_pending=True, session_ready=False)
@@ -866,6 +882,40 @@ class HostedXorTests(CloseWindowHarness):
         row = json.loads(distractions.summary_ledger_path().read_text().splitlines()[-1])
         self.assertEqual(row["helpful"], True)
         self.assertEqual(row["note"], "ok")
+
+    def test_hosted_copy_survives_post_xor_state_change(self):
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("stable")
+        original = distractions.apply_summary_xor
+
+        def xor_then_corrupt():
+            arm = original()
+            control = distractions.read_summary_control()
+            control["parse_failed"] = True
+            distractions.write_summary_control(control)
+            self.cfg.write_text(
+                json.dumps(
+                    {
+                        "agent_summaries": True,
+                        "summary_agent": "claude",
+                        "session_close_ui": False,
+                    }
+                )
+                + "\n"
+            )
+            return arm
+
+        with self.inject_close({"action": "dismiss", "eval": "", "note": ""}):
+            with mock.patch.object(distractions, "apply_summary_xor", xor_then_corrupt):
+                self.disable()
+        self.assertEqual(self.dialog_calls[0]["summary"], "Here's what you missed\nstable")
+
+    def test_close_dialog_scrolls_long_summary(self):
+        source = Path(ROOT / "distractions").read_text()
+        close = source[source.find("def prompt_focus_close") : source.find("def run_session_close_window")]
+        self.assertIn("Gtk.ScrolledWindow", close)
+        self.assertIn("set_max_content_height", close)
 
     def test_hosted_copy_empty_vs_parse_failed(self):
         cases = (
