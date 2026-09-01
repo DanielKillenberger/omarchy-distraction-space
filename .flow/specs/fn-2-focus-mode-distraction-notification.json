@@ -9,7 +9,7 @@
   "depends_on_epics": [],
   "id": "fn-2-focus-mode-distraction-notification",
   "impl_review_rounds": {
-    "fn-2-focus-mode-distraction-notification.1": 8
+    "fn-2-focus-mode-distraction-notification.1": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -715,9 +715,42 @@
       "task": "fn-2-focus-mode-distraction-notification.1",
       "timestamp": "2026-09-01T01:03:51.129454Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "e655650c08f373dd9dfd6397ab5d6a073362d58a31a206b5c0fe4e761225d0c2",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "75fcebdb789d4ef8f1c68109e129d32dbe698f8c",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 777,
+      "output_sha256": "39c2043fd03fb562bf45ebe20e4247f4a12263aafe530e3be7a1ae4d34da4f5c",
+      "reservation_id": "ab4d74d549374f6fbe4ff6c57709db78",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T01:16:39.352889Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
+    "impl:fn-2-focus-mode-distraction-notification.1": 2,
     "plan": 2,
     "plan#completion": 1
   },
@@ -741,5 +774,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T01:03:51.655108Z"
+  "updated_at": "2026-09-01T01:16:39.894956Z"
 }

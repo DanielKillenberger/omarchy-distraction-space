@@ -62,9 +62,16 @@ Land apply and lift for the Quickshell notification service plus the session str
 - [ ] Service reload while a member delete is queued lazily rebinds/re-arms and uses exact active-file existence to reconcile the restored row; a history-only replay remains
 - [ ] `python3 -m py_compile distractions` and `python3 -m unittest discover -s tests -p 'test_*.py'` pass; `qmllint NotificationFilter.qml` passes when qmllint is installed, while live ping/proof remains mandatory
 ## Done summary
-TBD
+# fn-2-focus-mode-distraction-notification.1
 
+Apply/lift for the Quickshell notification filter and the session stream watcher.
+
+Chromium PWA sounds match only `--app`, `--app-id`, `--class`, `--desktop-file-name`, and `chrome-<host>__` desktop-entry tokens. A casual `google-chrome https://discord.com` does not mute a browser sink.
+
+`wait_watcher_ack` requires a live listener PID plus matching recorded starttime. A stale status file cannot fake apply or lift success.
+
+Host impl-review (gpt-5.6-sol-high) after reservation reset: SHIP. Prior P1s fixed. Focused suite green (42 tests).
 ## Evidence
-- Commits:
-- Tests:
-- PRs:
+- Commits: 75fcebdb789d4ef8f1c68109e129d32dbe698f8c
+- Tests: python3 -m py_compile distractions, python3 -m unittest discover -s tests -p 'test_*.py'
+- PRs: https://github.com/DanielKillenberger/omarchy-distraction-space/pull/2
