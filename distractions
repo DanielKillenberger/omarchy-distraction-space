@@ -4,9 +4,9 @@
 from __future__ import annotations
 
 import fcntl
-import getpass
 import json
 import os
+import pwd
 import queue
 import re
 import resource
@@ -14,6 +14,7 @@ import select
 import shutil
 import signal
 import socket
+import stat
 import subprocess
 import sys
 import tempfile
@@ -184,6 +185,11 @@ NFT_WRAPPER = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
 SUDOERS_PATH = "/etc/sudoers.d/omarchy-distraction-space"
 SUDOERS_TEMPLATE = PLUGIN_DIR / "install" / "sudoers.omarchy-distraction-space"
 WRAPPER_SRC = PLUGIN_DIR / "distractions-nft"
+SETUP_LOCK_PATH = "/run/omarchy-ds-setup.lock"
+_SETUP_DENIED_MSG = (
+    "setup was cancelled or sudo failed; denied sudo cannot remove a "
+    "root-owned grant, so an existing grant remains until a later successful setup"
+)
 BANNER_TITLE = "Consciously choose to view this in your distraction space"
 BANNER_DEBOUNCE_S = 30
 LIST_EDITOR_HEADER = (
@@ -3922,8 +3928,215 @@ def _watcher_main() -> None:
             proc.kill()
 
 
+class _SetupClosed(Exception):
+    """Fail-closed setup error; message is user-facing."""
+
+
 def _setup_has_tty() -> bool:
     return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _sudoers_principal(uid: int) -> str:
+    try:
+        name = pwd.getpwuid(uid).pw_name
+    except KeyError as exc:
+        raise _SetupClosed("could not resolve this account from the account database") from exc
+    _reject_sudoers_principal(name)
+    return name
+
+
+def _reject_sudoers_principal(name: str) -> None:
+    if not name or name == "ALL" or name.startswith("%") or name == "__INSTALL_USER__":
+        raise _SetupClosed(f"refusing sudoers principal {name!r}")
+    if any(ch.isspace() or ch == "," for ch in name):
+        raise _SetupClosed(f"refusing sudoers principal {name!r}")
+
+
+def _render_sudoers(principal: str) -> str:
+    _reject_sudoers_principal(principal)
+    body = SUDOERS_TEMPLATE.read_text(encoding="utf-8").replace("__INSTALL_USER__", principal)
+    if "__INSTALL_USER__" in body:
+        raise _SetupClosed("could not render sudoers for this account")
+    return body
+
+
+def _trusted_dir(st: os.stat_result, trusted_uid: int) -> bool:
+    if not stat.S_ISDIR(st.st_mode) or stat.S_ISLNK(st.st_mode):
+        return False
+    if st.st_uid != trusted_uid:
+        return False
+    if st.st_mode & stat.S_IWOTH:
+        return False
+    if st.st_mode & stat.S_IWGRP and st.st_gid != trusted_uid:
+        return False
+    return True
+
+
+def _trusted_file(st: os.stat_result, trusted_uid: int) -> bool:
+    if not stat.S_ISREG(st.st_mode) or stat.S_ISLNK(st.st_mode):
+        return False
+    if st.st_uid != trusted_uid:
+        return False
+    if st.st_mode & (stat.S_IWOTH | stat.S_IWGRP):
+        return False
+    return True
+
+
+def _stat_identity(st: os.stat_result) -> tuple[int, int, int, int, int]:
+    return (st.st_dev, st.st_ino, st.st_uid, st.st_gid, st.st_mode)
+
+
+def _open_nofollow_dir(name: str, dir_fd: int | None) -> int:
+    flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
+    if dir_fd is None:
+        return os.open(name, flags)
+    return os.open(name, flags, dir_fd=dir_fd)
+
+
+class _PinnedAncestors:
+    def __init__(self) -> None:
+        self.entries: list[tuple[str, int, os.stat_result]] = []
+        self.created: list[str] = []
+
+    @property
+    def parent_fd(self) -> int:
+        return self.entries[-1][1]
+
+    def close(self) -> None:
+        for _, fd, _ in reversed(self.entries):
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        self.entries.clear()
+
+
+def _rmdir_created(pinned: _PinnedAncestors) -> None:
+    created = set(pinned.created)
+    while len(pinned.entries) > 1:
+        name, fd, _st = pinned.entries[-1]
+        if name not in created:
+            break
+        parent_fd = pinned.entries[-2][1]
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+        pinned.entries.pop()
+        try:
+            os.rmdir(name, dir_fd=parent_fd)
+        except OSError:
+            break
+
+
+def _pin_or_create_ancestors(
+    dest: Path, trusted_uid: int, *, create: bool, fs_root: Path = Path("/")
+) -> _PinnedAncestors:
+    pinned = _PinnedAncestors()
+    dest = Path(dest)
+    root = Path(fs_root)
+    if not dest.is_absolute() or not root.is_absolute():
+        raise _SetupClosed(f"wrapper dest and filesystem root must be absolute: {dest}")
+    try:
+        relative = dest.parent.relative_to(root)
+    except ValueError as exc:
+        raise _SetupClosed(f"wrapper dest must be under {root}") from exc
+    try:
+        root_fd = _open_nofollow_dir(str(root), None)
+        root_st = os.fstat(root_fd)
+        if not _trusted_dir(root_st, trusted_uid):
+            os.close(root_fd)
+            raise _SetupClosed(f"untrusted ancestor: {root}")
+        pinned.entries.append((str(root), root_fd, root_st))
+        for name in relative.parts:
+            parent_fd = pinned.parent_fd
+            try:
+                st = os.lstat(name, dir_fd=parent_fd)
+            except FileNotFoundError:
+                if not create:
+                    raise _SetupClosed(f"missing dest directory: {name}")
+                os.mkdir(name, 0o755, dir_fd=parent_fd)
+                pinned.created.append(name)
+                st = os.lstat(name, dir_fd=parent_fd)
+            if stat.S_ISLNK(st.st_mode):
+                raise _SetupClosed(f"refusing symlink ancestor: {name}")
+            if not _trusted_dir(st, trusted_uid):
+                raise _SetupClosed(f"untrusted ancestor: {name}")
+            child_fd = _open_nofollow_dir(name, parent_fd)
+            opened = os.fstat(child_fd)
+            if _stat_identity(opened) != _stat_identity(st):
+                os.close(child_fd)
+                raise _SetupClosed(f"ancestor changed during pin: {name}")
+            pinned.entries.append((name, child_fd, opened))
+        return pinned
+    except _SetupClosed:
+        _rmdir_created(pinned)
+        pinned.close()
+        raise
+    except OSError as exc:
+        _rmdir_created(pinned)
+        pinned.close()
+        raise _SetupClosed(f"could not pin trusted path: {exc}") from exc
+
+
+def _inspect_dest(pinned: _PinnedAncestors, dest_name: str, trusted_uid: int) -> os.stat_result | None:
+    try:
+        st = os.lstat(dest_name, dir_fd=pinned.parent_fd)
+    except FileNotFoundError:
+        return None
+    if stat.S_ISLNK(st.st_mode):
+        raise _SetupClosed(f"refusing symlink dest: {dest_name}")
+    if not stat.S_ISREG(st.st_mode):
+        raise _SetupClosed(f"dest is not a regular file: {dest_name}")
+    if not _trusted_file(st, trusted_uid):
+        raise _SetupClosed(f"untrusted dest: {dest_name}")
+    return st
+
+
+def _read_nofollow(dir_fd: int, name: str) -> bytes:
+    fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=dir_fd)
+    try:
+        chunks: list[bytes] = []
+        while True:
+            piece = os.read(fd, 1024 * 1024)
+            if not piece:
+                break
+            chunks.append(piece)
+        return b"".join(chunks)
+    finally:
+        os.close(fd)
+
+
+def _wrapper_bytes_match(
+    dest: Path, source: Path, trusted_uid: int, fs_root: Path = Path("/")
+) -> bool:
+    if not source.is_file():
+        return False
+    pinned = None
+    try:
+        pinned = _pin_or_create_ancestors(dest, trusted_uid, create=False, fs_root=fs_root)
+        st = _inspect_dest(pinned, dest.name, trusted_uid)
+        if st is None:
+            return False
+        return _read_nofollow(pinned.parent_fd, dest.name) == source.read_bytes()
+    except (_SetupClosed, OSError):
+        return False
+    finally:
+        if pinned is not None:
+            pinned.close()
+
+
+def _path_is_trusted(dest: Path, trusted_uid: int, fs_root: Path = Path("/")) -> bool:
+    pinned = None
+    try:
+        pinned = _pin_or_create_ancestors(dest, trusted_uid, create=False, fs_root=fs_root)
+        st = _inspect_dest(pinned, dest.name, trusted_uid)
+        return st is not None
+    except (_SetupClosed, OSError):
+        return False
+    finally:
+        if pinned is not None:
+            pinned.close()
 
 
 def _wrapper_grant_ok() -> bool:
@@ -3939,9 +4152,260 @@ def _wrapper_grant_ok() -> bool:
     return "replace|flush" in blob or "usage:" in blob.lower()
 
 
+def _setup_already_installed() -> bool:
+    dest = Path(NFT_WRAPPER)
+    if not _wrapper_bytes_match(dest, WRAPPER_SRC, 0):
+        return False
+    if not _path_is_trusted(dest, 0):
+        return False
+    return _wrapper_grant_ok()
+
+
+def _grant_exists(sudoers_path: Path) -> bool:
+    try:
+        st = os.lstat(sudoers_path)
+    except FileNotFoundError:
+        return False
+    return not stat.S_ISLNK(st.st_mode) and stat.S_ISREG(st.st_mode)
+
+
+def _pin_dir(path: Path, trusted_uid: int, fs_root: Path) -> _PinnedAncestors:
+    return _pin_or_create_ancestors(path / ".pin", trusted_uid, create=False, fs_root=fs_root)
+
+
+def _disable_grant(sudoers_path: Path, trusted_uid: int, fs_root: Path) -> None:
+    name = sudoers_path.name
+    pinned = _pin_dir(sudoers_path.parent, trusted_uid, fs_root)
+    try:
+        try:
+            os.unlink(name, dir_fd=pinned.parent_fd)
+        except FileNotFoundError:
+            return
+    except OSError as exc:
+        raise _SetupClosed(f"could not disable grant: {exc}") from exc
+    finally:
+        pinned.close()
+
+
+def _stage_replace_wrapper(
+    pinned: _PinnedAncestors, dest_name: str, data: bytes, trusted_uid: int
+) -> None:
+    tmp_name = f".{dest_name}.tmp.{os.getpid()}"
+    flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+    fd = os.open(tmp_name, flags, 0o755, dir_fd=pinned.parent_fd)
+    try:
+        os.fchmod(fd, 0o755)
+        os.write(fd, data)
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+    try:
+        if _read_nofollow(pinned.parent_fd, tmp_name) != data:
+            raise _SetupClosed("staged wrapper bytes did not match the shipped helper")
+        try:
+            os.rename(tmp_name, dest_name, src_dir_fd=pinned.parent_fd, dst_dir_fd=pinned.parent_fd)
+        except OSError as exc:
+            raise _SetupClosed(f"wrapper replace was interrupted: {exc}") from exc
+        tmp_name = ""
+        if _read_nofollow(pinned.parent_fd, dest_name) != data:
+            raise _SetupClosed("replaced wrapper bytes did not match the shipped helper")
+        st = os.lstat(dest_name, dir_fd=pinned.parent_fd)
+        if not _trusted_file(st, trusted_uid):
+            raise _SetupClosed("replaced wrapper is not a trusted regular file")
+    finally:
+        if tmp_name:
+            try:
+                os.unlink(tmp_name, dir_fd=pinned.parent_fd)
+            except FileNotFoundError:
+                pass
+
+
+def _revalidate_chain(
+    pinned: _PinnedAncestors,
+    dest: Path,
+    data: bytes,
+    trusted_uid: int,
+    fs_root: Path,
+) -> None:
+    walk = None
+    try:
+        walk = _pin_or_create_ancestors(dest, trusted_uid, create=False, fs_root=fs_root)
+        if len(walk.entries) != len(pinned.entries):
+            raise _SetupClosed("trusted path changed before grant commit")
+        for (name, _fd, pinned_st), (wname, _wfd, walk_st) in zip(pinned.entries, walk.entries):
+            if name != wname or _stat_identity(pinned_st) != _stat_identity(walk_st):
+                raise _SetupClosed(f"ancestor replaced after pin: {name}")
+        st = _inspect_dest(walk, dest.name, trusted_uid)
+        if st is None:
+            raise _SetupClosed("dest missing before grant commit")
+        if _read_nofollow(walk.parent_fd, dest.name) != data:
+            raise _SetupClosed("dest bytes changed before grant commit")
+        if not _trusted_file(st, trusted_uid):
+            raise _SetupClosed("dest is not trusted before grant commit")
+    finally:
+        if walk is not None:
+            walk.close()
+
+
+def _commit_grant(
+    sudoers_path: Path, body: str, trusted_uid: int, fs_root: Path
+) -> None:
+    name = sudoers_path.name
+    tmp_name = f".{name}.tmp.{os.getpid()}"
+    pinned = _pin_dir(sudoers_path.parent, trusted_uid, fs_root)
+    staged = sudoers_path.parent / tmp_name
+    try:
+        flags = os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW | os.O_CLOEXEC
+        fd = os.open(tmp_name, flags, 0o440, dir_fd=pinned.parent_fd)
+        try:
+            os.fchmod(fd, 0o440)
+            os.write(fd, body.encode("utf-8"))
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+        check = subprocess.run(
+            ["visudo", "-c", "-f", str(staged)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if check.returncode != 0:
+            raise _SetupClosed(
+                (check.stderr or check.stdout or "visudo rejected the grant").strip()
+            )
+        os.rename(tmp_name, name, src_dir_fd=pinned.parent_fd, dst_dir_fd=pinned.parent_fd)
+        tmp_name = ""
+        mode = stat.S_IMODE(os.lstat(name, dir_fd=pinned.parent_fd).st_mode)
+        if mode != 0o440:
+            raise _SetupClosed(f"installed sudoers mode is {oct(mode)}, expected 0o440")
+    finally:
+        if tmp_name:
+            try:
+                os.unlink(tmp_name, dir_fd=pinned.parent_fd)
+            except FileNotFoundError:
+                pass
+        pinned.close()
+
+
+def _cleanup_this_run(
+    dest: Path, pinned: _PinnedAncestors | None, created_dest: bool
+) -> None:
+    if pinned is None:
+        return
+    try:
+        if created_dest:
+            try:
+                os.unlink(dest.name, dir_fd=pinned.parent_fd)
+            except FileNotFoundError:
+                pass
+        _rmdir_created(pinned)
+    except OSError:
+        pass
+
+
+def _acquire_setup_lock(lock_path: str | Path):
+    path = Path(lock_path)
+    fd = os.open(str(path), os.O_CREAT | os.O_RDWR | os.O_CLOEXEC, 0o600)
+    try:
+        os.fchmod(fd, 0o600)
+    except OSError:
+        pass
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    return fd
+
+
+def _privileged_install(
+    *,
+    wrapper_src: Path,
+    wrapper_dest: Path,
+    sudoers_path: Path,
+    principal: str,
+    trusted_uid: int = 0,
+    lock_path: str | Path = SETUP_LOCK_PATH,
+    fs_root: Path = Path("/"),
+) -> None:
+    if not wrapper_src.is_file():
+        raise _SetupClosed(f"missing wrapper source: {wrapper_src}")
+    body = _render_sudoers(principal)
+    data = wrapper_src.read_bytes()
+    dest_existed = False
+    created_dest = False
+    pinned: _PinnedAncestors | None = None
+    lock_fd = _acquire_setup_lock(lock_path)
+    try:
+        try:
+            pinned = _pin_or_create_ancestors(
+                wrapper_dest, trusted_uid, create=True, fs_root=fs_root
+            )
+            dest_st = _inspect_dest(pinned, wrapper_dest.name, trusted_uid)
+            dest_existed = dest_st is not None
+            dest_ok = dest_existed and _read_nofollow(pinned.parent_fd, wrapper_dest.name) == data
+        except _SetupClosed as exc:
+            extra = ""
+            if _grant_exists(sudoers_path):
+                _disable_grant(sudoers_path, trusted_uid, fs_root)
+                extra = "; disabled the grant for an untrusted or missing path"
+            raise _SetupClosed(f"{exc}{extra}") from exc
+        if not dest_existed or not dest_ok:
+            if _grant_exists(sudoers_path) and not dest_existed:
+                _disable_grant(sudoers_path, trusted_uid, fs_root)
+            _stage_replace_wrapper(pinned, wrapper_dest.name, data, trusted_uid)
+            created_dest = not dest_existed
+        _revalidate_chain(pinned, wrapper_dest, data, trusted_uid, fs_root)
+        _commit_grant(sudoers_path, body, trusted_uid, fs_root)
+    except _SetupClosed:
+        _cleanup_this_run(wrapper_dest, pinned, created_dest)
+        raise
+    except KeyboardInterrupt:
+        _cleanup_this_run(wrapper_dest, pinned, created_dest)
+        raise _SetupClosed("setup was interrupted; removed only this-run artifacts")
+    finally:
+        if pinned is not None:
+            pinned.close()
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
+
+
+def _privileged_install_from_sudo(args: list[str]) -> None:
+    if os.geteuid() != 0:
+        raise SystemExit("internal helper install requires root")
+    uid: int | None = None
+    if args[:1] == ["--uid"] and len(args) >= 2:
+        try:
+            uid = int(args[1])
+        except ValueError:
+            uid = None
+    if uid is None:
+        raw = os.environ.get("SUDO_UID")
+        if raw:
+            try:
+                uid = int(raw)
+            except ValueError:
+                uid = None
+    if uid is None:
+        raise SystemExit("missing install uid")
+    try:
+        principal = _sudoers_principal(uid)
+        _privileged_install(
+            wrapper_src=WRAPPER_SRC,
+            wrapper_dest=Path(NFT_WRAPPER),
+            sudoers_path=Path(SUDOERS_PATH),
+            principal=principal,
+            trusted_uid=0,
+            lock_path=SETUP_LOCK_PATH,
+        )
+    except _SetupClosed as exc:
+        raise SystemExit(str(exc)) from exc
+
+
 def setup_privileged_helper() -> None:
     """Install the ds wrapper and grant in one sudo. Never list sudoers.d."""
-    if _wrapper_grant_ok():
+    try:
+        uid = os.getuid()
+        _sudoers_principal(uid)
+    except _SetupClosed as exc:
+        raise SystemExit(str(exc)) from exc
+    if _setup_already_installed():
         print(f"Already installed {NFT_WRAPPER}")
         print("Passwordless sudo for the site-block helper is ready.")
         return
@@ -3951,46 +4415,25 @@ def setup_privileged_helper() -> None:
         raise SystemExit(f"missing wrapper source: {WRAPPER_SRC}")
     if not SUDOERS_TEMPLATE.is_file():
         raise SystemExit(f"missing sudoers template: {SUDOERS_TEMPLATE}")
-    user = getpass.getuser()
-    body = SUDOERS_TEMPLATE.read_text(encoding="utf-8").replace("__INSTALL_USER__", user)
-    if not user or "__INSTALL_USER__" in body:
-        raise SystemExit("could not render sudoers for this account")
-    fd, tmp_path = tempfile.mkstemp(prefix="omarchy-ds-sudoers-")
+    script = Path(__file__).resolve()
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(body)
-        os.chmod(tmp_path, 0o440)
-        check = subprocess.run(
-            ["visudo", "-c", "-f", tmp_path],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if check.returncode != 0:
-            raise SystemExit(
-                (check.stderr or check.stdout or "visudo rejected the grant").strip()
-            )
         result = subprocess.run(
             [
                 "sudo",
-                "bash",
-                "-c",
-                'install -D -m 0755 "$1" "$2" && install -m 0440 "$3" "$4"',
-                "omarchy-ds-setup",
-                str(WRAPPER_SRC),
-                NFT_WRAPPER,
-                tmp_path,
-                SUDOERS_PATH,
+                "/usr/bin/python3",
+                str(script),
+                "__install-privileged-helper",
+                "--uid",
+                str(uid),
             ],
             check=False,
         )
-        if result.returncode != 0:
-            raise SystemExit("setup was cancelled or sudo failed")
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except FileNotFoundError:
-            pass
+    except KeyboardInterrupt as exc:
+        raise SystemExit(
+            "setup was interrupted; removed only this-run artifacts"
+        ) from exc
+    if result.returncode != 0:
+        raise SystemExit(_SETUP_DENIED_MSG)
     if not _wrapper_grant_ok():
         raise SystemExit(
             "wrapper installed, but passwordless sudo did not take; "
@@ -4300,6 +4743,8 @@ def main() -> None:
         raise SystemExit(0 if install_notification_service() else 1)
     elif command == "setup":
         setup_privileged_helper()
+    elif command == "__install-privileged-helper":
+        _privileged_install_from_sudo(sys.argv[2:])
     elif command == "print-expand":
         print_expand()
     elif command == "edit-list":

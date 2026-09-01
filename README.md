@@ -41,7 +41,7 @@ hyprctl reload
 
 The plugin already appears in the bar layout, so Omarchy loads both the bar widget and the notification filter service from that one enablement. `install` is required once after add or update. It runs one `omarchy-shell shell rescanPlugins` and waits for the notification filter to ping ready. Do not run it while focus is already muting banners: rescan unloads live shell services.
 
-Install the privileged site-block wrapper once. This asks for sudo in the terminal, then checks the grant with `sudo -n` on the wrapper. It never lists `/etc/sudoers.d` (that directory is not user-readable, so `ls` looks like a failed install):
+Install the privileged site-block wrapper once. This asks for sudo in the terminal, pins a root-owned non-user-writable path (symlink or user-writable ancestors are refused), then checks the grant with `sudo -n` on the wrapper. Deny, cancel, interrupt, or a non-TTY exits without writing a leftover grant and removes only artifacts this run created. It never lists `/etc/sudoers.d` (that directory is not user-readable, so `ls` looks like a failed install):
 
 ```bash
 ~/.config/omarchy/plugins/distraction-space/distractions setup

@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import os
+import pwd
+import stat
 import subprocess
 import tempfile
+import threading
 import unittest
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_loader
@@ -31,6 +34,39 @@ class SetupTests(unittest.TestCase):
         os.environ.setdefault("HOME", self.tmp.name)
         self.mod = load_mod()
         self.calls: list[list[str]] = []
+        self.uid = os.getuid()
+        self.principal = pwd.getpwuid(self.uid).pw_name
+
+    def _tree(self):
+        root = Path(self.tmp.name) / "root"
+        root.mkdir()
+        os.chmod(root, 0o755)
+        src = Path(self.tmp.name) / "wrapper-src"
+        src.write_bytes(b"#!/bin/sh\necho usage:\n")
+        os.chmod(src, 0o755)
+        dest = root / "usr/local/libexec/omarchy-distraction-space/distractions-nft"
+        sudoers_dir = root / "etc/sudoers.d"
+        sudoers_dir.mkdir(parents=True)
+        os.chmod(root / "etc", 0o755)
+        os.chmod(sudoers_dir, 0o755)
+        sudoers = sudoers_dir / "omarchy-distraction-space"
+        lock = Path(self.tmp.name) / "setup.lock"
+        return root, src, dest, sudoers, lock
+
+    def _install(self, **kwargs):
+        root, src, dest, sudoers, lock = self._tree()
+        args = {
+            "wrapper_src": src,
+            "wrapper_dest": dest,
+            "sudoers_path": sudoers,
+            "principal": self.principal,
+            "trusted_uid": self.uid,
+            "lock_path": lock,
+            "fs_root": root,
+        }
+        args.update(kwargs)
+        self.mod._privileged_install(**args)
+        return args
 
     def test_readme_does_not_ls_sudoers(self):
         text = (ROOT / "README.md").read_text()
@@ -38,16 +74,18 @@ class SetupTests(unittest.TestCase):
         self.assertNotIn("ls ", text)
         self.assertIn("sudo -n", text)
         self.assertNotIn("chmod 0644 /etc/sudoers.d/", text)
+        self.assertIn("rescanPlugins", text)
+        self.assertIn("sudo rm -f", text)
 
     def test_refuses_non_tty(self):
-        with mock.patch.object(self.mod, "_wrapper_grant_ok", return_value=False):
+        with mock.patch.object(self.mod, "_setup_already_installed", return_value=False):
             with mock.patch.object(self.mod, "_setup_has_tty", return_value=False):
                 with self.assertRaises(SystemExit) as ctx:
                     self.mod.setup_privileged_helper()
         self.assertIn("terminal", str(ctx.exception))
 
     def test_already_installed_skips_sudo(self):
-        with mock.patch.object(self.mod, "_wrapper_grant_ok", return_value=True):
+        with mock.patch.object(self.mod, "_setup_already_installed", return_value=True):
             with mock.patch.object(self.mod, "subprocess") as sp:
                 self.mod.setup_privileged_helper()
         sp.run.assert_not_called()
@@ -64,6 +102,9 @@ class SetupTests(unittest.TestCase):
             if argv[:1] == ["visudo"]:
                 return subprocess.CompletedProcess(cmd, 0, stdout="parsed OK\n", stderr="")
             if argv[:1] == ["sudo"] and argv[1:2] != ["-n"]:
+                self.assertNotIn("bash", argv)
+                self.assertFalse(any("install -D" in part for part in argv))
+                self.assertIn("__install-privileged-helper", argv)
                 dest.write_text("wrapper\n")
                 dest.chmod(0o755)
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -75,15 +116,263 @@ class SetupTests(unittest.TestCase):
                 )
             raise AssertionError(argv)
 
-        with mock.patch.object(self.mod, "_wrapper_grant_ok", side_effect=[False, True]):
+        with mock.patch.object(self.mod, "_setup_already_installed", return_value=False):
             with mock.patch.object(self.mod, "_setup_has_tty", return_value=True):
                 with mock.patch.object(self.mod.subprocess, "run", fake_run):
                     self.mod.setup_privileged_helper()
         joined = [" ".join(c) for c in self.calls]
-        self.assertTrue(any(c[0] == "visudo" for c in self.calls))
         self.assertTrue(any(c[:1] == ["sudo"] and c[1:2] != ["-n"] for c in self.calls))
+        self.assertEqual(sum(1 for c in self.calls if c[:1] == ["sudo"] and c[1:2] != ["-n"]), 1)
         self.assertFalse(any(part == "ls" or part.startswith("ls ") for c in self.calls for part in c))
         self.assertFalse(any("/etc/sudoers.d" in row for row in joined))
+
+    def test_old_install_transaction_gone(self):
+        text = (ROOT / "distractions").read_text()
+        self.assertNotIn("install -D -m 0755", text)
+        self.assertNotIn("getpass.getuser", text)
+        self.assertIn("pwd.getpwuid", text)
+        self.assertNotIn("focus_block.privileged", text)
+        self.assertIn('["sudo", "-n", NFT_WRAPPER', text)
+
+    def test_principal_from_uid_ignores_spoofed_env(self):
+        with mock.patch.dict(os.environ, {"LOGNAME": "ALL", "USER": "%wheel"}):
+            name = self.mod._sudoers_principal(self.uid)
+        self.assertEqual(name, self.principal)
+        self.assertNotEqual(name, "ALL")
+        self.assertFalse(name.startswith("%"))
+
+    def test_principal_rejects_reserved_names(self):
+        for name in ("", "ALL", "%wheel", "__INSTALL_USER__", "a b"):
+            with self.subTest(name=name):
+                with self.assertRaises(self.mod._SetupClosed):
+                    self.mod._reject_sudoers_principal(name)
+
+    def test_denied_sudo_mentions_grant_remains(self):
+        def fake_run(cmd, **kwargs):
+            argv = [str(part) for part in cmd]
+            if argv[:1] == ["sudo"] and argv[1:2] != ["-n"]:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+            raise AssertionError(argv)
+
+        with mock.patch.object(self.mod, "_setup_already_installed", return_value=False):
+            with mock.patch.object(self.mod, "_setup_has_tty", return_value=True):
+                with mock.patch.object(self.mod.subprocess, "run", fake_run):
+                    with self.assertRaises(SystemExit) as ctx:
+                        self.mod.setup_privileged_helper()
+        self.assertIn("cannot remove a root-owned grant", str(ctx.exception))
+
+    def test_internal_install_requires_root(self):
+        if os.geteuid() == 0:
+            self.skipTest("running as root")
+        with self.assertRaises(SystemExit) as ctx:
+            self.mod._privileged_install_from_sudo(["--uid", str(self.uid)])
+        self.assertIn("root", str(ctx.exception).lower())
+
+    def test_clean_install_creates_dirs_and_0440_grant(self):
+        args = self._install()
+        dest = args["wrapper_dest"]
+        sudoers = args["sudoers_path"]
+        self.assertTrue(dest.is_file())
+        self.assertEqual(dest.read_bytes(), args["wrapper_src"].read_bytes())
+        self.assertEqual(stat.S_IMODE(sudoers.stat().st_mode), 0o440)
+        self.assertIn(self.principal, sudoers.read_text())
+        self.assertNotIn("__INSTALL_USER__", sudoers.read_text())
+
+    def test_refuses_symlink_ancestor(self):
+        root, src, dest, sudoers, lock = self._tree()
+        real = root / "real-libexec"
+        real.mkdir(parents=True)
+        os.chmod(real, 0o755)
+        (root / "usr/local").mkdir(parents=True)
+        os.chmod(root / "usr", 0o755)
+        os.chmod(root / "usr/local", 0o755)
+        (root / "usr/local/libexec").symlink_to(real)
+        target = real / "omarchy-distraction-space" / "secret"
+        target.parent.mkdir()
+        target.write_text("do-not-touch")
+        with self.assertRaises(self.mod._SetupClosed) as ctx:
+            self.mod._privileged_install(
+                wrapper_src=src,
+                wrapper_dest=dest,
+                sudoers_path=sudoers,
+                principal=self.principal,
+                trusted_uid=self.uid,
+                lock_path=lock,
+                fs_root=root,
+            )
+        self.assertIn("symlink", str(ctx.exception))
+        self.assertEqual(target.read_text(), "do-not-touch")
+        self.assertFalse(dest.exists())
+
+    def test_refuses_symlink_dest_without_following(self):
+        root, src, dest, sudoers, lock = self._tree()
+        dest.parent.mkdir(parents=True)
+        for path in dest.parents:
+            if path == root or root not in path.parents and path != root:
+                continue
+            if str(path).startswith(str(root)):
+                os.chmod(path, 0o755)
+        os.chmod(dest.parent, 0o755)
+        target = root / "other-wrapper"
+        target.write_text("keep-me")
+        dest.symlink_to(target)
+        sudoers.write_text("old-grant\n")
+        os.chmod(sudoers, 0o440)
+        with self.assertRaises(self.mod._SetupClosed) as ctx:
+            self.mod._privileged_install(
+                wrapper_src=src,
+                wrapper_dest=dest,
+                sudoers_path=sudoers,
+                principal=self.principal,
+                trusted_uid=self.uid,
+                lock_path=lock,
+                fs_root=root,
+            )
+        self.assertIn("symlink", str(ctx.exception))
+        self.assertEqual(target.read_text(), "keep-me")
+        self.assertTrue(dest.is_symlink())
+        self.assertFalse(sudoers.exists())
+
+    def test_refuses_user_writable_ancestor(self):
+        root, src, dest, sudoers, lock = self._tree()
+        dest.parent.mkdir(parents=True)
+        for path in [root / "usr", root / "usr/local", root / "usr/local/libexec", dest.parent]:
+            os.chmod(path, 0o755)
+        os.chmod(root / "usr/local/libexec", 0o777)
+        sudoers.write_text("old-grant\n")
+        os.chmod(sudoers, 0o440)
+        with self.assertRaises(self.mod._SetupClosed) as ctx:
+            self.mod._privileged_install(
+                wrapper_src=src,
+                wrapper_dest=dest,
+                sudoers_path=sudoers,
+                principal=self.principal,
+                trusted_uid=self.uid,
+                lock_path=lock,
+                fs_root=root,
+            )
+        self.assertIn("untrusted", str(ctx.exception))
+        self.assertFalse(dest.exists())
+        self.assertFalse(sudoers.exists())
+
+    def test_disable_grant_when_dest_missing_then_repair(self):
+        root, src, dest, sudoers, lock = self._tree()
+        sudoers.write_text("old-grant\n")
+        os.chmod(sudoers, 0o440)
+        self.mod._privileged_install(
+            wrapper_src=src,
+            wrapper_dest=dest,
+            sudoers_path=sudoers,
+            principal=self.principal,
+            trusted_uid=self.uid,
+            lock_path=lock,
+            fs_root=root,
+        )
+        self.assertTrue(dest.is_file())
+        self.assertIn(self.principal, sudoers.read_text())
+        self.assertNotEqual(sudoers.read_text(), "old-grant\n")
+
+    def test_ancestor_replaced_after_pin_does_not_commit_grant(self):
+        root, src, dest, sudoers, lock = self._tree()
+        dest.parent.mkdir(parents=True)
+        for path in [root / "usr", root / "usr/local", root / "usr/local/libexec", dest.parent]:
+            os.chmod(path, 0o755)
+        dest.write_bytes(src.read_bytes())
+        os.chmod(dest, 0o755)
+        pinned = self.mod._pin_or_create_ancestors(dest, self.uid, create=False, fs_root=root)
+        libexec = root / "usr/local/libexec"
+        os.rename(libexec, root / "libexec.old")
+        libexec.mkdir()
+        os.chmod(libexec, 0o755)
+        (libexec / "omarchy-distraction-space").mkdir()
+        os.chmod(libexec / "omarchy-distraction-space", 0o755)
+        (libexec / "omarchy-distraction-space" / dest.name).write_bytes(src.read_bytes())
+        os.chmod(libexec / "omarchy-distraction-space" / dest.name, 0o755)
+        sudoers.write_text("old-grant\n")
+        os.chmod(sudoers, 0o440)
+        with self.assertRaises(self.mod._SetupClosed) as ctx:
+            self.mod._revalidate_chain(pinned, dest, src.read_bytes(), self.uid, root)
+        pinned.close()
+        self.assertIn("replaced", str(ctx.exception))
+        self.assertEqual(sudoers.read_text(), "old-grant\n")
+
+    def test_interrupted_replace_leaves_previous_wrapper(self):
+        root, src, dest, sudoers, lock = self._tree()
+        dest.parent.mkdir(parents=True)
+        for path in [root / "usr", root / "usr/local", root / "usr/local/libexec", dest.parent]:
+            os.chmod(path, 0o755)
+        dest.write_bytes(b"previous-wrapper\n")
+        os.chmod(dest, 0o755)
+
+        def boom(src_name, dst_name, **kwargs):
+            raise OSError("interrupted replace")
+
+        with mock.patch.object(self.mod.os, "rename", boom):
+            with self.assertRaises(self.mod._SetupClosed):
+                self.mod._privileged_install(
+                    wrapper_src=src,
+                    wrapper_dest=dest,
+                    sudoers_path=sudoers,
+                    principal=self.principal,
+                    trusted_uid=self.uid,
+                    lock_path=lock,
+                    fs_root=root,
+                )
+        self.assertEqual(dest.read_bytes(), b"previous-wrapper\n")
+        self.assertFalse(sudoers.exists())
+
+    def test_visudo_reject_leaves_previous_grant(self):
+        root, src, dest, sudoers, lock = self._tree()
+        dest.parent.mkdir(parents=True)
+        for path in [root / "usr", root / "usr/local", root / "usr/local/libexec", dest.parent]:
+            os.chmod(path, 0o755)
+        dest.write_bytes(src.read_bytes())
+        os.chmod(dest, 0o755)
+        sudoers.write_text("previous-grant\n")
+        os.chmod(sudoers, 0o440)
+        real = self.mod.subprocess.run
+
+        def fake_run(cmd, **kwargs):
+            argv = [str(part) for part in cmd]
+            if argv[:1] == ["visudo"]:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="bad grant")
+            return real(cmd, **kwargs)
+
+        with mock.patch.object(self.mod.subprocess, "run", fake_run):
+            with self.assertRaises(self.mod._SetupClosed) as ctx:
+                self.mod._privileged_install(
+                    wrapper_src=src,
+                    wrapper_dest=dest,
+                    sudoers_path=sudoers,
+                    principal=self.principal,
+                    trusted_uid=self.uid,
+                    lock_path=lock,
+                    fs_root=root,
+                )
+        self.assertIn("bad grant", str(ctx.exception))
+        self.assertEqual(sudoers.read_text(), "previous-grant\n")
+
+    def test_concurrent_setups_share_lock(self):
+        lock = Path(self.tmp.name) / "lock"
+        holder = self.mod._acquire_setup_lock(lock)
+        started = threading.Event()
+        finished = threading.Event()
+
+        def waiter() -> None:
+            started.set()
+            fd = self.mod._acquire_setup_lock(lock)
+            finished.set()
+            self.mod.fcntl.flock(fd, self.mod.fcntl.LOCK_UN)
+            os.close(fd)
+
+        thread = threading.Thread(target=waiter)
+        thread.start()
+        self.assertTrue(started.wait(1))
+        self.assertFalse(finished.wait(0.15))
+        self.mod.fcntl.flock(holder, self.mod.fcntl.LOCK_UN)
+        os.close(holder)
+        self.assertTrue(finished.wait(1))
+        thread.join(timeout=1)
 
 
 if __name__ == "__main__":
