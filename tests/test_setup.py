@@ -294,6 +294,44 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(dest.exists())
         self.assertFalse(sudoers.exists())
 
+    def test_refuses_group_writable_ancestor(self):
+        root, src, dest, sudoers, lock = self._tree()
+        dest.parent.mkdir(parents=True)
+        for path in [root / "usr", root / "usr/local", root / "usr/local/libexec", dest.parent]:
+            os.chmod(path, 0o755)
+        os.chmod(root / "usr/local/libexec", 0o770)
+        sudoers.write_text("old-grant\n")
+        os.chmod(sudoers, 0o440)
+        with self.assertRaises(self.mod._SetupClosed) as ctx:
+            self.mod._privileged_install(
+                wrapper_src=src,
+                wrapper_dest=dest,
+                sudoers_path=sudoers,
+                principal=self.principal,
+                trusted_uid=self.uid,
+                lock_path=lock,
+                fs_root=root,
+            )
+        self.assertIn("untrusted", str(ctx.exception))
+        self.assertFalse(dest.exists())
+        self.assertFalse(sudoers.exists())
+
+    def test_interrupt_after_grant_keeps_wrapper(self):
+        real = self.mod._commit_grant
+
+        def commit_then_interrupt(*args, **kwargs):
+            real(*args, **kwargs)
+            raise KeyboardInterrupt()
+
+        with mock.patch.object(self.mod, "_commit_grant", commit_then_interrupt):
+            args = self._install()
+        dest = args["wrapper_dest"]
+        sudoers = args["sudoers_path"]
+        self.assertTrue(dest.is_file())
+        self.assertEqual(dest.read_bytes(), args["wrapper_src"].read_bytes())
+        self.assertTrue(sudoers.exists())
+        self.assertEqual(stat.S_IMODE(sudoers.stat().st_mode), 0o440)
+
     def test_disable_grant_when_dest_missing_then_repair(self):
         root, src, dest, sudoers, lock = self._tree()
         sudoers.write_text("old-grant\n")

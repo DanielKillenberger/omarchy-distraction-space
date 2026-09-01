@@ -3967,9 +3967,7 @@ def _trusted_dir(st: os.stat_result, trusted_uid: int) -> bool:
         return False
     if st.st_uid != trusted_uid:
         return False
-    if st.st_mode & stat.S_IWOTH:
-        return False
-    if st.st_mode & stat.S_IWGRP and st.st_gid != trusted_uid:
+    if st.st_mode & (stat.S_IWOTH | stat.S_IWGRP):
         return False
     return True
 
@@ -4254,7 +4252,11 @@ def _revalidate_chain(
 
 
 def _commit_grant(
-    sudoers_path: Path, body: str, trusted_uid: int, fs_root: Path
+    sudoers_path: Path,
+    body: str,
+    trusted_uid: int,
+    fs_root: Path,
+    grant_committed: list[bool] | None = None,
 ) -> None:
     name = sudoers_path.name
     tmp_name = f".{name}.tmp.{os.getpid()}"
@@ -4281,6 +4283,8 @@ def _commit_grant(
             )
         os.rename(tmp_name, name, src_dir_fd=pinned.parent_fd, dst_dir_fd=pinned.parent_fd)
         tmp_name = ""
+        if grant_committed is not None:
+            grant_committed.append(True)
         mode = stat.S_IMODE(os.lstat(name, dir_fd=pinned.parent_fd).st_mode)
         if mode != 0o440:
             raise _SetupClosed(f"installed sudoers mode is {oct(mode)}, expected 0o440")
@@ -4343,6 +4347,7 @@ def _privileged_install(
     pinned: _PinnedAncestors | None = None
     lock_fd = _acquire_setup_lock(lock_path)
     wrapper_fd: int | None = None
+    grant_committed: list[bool] = []
     try:
         try:
             pinned = _pin_or_create_ancestors(
@@ -4368,11 +4373,14 @@ def _privileged_install(
             dir_fd=pinned.parent_fd,
         )
         _revalidate_chain(pinned, wrapper_dest, data, trusted_uid, fs_root, wrapper_fd)
-        _commit_grant(sudoers_path, body, trusted_uid, fs_root)
+        _commit_grant(sudoers_path, body, trusted_uid, fs_root, grant_committed)
     except _SetupClosed:
-        _cleanup_this_run(wrapper_dest, pinned, created_dest)
+        if not grant_committed:
+            _cleanup_this_run(wrapper_dest, pinned, created_dest)
         raise
     except KeyboardInterrupt:
+        if grant_committed:
+            return
         _cleanup_this_run(wrapper_dest, pinned, created_dest)
         raise _SetupClosed("setup was interrupted; removed only this-run artifacts")
     finally:
