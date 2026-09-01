@@ -208,7 +208,8 @@ class CatchupNoticeTests(unittest.TestCase):
         reason = "x" * 50
         with mock.patch.object(distractions, "log_path", return_value=self.state / "log"):
             with mock.patch.object(distractions, "on_distractions", return_value=False):
-                distractions.disable_focus(reason)
+                with mock.patch.object(distractions, "lift_network_block"):
+                    distractions.disable_focus(reason)
         titles = [item[0] for item in self.notices]
         self.assertIn("While you were focused", titles)
         self.assertIn("Focus mode off", titles)
