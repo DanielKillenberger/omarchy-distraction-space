@@ -53,6 +53,8 @@ class SessionHarness(unittest.TestCase):
         control["session_id"] = "sess-1"
         control["session_ready"] = True
         control.update(overrides)
+        if "mute_applied_session" not in overrides:
+            control["mute_applied_session"] = control.get("session_id") or ""
         distractions.write_summary_control(control)
         return control
 
@@ -161,9 +163,9 @@ class FocusOnOrderTests(SessionHarness):
             order.append("mute")
             return True
 
-        def track_ready():
+        def track_ready(*args, **kwargs):
             order.append("ready")
-            return real_ready()
+            return real_ready(*args, **kwargs)
 
         real_set = distractions.set_focus
         real_ready = distractions.mark_summary_session_ready
@@ -396,16 +398,71 @@ class ReviewFixTests(SessionHarness):
         self.assertFalse(distractions.arm_summary_after_mute(resume=True)["session_ready"])
 
     def test_ready_requires_focus_and_capture_requires_session(self):
-        self.ready_session(session_ready=False, finish_requested=True)
+        self.ready_session(session_ready=False, finish_requested=True, mute_applied_session="")
         distractions.set_focus(False)
-        control = distractions.arm_summary_after_mute(resume=True)
+        with mock.patch.object(distractions, "apply_notification_block", return_value=True):
+            control = distractions.arm_summary_after_mute(resume=True)
         self.assertFalse(control["session_ready"])
         distractions.set_focus(True)
-        control = distractions.arm_summary_after_mute(resume=True)
+        with mock.patch.object(distractions, "apply_notification_block", return_value=True):
+            control = distractions.arm_summary_after_mute(resume=True)
         self.assertTrue(control["session_ready"])
+        self.assertEqual(control["mute_applied_session"], "sess-1")
         with self.assertRaises(ValueError):
             distractions.capture_ping({**self.record(), "session": "other"})
         written = distractions.capture_ping({**self.record(), "session": "sess-1"})
+        self.assertEqual(written["seq"], 1)
+
+    def test_ready_and_parser_require_mute_for_this_session(self):
+        self.ready_session(session_ready=False, mute_applied_session="")
+        control = distractions.mark_summary_session_ready()
+        self.assertFalse(control["session_ready"])
+        self.assertFalse(distractions._parser_may_start(control))
+        with self.assertRaises(ValueError):
+            distractions.capture_ping(self.record())
+        self.ready_session(session_ready=True, mute_applied_session="other")
+        control = distractions.read_summary_control()
+        self.assertFalse(distractions.mute_applied_for_session(control))
+        self.assertFalse(distractions._parser_may_start(control))
+        with self.assertRaises(ValueError):
+            distractions.capture_ping(self.record())
+
+    def test_mid_session_enable_waits_for_this_session_mute(self):
+        self.ready_session(finish_requested=True, session_ready=False, mute_applied_session="")
+        self.cfg.write_text(json.dumps({"agent_summaries": False}) + "\n")
+        with mock.patch.object(distractions, "menu_select", return_value="On"):
+            with mock.patch.object(distractions, "apply_notification_block", return_value=False):
+                distractions.cmd_agent_summaries()
+        failed = distractions.read_summary_control()
+        self.assertFalse(failed["session_ready"])
+        self.assertEqual(failed.get("mute_applied_session"), "")
+        self.assertFalse(distractions._parser_may_start(failed))
+        with self.assertRaises(ValueError):
+            distractions.capture_ping(self.record(title="before-mute"))
+
+        def drop_focus_then_claim_success():
+            distractions.set_focus(False)
+            return True
+
+        with mock.patch.object(distractions, "menu_select", return_value="On"):
+            with mock.patch.object(
+                distractions, "apply_notification_block", drop_focus_then_claim_success
+            ):
+                distractions.cmd_agent_summaries()
+        raced = distractions.read_summary_control()
+        self.assertFalse(raced["session_ready"])
+        self.assertEqual(raced.get("mute_applied_session"), "")
+        self.assertFalse(distractions._parser_may_start(raced))
+
+        distractions.set_focus(True)
+        with mock.patch.object(distractions, "menu_select", return_value="On"):
+            with mock.patch.object(distractions, "apply_notification_block", return_value=True):
+                distractions.cmd_agent_summaries()
+        armed = distractions.read_summary_control()
+        self.assertTrue(armed["session_ready"])
+        self.assertEqual(armed["mute_applied_session"], "sess-1")
+        self.assertTrue(distractions._parser_may_start(armed))
+        written = distractions.capture_ping(self.record(title="after-mute"))
         self.assertEqual(written["seq"], 1)
 
     def test_clear_parser_running_ignores_foreign_session(self):
@@ -449,6 +506,8 @@ class ServiceCompositionTests(unittest.TestCase):
         self.assertIn("launchedSession", text)
         self.assertIn("session:", text)
         self.assertIn("sessionReady", text)
+        self.assertIn("mute_applied_session", text)
+        self.assertIn("muteHoldsFor", text)
         self.assertNotIn("is_focus", text)
         self.assertNotIn("focus-status", text)
         self.assertIn("StdioCollector", text)

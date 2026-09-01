@@ -322,7 +322,7 @@ def cmd_agent_summaries() -> None:
                 "Focus mode",
                 "No usable summary agent. Grouped-count catch-up stays in place.",
             )
-        if updated and is_focus() and apply_notification_block():
+        if updated and is_focus():
             arm_summary_after_mute(resume=True)
         return
     if selected == "Off":
@@ -1094,6 +1094,7 @@ def default_summary_control() -> dict:
         "parser_restarts": 0,
         "parser_active": False,
         "session_ready": False,
+        "mute_applied_session": "",
         "finish_requested": False,
         "lift_fail_pending": False,
         "parser_closed": False,
@@ -1180,6 +1181,7 @@ def prepare_summary_session(*, force_new: bool = False) -> dict:
             previous["finish_requested"] = False
             previous["parser_closed"] = False
             previous["session_ready"] = False
+            previous["mute_applied_session"] = ""
             previous["agent_pid"] = None
             write_summary_control(previous)
             return previous
@@ -1197,20 +1199,72 @@ def prepare_summary_session(*, force_new: bool = False) -> dict:
         lock.close()
 
 
+def mute_applied_for_session(control: dict, session_id: str | None = None) -> bool:
+    current = session_id if session_id is not None else control.get("session_id")
+    return bool(current and control.get("mute_applied_session") == current)
+
+
+def record_mute_applied(session_id: str) -> bool:
+    if not session_id or not is_focus():
+        return False
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if not is_focus() or control.get("session_id") != session_id:
+            return False
+        control["mute_applied_session"] = session_id
+        write_summary_control(control)
+        return True
+    finally:
+        lock.close()
+
+
+def revoke_mute_applied() -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if control.get("mute_applied_session") or control.get("session_ready"):
+            control["mute_applied_session"] = ""
+            control["session_ready"] = False
+            write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
 def arm_summary_after_mute(*, resume: bool = False) -> dict:
     if not is_focus() or not agent_summaries_enabled():
         return read_summary_control()
     control = read_summary_control()
     if not control.get("session_id"):
         control = prepare_summary_session()
-    return mark_summary_session_ready(resume=resume)
+    session_id = control.get("session_id")
+    if not session_id:
+        return control
+    if not is_focus() or not apply_notification_block() or not is_focus():
+        return revoke_mute_applied()
+    if not record_mute_applied(session_id):
+        return revoke_mute_applied()
+    return mark_summary_session_ready(resume=resume, expected_session=session_id)
 
 
-def mark_summary_session_ready(*, resume: bool = False) -> dict:
+def mark_summary_session_ready(
+    *,
+    resume: bool = False,
+    expected_session: str | None = None,
+) -> dict:
     lock = _lock_summary_state()
     try:
         control = read_summary_control()
-        if not is_focus() or not agent_summaries_enabled() or not control.get("session_id"):
+        session_id = control.get("session_id")
+        if expected_session and session_id != expected_session:
+            return control
+        if (
+            not is_focus()
+            or not agent_summaries_enabled()
+            or not session_id
+            or not mute_applied_for_session(control, session_id)
+        ):
             return control
         if resume:
             control["finish_requested"] = False
@@ -1231,6 +1285,7 @@ def request_summary_finish() -> dict:
         control["finish_requested"] = True
         control["parser_active"] = False
         control["session_ready"] = False
+        control["mute_applied_session"] = ""
         reap_summary_children(control)
         write_summary_control(control)
         return control
@@ -1302,6 +1357,7 @@ def capture_ping(payload) -> dict:
             or not control.get("session_id")
             or control.get("parser_closed")
             or control.get("finish_requested")
+            or not mute_applied_for_session(control)
             or (expected and control.get("session_id") != expected)
         ):
             raise ValueError("stale session")
@@ -1336,10 +1392,12 @@ def _session_matches(control: dict, expected_session: str | None) -> bool:
 
 
 def _parser_may_start(control: dict, expected_session: str | None = None) -> bool:
+    session_id = expected_session or control.get("session_id")
     return bool(
         _session_matches(control, expected_session)
         and control.get("session_id")
         and control.get("session_ready")
+        and mute_applied_for_session(control, session_id)
         and not control.get("finish_requested")
         and not control.get("parser_closed")
         and agent_summaries_enabled()
@@ -2197,8 +2255,7 @@ def enable_focus() -> None:
         set_focus(True)
         if on_distractions():
             hide()
-    if apply_notification_block():
-        mark_summary_session_ready()
+    arm_summary_after_mute()
     notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
@@ -2282,8 +2339,7 @@ def listen() -> None:
             except focus_block.BlockError:
                 pass
     if is_focus():
-        if apply_notification_block():
-            arm_summary_after_mute()
+        arm_summary_after_mute()
         if on_distractions():
             hide()
     else:

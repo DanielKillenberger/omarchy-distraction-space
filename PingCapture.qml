@@ -93,14 +93,19 @@ Item {
     captureProc.running = true
   }
 
+  function muteHoldsFor(parsed, sessionId) {
+    var token = parsed && parsed.mute_applied_session ? String(parsed.mute_applied_session) : ""
+    return token.length > 0 && token === sessionId
+  }
+
   function applyControl(text) {
     try {
       var parsed = JSON.parse(text)
-      capture.sessionReady = !!(parsed && parsed.session_ready)
       var nextId = parsed && parsed.session_id ? String(parsed.session_id) : ""
-      var nextReady = !!(parsed && parsed.session_ready)
+      var nextReady = !!(parsed && parsed.session_ready && capture.muteHoldsFor(parsed, nextId))
       if (nextId !== capture.sessionId || !nextReady)
         capture.stopCaptureWork()
+      capture.sessionReady = nextReady
       capture.sessionId = nextId
       capture.parserActive = !!(parsed && parsed.parser_active)
       capture.parserClosed = !!(parsed && parsed.parser_closed)
