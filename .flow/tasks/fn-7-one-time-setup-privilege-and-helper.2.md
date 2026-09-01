@@ -32,9 +32,11 @@ Keep the network worker accepting after one `_run` exception (R3) and apply relo
 - [ ] Both reloads receive the correct result; a failed reload leaves a consistent last-good; the next reload can retry
 - [ ] `python3 -m unittest discover -s tests` passes
 ## Done summary
-TBD
+NetworkWorker now records a failed `_run` and stays accepting on the same thread; overlapping reloads take one in-process lock across load, generation bump, apply, network wait, and result so last-good writes stay consistent.
 
+stage: impl-review - ran (model: gpt-5.6-sol-high)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: faedd2b71604cda9174b06ac6e030f0e8a175dba
+- Tests: python3 -m unittest tests.test_enforcement
 - PRs:
