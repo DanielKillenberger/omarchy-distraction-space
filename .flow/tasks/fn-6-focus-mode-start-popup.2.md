@@ -47,9 +47,11 @@ A zenity call on the listen thread stalls socket2 and DNS ticks. Detach the time
 - [ ] `python3 -m unittest tests.test_focus_timer tests.test_focus_start tests.test_summary_session` is green
 - [ ] `python3 -m py_compile distractions` is green
 ## Done summary
-TBD
+The Hyprland listener compares the persisted wall-clock deadline on each select tick and detaches focus-timer-off when it is due. Timer-off skips the 50-character reason, logs purpose plus a timer marker, disarms the active deadline, and leaves recap_pending. Hand-off still requires MIN_REASON, binds to the activation nonce that opened leave-reason, and appends the active purpose. An already-off confirm is a no-op.
 
+stage: impl-review - ran host gpt-5.6-sol-high SHIP (4 rounds; receipt /tmp/impl-review-receipt-fn-6-focus-mode-start-popup.2.json)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 1d336eb78cd2881ae0926632f06cb365dd837d84, 3b65c3cf2642af3010f99a37ec7e98dd358ffb8f, 7d836347e29e8584c5a73e5d56643d08d775b010, 4bc72070ca321df9b5b0b2a1320ceabeac3bd738
+- Tests: python3 -m py_compile distractions, python3 -m unittest tests.test_focus_timer tests.test_focus_start tests.test_summary_session, review: /tmp/impl-review-receipt-fn-6-focus-mode-start-popup.2.json host gpt-5.6-sol-high SHIP
 - PRs:

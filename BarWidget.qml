@@ -82,8 +82,8 @@ BarWidget {
     dimmed: !root.focusOn
     interactive: !actionProcess.running
     tooltipText: root.focusOn
-      ? "Focus mode on — distraction space locked. Click or Super+Ctrl+Shift+F and write a reason to leave. Right-click to edit the distraction list."
-      : "Focus mode off — Super+D opens the distraction space. Click to turn focus on. Right-click to edit the distraction list."
+      ? "Focus mode on — distraction space locked. Click or Super+Ctrl+Shift+F and write a reason to leave, or wait for the session timer. Right-click to edit the distraction list."
+      : "Focus mode off — Super+D opens the distraction space. Click to turn focus on (purpose and minutes). Right-click to edit the distraction list."
     onPressed: function (buttonCode) {
       if (buttonCode === Qt.LeftButton)
         root.toggle()

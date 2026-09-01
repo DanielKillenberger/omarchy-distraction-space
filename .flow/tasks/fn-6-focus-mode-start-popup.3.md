@@ -59,9 +59,11 @@ Helpful / not-helpful / dismiss are buttons on the GTK close dialog and must sti
 - [ ] `python3 -m unittest discover -s tests -p 'test_*.py'` is green
 - [ ] `python3 -m py_compile distractions` is green
 ## Done summary
-TBD
+After focus is off, one closing window hosts the shipped fn-3 summary with optional purpose, self-eval, and helpful / not-helpful. Hosted recap skips the Focus-summary notify, extra helpful dialog, and grouped notice. Lift-fail still shows purpose/eval and keeps the result. Tests inject close and feedback dialogs so a live DISPLAY cannot stall the suite.
 
+stage: impl-review - ran host gpt-5.6-sol-high SHIP (3 rounds; receipt /tmp/impl-review-receipt-fn-6-focus-mode-start-popup.3.json)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 39d794d3a459e72052f0da3b9b1522eb2e59c000, 6b5e8a6dc6cfd13a70b34d564822f4d7a45a4929, 1da25d99c389b90628e0feb95e239b5e57d746f5, 4d627d5ba8249ca2d9ee172c0ecfed074309a952, 8a2fd70ba1a42ff06b72bfe14d5c54388b1dfff9
+- Tests: python3 -m py_compile distractions, python3 -m unittest tests.test_summary_parse tests.test_summary_session tests.test_summary_ledger tests.test_focus_start tests.test_focus_timer, review: /tmp/impl-review-receipt-fn-6-focus-mode-start-popup.3.json host gpt-5.6-sol-high SHIP
 - PRs:

@@ -76,9 +76,9 @@ Membership lives in the plugin list (`~/.config/omarchy/app-list.json`). Edit it
 
 The shipped list is exclusive: classed apps land only on the distraction space. Listed sites are blocked on every other workspace at all times. An intercept from a normal workspace shows **Consciously choose to view this in your distraction space**. Focus mode still locks the space.
 
-Turning focus **on** is instant and mutes banners and sounds from the distraction-space apps. Other apps still notify. If mute cannot apply, a toast says so and notifications stay as they were; focus still turns on.
+Turning focus **on** opens a start dialog for a required purpose and minutes until auto-off (the minutes field starts at 25). Confirm mutes banners and sounds from the distraction-space apps. Dismiss leaves focus off. Other apps still notify. If mute cannot apply, a toast says so and notifications stay as they were; focus still turns on. Set `session_start_ui` false for silent on with 25 minutes.
 
-Turning focus **off** opens a zenity field; the reason must be at least 50 characters. A successful lift restores those notifications, then one grouped notice lists a count per app that pinged (and may play one sound). Empty sessions skip that notice. The existing “Focus mode off” toast still appears. If restore fails, a toast says so and the mute may remain until a later successful lift; focus can still turn off. There is no mid-focus list of blocked pings.
+Turning focus **off** by hand opens a zenity field; the reason must be at least 50 characters. When the session minutes elapse, focus turns off without that reason. After focus is off, one closing window can show the purpose, the missed-summary, an optional self-eval, and helpful / not-helpful. A successful lift restores those notifications. When summaries are off, one grouped notice lists a count per app that pinged (and may play one sound). Empty sessions skip that notice. The existing “Focus mode off” toast still appears. If restore fails, a toast says so and the mute may remain until a later successful lift; the closing window can still show purpose and self-eval. There is no mid-focus list of blocked pings.
 
 Reasons append to the log path in `~/.config/omarchy/focus.json` (default `~/.local/state/omarchy/focus-disable.log`).
 
@@ -86,7 +86,12 @@ Reasons append to the log path in `~/.config/omarchy/focus.json` (default `~/.lo
 {
   "log": "~/.local/state/omarchy/focus-disable.log",
   "agent_summaries": false,
-  "summary_agent": null
+  "summary_agent": null,
+  "session_start_ui": true,
+  "session_start_purpose": true,
+  "session_close_ui": true,
+  "session_close_purpose": true,
+  "session_close_eval": true
 }
 ```
 
@@ -102,13 +107,37 @@ Edit the list without rebuilding the plugin. Product names from the catalog and 
 
 `destinations-add` / `destinations-remove` write a `destinations` array into `~/.config/omarchy/focus.json`. Until that key exists, the plugin keeps using the shipped defaults.
 
+### Keeping a host reachable
+
+The network block drops packets by address. A blocked host and a host you want
+can share one CDN address, and the block cannot tell them apart: `pbs.twimg.com`
+and `grok.com` both answer on `104.18.28.234`, so blocking X used to take Grok
+down with it.
+
+Addresses that also serve a keep-reachable host are left out of the nftables
+set. `grok.com`, `www.grok.com`, `assets.grok.com`, `api.x.ai`, and `grok.x.ai`
+ship as defaults, so the Grok summary agent keeps working while X stays blocked.
+Add your own with a `keep_reachable` array in `~/.config/omarchy/focus.json`:
+
+```json
+{
+  "keep_reachable": ["status.example.com"]
+}
+```
+
+The carve-out is address-level and narrow. A blocked host keeps every address it
+does not share, and suffix DNS blocking is exact, so the site itself stays
+blocked. The last good answer is cached at
+`~/.local/state/omarchy/omarchy-ds-keep-addrs.last-good.json` so a momentary
+resolver failure cannot hand a shared address back to the block.
+
 ## Agent summaries
 
 Agent summaries stay off until you enable them in the plugin. An Omarchy default agent is not consent.
 
 Use `distractions agent-summaries` to turn the path on or off. Use `distractions summary-agent` to pick Claude, Grok, or Omarchy default. The picker offers only `claude` and `grok`.
 
-While focus is on and summaries are enabled, a usable agent can parse blocked-ping text in the background. When focus turns off you see one summary of important things, not each original ping. After a shown summary you can mark it helpful or not helpful and leave an optional note. That ledger is stored at `~/.local/state/omarchy/focus-summary-ledger.jsonl` and shapes later parses.
+While focus is on and summaries are enabled, a usable agent can parse blocked-ping text in the background. When focus turns off you see one summary of important things, not each original ping. The closing window hosts that summary as “Here's what you missed” or “You didn't miss anything”, with helpful / not-helpful on the same window. Set `session_close_ui` false to keep today's Focus-summary notification and follow-up helpful dialog. After a shown summary you can mark it helpful or not helpful and leave an optional note. That ledger is stored at `~/.local/state/omarchy/focus-summary-ledger.jsonl` and shapes later parses.
 
 If summaries are off, no usable agent is resolved, ping-text is empty, or the parse or display fails, the mute grouped-count catch-up still runs. There is no history screen and no per-app notification toggle.
 
