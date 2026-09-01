@@ -101,10 +101,14 @@ class SetupTests(unittest.TestCase):
             self.calls.append(argv)
             if argv[:1] == ["visudo"]:
                 return subprocess.CompletedProcess(cmd, 0, stdout="parsed OK\n", stderr="")
-            if argv[:1] == ["sudo"] and argv[1:2] != ["-n"]:
+            if argv[:2] == ["sudo", "-k"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if argv[:1] == ["sudo"] and argv[1:2] not in (["-n"], ["-k"]):
                 self.assertNotIn("bash", argv)
                 self.assertFalse(any("install -D" in part for part in argv))
-                self.assertIn("__install-privileged-helper", argv)
+                self.assertIn("-c", argv)
+                self.assertNotIn("__install-privileged-helper", argv)
+                self.assertFalse(any(part.endswith("/distractions") for part in argv))
                 dest.write_text("wrapper\n")
                 dest.chmod(0o755)
                 return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
@@ -121,8 +125,10 @@ class SetupTests(unittest.TestCase):
                 with mock.patch.object(self.mod.subprocess, "run", fake_run):
                     self.mod.setup_privileged_helper()
         joined = [" ".join(c) for c in self.calls]
-        self.assertTrue(any(c[:1] == ["sudo"] and c[1:2] != ["-n"] for c in self.calls))
-        self.assertEqual(sum(1 for c in self.calls if c[:1] == ["sudo"] and c[1:2] != ["-n"]), 1)
+        interactive = [
+            c for c in self.calls if c[:1] == ["sudo"] and c[1:2] not in (["-n"], ["-k"])
+        ]
+        self.assertEqual(len(interactive), 1)
         self.assertFalse(any(part == "ls" or part.startswith("ls ") for c in self.calls for part in c))
         self.assertFalse(any("/etc/sudoers.d" in row for row in joined))
 
@@ -132,6 +138,8 @@ class SetupTests(unittest.TestCase):
         self.assertNotIn("getpass.getuser", text)
         self.assertIn("pwd.getpwuid", text)
         self.assertNotIn("focus_block.privileged", text)
+        self.assertNotIn("__install-privileged-helper", text)
+        self.assertIn('["sudo", "-k"]', text)
         self.assertIn('["sudo", "-n", NFT_WRAPPER', text)
 
     def test_principal_from_uid_ignores_spoofed_env(self):
@@ -150,7 +158,9 @@ class SetupTests(unittest.TestCase):
     def test_denied_sudo_mentions_grant_remains(self):
         def fake_run(cmd, **kwargs):
             argv = [str(part) for part in cmd]
-            if argv[:1] == ["sudo"] and argv[1:2] != ["-n"]:
+            if argv[:2] == ["sudo", "-k"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if argv[:1] == ["sudo"] and argv[1:2] not in (["-n"], ["-k"]):
                 return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
             raise AssertionError(argv)
 
@@ -161,12 +171,41 @@ class SetupTests(unittest.TestCase):
                         self.mod.setup_privileged_helper()
         self.assertIn("cannot remove a root-owned grant", str(ctx.exception))
 
+    def test_root_install_script_is_self_contained(self):
+        script = self.mod._root_install_script((ROOT / "distractions").read_text())
+        compile(script, "<root-install>", "exec")
+        self.assertNotIn(str(ROOT / "distractions"), script)
+        self.assertIn("_root_install_main()", script)
+
     def test_internal_install_requires_root(self):
         if os.geteuid() == 0:
             self.skipTest("running as root")
         with self.assertRaises(SystemExit) as ctx:
-            self.mod._privileged_install_from_sudo(["--uid", str(self.uid)])
+            self.mod._root_install_main()
         self.assertIn("root", str(ctx.exception).lower())
+
+    def test_grant_probe_clears_sudo_timestamp(self):
+        dest = Path(self.tmp.name) / "wrapper"
+        dest.write_text("#!/bin/sh\necho usage:\n")
+        dest.chmod(0o755)
+        self.mod.NFT_WRAPPER = str(dest)
+        order: list[list[str]] = []
+
+        def fake_run(cmd, **kwargs):
+            argv = [str(part) for part in cmd]
+            order.append(argv)
+            if argv[:2] == ["sudo", "-k"]:
+                return subprocess.CompletedProcess(cmd, 0, stdout="", stderr="")
+            if argv[:2] == ["sudo", "-n"]:
+                return subprocess.CompletedProcess(
+                    cmd, 2, stdout="usage: distractions-nft replace|flush ds\n", stderr=""
+                )
+            raise AssertionError(argv)
+
+        with mock.patch.object(self.mod.subprocess, "run", fake_run):
+            self.assertTrue(self.mod._wrapper_grant_ok())
+        self.assertEqual(order[0][:2], ["sudo", "-k"])
+        self.assertEqual(order[1][:2], ["sudo", "-n"])
 
     def test_clean_install_creates_dirs_and_0440_grant(self):
         args = self._install()
@@ -290,10 +329,41 @@ class SetupTests(unittest.TestCase):
         os.chmod(libexec / "omarchy-distraction-space" / dest.name, 0o755)
         sudoers.write_text("old-grant\n")
         os.chmod(sudoers, 0o440)
-        with self.assertRaises(self.mod._SetupClosed) as ctx:
-            self.mod._revalidate_chain(pinned, dest, src.read_bytes(), self.uid, root)
-        pinned.close()
+        wrapper_fd = os.open(dest, os.O_RDONLY | os.O_CLOEXEC)
+        try:
+            with self.assertRaises(self.mod._SetupClosed) as ctx:
+                self.mod._revalidate_chain(
+                    pinned, dest, src.read_bytes(), self.uid, root, wrapper_fd
+                )
+        finally:
+            os.close(wrapper_fd)
+            pinned.close()
         self.assertIn("replaced", str(ctx.exception))
+        self.assertEqual(sudoers.read_text(), "old-grant\n")
+
+    def test_wrapper_identity_mismatch_does_not_commit_grant(self):
+        root, src, dest, sudoers, lock = self._tree()
+        dest.parent.mkdir(parents=True)
+        for path in [root / "usr", root / "usr/local", root / "usr/local/libexec", dest.parent]:
+            os.chmod(path, 0o755)
+        dest.write_bytes(src.read_bytes())
+        os.chmod(dest, 0o755)
+        pinned = self.mod._pin_or_create_ancestors(dest, self.uid, create=False, fs_root=root)
+        wrapper_fd = os.open(dest, os.O_RDONLY | os.O_CLOEXEC)
+        os.unlink(dest)
+        dest.write_bytes(src.read_bytes())
+        os.chmod(dest, 0o755)
+        sudoers.write_text("old-grant\n")
+        os.chmod(sudoers, 0o440)
+        try:
+            with self.assertRaises(self.mod._SetupClosed) as ctx:
+                self.mod._revalidate_chain(
+                    pinned, dest, src.read_bytes(), self.uid, root, wrapper_fd
+                )
+        finally:
+            os.close(wrapper_fd)
+            pinned.close()
+        self.assertIn("identity", str(ctx.exception))
         self.assertEqual(sudoers.read_text(), "old-grant\n")
 
     def test_interrupted_replace_leaves_previous_wrapper(self):
