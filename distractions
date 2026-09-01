@@ -407,11 +407,12 @@ def rollback_named_rule_batch(
             continue
 
 
-def apply_named_rules(expanded: list[dict]) -> bool:
+def apply_named_rules(expanded: list[dict], *, disable_removed: bool = True) -> bool:
     desired = desired_rule_map(expanded)
     last_good = load_rule_registry(rules_last_good_path())
     old_pending = load_rule_registry(rules_pending_path())
-    save_rule_registry(rules_pending_path(), desired)
+    if disable_removed:
+        save_rule_registry(rules_pending_path(), desired)
     created: list[str] = []
     updated: list[str] = []
     try:
@@ -428,6 +429,8 @@ def apply_named_rules(expanded: list[dict]) -> bool:
             "Window rules could not be updated and were rolled back.",
         )
         return False
+    if not disable_removed:
+        return True
     leftovers = (set(last_good) | set(old_pending)) - set(desired)
     failed_disable: list[str] = []
     for name in leftover_order(leftovers):
@@ -782,9 +785,10 @@ def maybe_dns_tick() -> bool:
 def apply_enforcement(expanded: list[dict], *, mutate_rules: bool) -> bool:
     global _active_expand
     if not mutate_rules:
+        ok = apply_named_rules(expanded, disable_removed=False)
         with _state_lock:
             _active_expand = expanded
-        return True
+        return ok
     if not apply_named_rules(expanded):
         fallback = load_last_good_expand()
         with _state_lock:
@@ -814,7 +818,9 @@ def handle_reload_conn(conn: socket.socket) -> None:
         if status == "corrupt":
             conn.sendall(b"error\n")
             return
-        apply_enforcement(expanded, mutate_rules=True)
+        if not apply_enforcement(expanded, mutate_rules=True):
+            conn.sendall(b"error\n")
+            return
         _last_on_space = None
         sync_network_to_workspace()
         conn.sendall(b"ok\n")

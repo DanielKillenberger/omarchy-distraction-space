@@ -238,6 +238,8 @@ class EnforcementTests(unittest.TestCase):
         self.wait_net()
         keys = self.keywords()
         self.assertFalse(any("enable false" in k for k in keys))
+        self.assertTrue(any("windowrule[omarchy-ds-telegram]:enable true" in k for k in keys))
+        self.assertTrue(any("windowrule[omarchy-ds-telegram]:match:class" in k for k in keys))
         self.assertTrue(self.notes)
 
     def test_missing_wrapper_skips_network_only(self):
@@ -271,6 +273,20 @@ class EnforcementTests(unittest.TestCase):
         last = self.wrapper_calls()[-1]
         self.assertEqual(last["argv"], ["replace", "ds"])
         self.assertIn("203.0.113.4", last["stdin"])
+
+    def test_reload_apply_failure_replies_error(self):
+        self.write_list([self.telegram_row()])
+        self.mod.bootstrap_enforcement()
+        self.wait_net()
+        self.write_list([self.telegram_row(), self.discord_row()])
+        self.fail_on("windowrule[omarchy-ds-discord]:match:class")
+        left, right = socket.socketpair()
+        thread = threading.Thread(target=self.mod.handle_reload_conn, args=(left,))
+        thread.start()
+        right.sendall(b"reload\n")
+        self.assertTrue(right.recv(64).startswith(b"error"))
+        thread.join(timeout=2)
+        right.close()
 
     def test_openwindow_banner_off_space_already_on_distraction(self):
         self.write_list([self.telegram_row()])
