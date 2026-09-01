@@ -29,9 +29,11 @@ One failed window query or move must not exit `listen()` (R4). Lock notify OSErr
 - [ ] `notify()` OSError is absorbed and covered by a test
 - [ ] `python3 -m unittest discover -s tests` passes
 ## Done summary
-TBD
+`process_socket2_line` now skips a window query or move that raises `CalledProcessError`, `JSONDecodeError`, or `OSError`, so later socket2 lines and reload accepts still run. `notify()` OSError absorb is covered next to the existing missing/nonzero test (R4, R6).
 
+stage: impl-review - ran (model: gpt-5.6-sol-high)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: b972ba551db56faa2f013e8e2f4dcec59056556a
+- Tests: python3 -m unittest tests.test_enforcement, python3 -m unittest discover -s tests
 - PRs:
