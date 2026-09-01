@@ -14,7 +14,6 @@ import subprocess
 import sys
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -582,15 +581,28 @@ def process_socket2_line(line: str) -> None:
         sync_network_to_workspace()
 
 
-def resolve_host(host: str, timeout: float = DNS_TIMEOUT_S) -> list[str]:
-    def lookup() -> list[str]:
-        infos = socket.getaddrinfo(host, None)
-        addrs = {info[4][0] for info in infos if info[4]}
-        return sorted(addrs)
+def lookup_addresses(host: str) -> list[str]:
+    infos = socket.getaddrinfo(host, None)
+    return sorted({info[4][0] for info in infos if info[4]})
 
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        future = pool.submit(lookup)
-        return future.result(timeout=timeout)
+
+def resolve_host(host: str, timeout: float = DNS_TIMEOUT_S) -> list[str]:
+    box: dict[str, list[str] | BaseException] = {}
+
+    def lookup() -> None:
+        try:
+            box["addrs"] = lookup_addresses(host)
+        except BaseException as exc:
+            box["error"] = exc
+
+    thread = threading.Thread(target=lookup, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        raise TimeoutError(f"dns timeout: {host}")
+    if "error" in box:
+        raise box["error"]
+    return list(box.get("addrs") or [])
 
 
 def resolve_hosts(hosts: list[str], last_good: dict[str, list[str]]) -> dict[str, list[str]]:
@@ -774,6 +786,9 @@ def apply_enforcement(expanded: list[dict], *, mutate_rules: bool) -> bool:
             _active_expand = expanded
         return True
     if not apply_named_rules(expanded):
+        fallback = load_last_good_expand()
+        with _state_lock:
+            _active_expand = fallback
         return False
     with _state_lock:
         _active_expand = expanded

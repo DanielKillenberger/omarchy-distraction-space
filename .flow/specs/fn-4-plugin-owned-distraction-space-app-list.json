@@ -9,7 +9,8 @@
   "depends_on_epics": [],
   "id": "fn-4-plugin-owned-distraction-space-app-list",
   "impl_review_rounds": {
-    "fn-4-plugin-owned-distraction-space-app-list.1": 0
+    "fn-4-plugin-owned-distraction-space-app-list.1": 0,
+    "fn-4-plugin-owned-distraction-space-app-list.2": 1
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -1524,6 +1525,32 @@
       "task": "fn-4-plugin-owned-distraction-space-app-list.1",
       "timestamp": "2026-09-01T10:39:53.171418Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "62f36bceec17967ea3a725c1c0b5c4e572610c9c6ae828a11798d8ad3471cb6f",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1af7662a9afda720a07432a6eed50f2e16a90ef8",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1974,
+      "output_sha256": "16b5b9cf1b7bb34f3c5d1420aa3844d4605a907ba85d03dd9dc94a0ccf5716c9",
+      "reservation_id": "c21fce91c49b4b518a9366f617d8086d",
+      "round_consumed": true,
+      "scope": "impl:fn-4-plugin-owned-distraction-space-app-list.2",
+      "superseded_by": null,
+      "task": "fn-4-plugin-owned-distraction-space-app-list.2",
+      "timestamp": "2026-09-01T10:56:21.618089Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -1535,6 +1562,7 @@
   "review_reservations": {},
   "review_transport_failures": {
     "impl:fn-4-plugin-owned-distraction-space-app-list.1": 0,
+    "impl:fn-4-plugin-owned-distraction-space-app-list.2": 0,
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-4-plugin-owned-distraction-space-app-list.md",
@@ -1551,5 +1579,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T10:39:53.539276Z"
+  "updated_at": "2026-09-01T10:56:21.980422Z"
 }

@@ -113,6 +113,7 @@ class EnforcementTests(unittest.TestCase):
         self.mod.notify = lambda *args, **kwargs: self.notes.append(args)
         self.mod.NFT_WRAPPER = str(self.wrapper)
         self.mod.now = lambda: self.clock[0]
+        self.real_resolve_host = self.mod.resolve_host
         self.mod.resolve_host = lambda host, timeout=2.0: ["192.0.2.1"]
         self.addCleanup(self.mod.reset_runtime_state)
 
@@ -491,6 +492,51 @@ class EnforcementTests(unittest.TestCase):
         self.mod.process_socket2_line("openwindow>>0xabc,1,firefox,Firefox")
         self.assertFalse(self.dispatches())
         self.assertFalse(self.notes)
+
+    def test_resolve_host_timeout_does_not_wait_for_lookup(self):
+        hung = threading.Event()
+
+        def hang(*args, **kwargs):
+            hung.wait()
+            return []
+
+        original = self.mod.lookup_addresses
+        self.mod.lookup_addresses = hang
+        try:
+            start = time.monotonic()
+            with self.assertRaises(TimeoutError):
+                self.real_resolve_host("blocked.example", timeout=0.2)
+            self.assertLess(time.monotonic() - start, 1.0)
+        finally:
+            hung.set()
+            self.mod.lookup_addresses = original
+
+    def test_startup_apply_failure_keeps_last_good_runtime(self):
+        self.mod.save_last_good_expand(
+            [{"name": "Telegram", "class": "org.telegram.desktop", "hosts": ["web.telegram.org"]}]
+        )
+        self.mod.save_rule_registry(
+            self.mod.rules_last_good_path(),
+            {
+                "omarchy-ds-telegram": {
+                    "class": "org.telegram.desktop",
+                    "workspace": "name:distraction silent",
+                    "enabled": True,
+                }
+            },
+        )
+        self.write_list([self.telegram_row()])
+        self.fail_on("windowrule[omarchy-ds-telegram]:match:class")
+        self.write_hypr("clients", [self.client("org.telegram.desktop", "1")])
+        self.mod.bootstrap_enforcement()
+        self.wait_net()
+        self.assertEqual(self.mod._active_expand[0]["name"], "Telegram")
+        self.assertTrue(
+            any("movetoworkspacesilent name:distraction,address:0xabc" in line for line in self.dispatches())
+        )
+        calls = self.wrapper_calls()
+        self.assertTrue(any(call["argv"] == ["replace", "ds"] for call in calls))
+        self.assertFalse(any(call["argv"] == ["flush", "ds"] for call in calls))
 
     def test_create_failure_rolls_back_batch(self):
         self.write_list([self.telegram_row()])

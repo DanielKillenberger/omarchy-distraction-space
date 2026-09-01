@@ -35,6 +35,7 @@ def _elements(addrs: list[str]) -> str:
 
 def render_table(v4: list[str], v6: list[str]) -> str:
     return (
+        f"destroy table {FAMILY} {TABLE}\n"
         f"table {FAMILY} {TABLE} {{\n"
         f"  set {SET4} {{\n"
         f"    type ipv4_addr\n"

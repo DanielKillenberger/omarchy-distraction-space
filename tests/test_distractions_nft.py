@@ -17,9 +17,18 @@ FAKE_NFT = r"""#!/usr/bin/env python3
 import os, sys
 from pathlib import Path
 root = Path(os.environ["NFT_FAKE"])
+script = sys.stdin.read()
 (root / "argv.log").write_text("\n".join(sys.argv[1:]))
-(root / "stdin.log").write_text(sys.stdin.read())
+(root / "stdin.log").write_text(script)
 (root / "calls.log").open("a").write("1\n")
+state = root / "table.exists"
+creates = "table inet omarchy_ds {" in script
+destroys = "destroy table inet omarchy_ds" in script or "flush table inet omarchy_ds" in script
+if state.exists() and creates and not destroys:
+    sys.stderr.write("Could not process rule: File exists\n")
+    sys.exit(1)
+if creates:
+    state.write_text("1")
 """
 
 
@@ -93,10 +102,21 @@ class WrapperTests(unittest.TestCase):
         result = self.run_wrapper(["replace", "ds"], "198.51.100.8\n")
         self.assertEqual(result.returncode, 0, result.stderr)
         script = self.stdin()
-        self.assertEqual(script.count("table "), 1)
+        self.assertIn("destroy table inet omarchy_ds", script)
         self.assertIn("table inet omarchy_ds", script)
         self.assertNotIn("inet filter", script)
         self.assertNotIn("ip filter", script)
+        self.assertTrue(
+            all("omarchy_ds" in part for part in script.split("table ")[1:])
+        )
+
+    def test_replace_is_repeatable(self):
+        first = self.run_wrapper(["replace", "ds"], "203.0.113.9\n")
+        second = self.run_wrapper(["replace", "ds"], "198.51.100.9\n")
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(self.call_count(), 2)
+        self.assertIn("198.51.100.9", self.stdin())
 
     def test_one_transaction_for_both_sets(self):
         result = self.run_wrapper(["flush", "ds"])
