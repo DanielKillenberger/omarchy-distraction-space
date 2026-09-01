@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import socket
 import sys
 import threading
@@ -19,6 +20,15 @@ from ds import feedback
 HTTP_PORT = 28080
 TLS_PORT = 28443
 CFG = {"nudges": {"block_page": True}}
+
+
+def _free_loopback_port() -> int:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]
+    finally:
+        sock.close()
 
 
 def _u16(n: int) -> bytes:
@@ -82,6 +92,29 @@ def _http_get(host: str | None, addr: str = "127.0.0.1") -> bytes:
 
 
 class FeedbackTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        global HTTP_PORT, TLS_PORT
+        cls._orig_http_port = HTTP_PORT
+        cls._orig_tls_port = TLS_PORT
+        HTTP_PORT = _free_loopback_port()
+        TLS_PORT = _free_loopback_port()
+        cls._env_patch = patch.dict(
+            os.environ,
+            {
+                "DS_FEEDBACK_HTTP_PORT": str(HTTP_PORT),
+                "DS_FEEDBACK_TLS_PORT": str(TLS_PORT),
+            },
+        )
+        cls._env_patch.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        global HTTP_PORT, TLS_PORT
+        cls._env_patch.stop()
+        HTTP_PORT = cls._orig_http_port
+        TLS_PORT = cls._orig_tls_port
+
     def setUp(self):
         self.box = Sandbox()
         self.addCleanup(self.box.cleanup)

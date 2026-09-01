@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import html
+import os
 import socket
 import threading
 import time
@@ -32,6 +33,16 @@ def parse_sni(data):
         return None
 
 
+def _env_port(name, default):
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 def start(config, is_locked):
     stop()
     if not _block_page_on(config):
@@ -40,8 +51,10 @@ def start(config, is_locked):
     _is_locked = is_locked if callable(is_locked) else (lambda v=bool(is_locked): v)
     _stop.clear()
     notified = False
+    http_port = _env_port("DS_FEEDBACK_HTTP_PORT", HTTP_PORT)
+    tls_port = _env_port("DS_FEEDBACK_TLS_PORT", TLS_PORT)
     for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
-        for port, kind in ((HTTP_PORT, "http"), (TLS_PORT, "tls")):
+        for port, kind in ((http_port, "http"), (tls_port, "tls")):
             sock = socket.socket(family, socket.SOCK_STREAM)
             try:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
