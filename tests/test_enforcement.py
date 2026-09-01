@@ -174,6 +174,19 @@ class EnforcementTests(unittest.TestCase):
     def wait_net(self) -> None:
         self.mod._net.wait_idle()
 
+    def test_unanchored_regex_class_matches_and_literals_stay_exact(self):
+        self.assertTrue(self.mod.class_matches("chrome-.*", "chrome-discord.com__-Default"))
+        self.assertTrue(self.mod.class_matches(r"^chrome-discord\.com__.*$", "chrome-discord.com__-Default"))
+        self.assertTrue(self.mod.class_matches("org.telegram.desktop", "org.telegram.desktop"))
+        self.assertFalse(self.mod.class_matches("org.telegram.desktop", "orgXtelegramYdesktop"))
+        self.write_list([{"name": "CustomChrome", "class": "chrome-.*"}])
+        self.mod.bootstrap_enforcement()
+        self.write_hypr("clients", [self.client("chrome-discord.com__-Default", "distraction")])
+        self.notes.clear()
+        self.mod.process_socket2_line("openwindow>>0xabc,99,chrome-discord.com__-Default,Chrome")
+        self.assertTrue(self.notes)
+        self.assertEqual(self.notes[0][0], self.mod.BANNER_TITLE)
+
     def test_named_rule_update_enable_disable(self):
         self.write_list([self.telegram_row(), self.discord_row()])
         self.mod.bootstrap_enforcement()
@@ -456,6 +469,26 @@ class EnforcementTests(unittest.TestCase):
         self.assertTrue(calls)
         self.assertEqual(calls[-1]["argv"], ["flush", "ds"])
         self.assertFalse(any(call["argv"] == ["replace", "ds"] and "203.0.113.8" in call["stdin"] for call in calls))
+
+    def test_generation_bump_during_resolve_skips_replace(self):
+        self.write_list([self.site_row()])
+        gate = threading.Event()
+        started = threading.Event()
+
+        def stall(host, timeout=2.0):
+            started.set()
+            gate.wait(timeout=2)
+            return ["203.0.113.77"]
+
+        self.mod.resolve_host = stall
+        self.mod.bootstrap_enforcement()
+        self.assertTrue(started.wait(timeout=1))
+        self.mod._net.bump()
+        gate.set()
+        self.wait_net()
+        self.assertFalse(
+            any(call["argv"] == ["replace", "ds"] and "203.0.113.77" in call["stdin"] for call in self.wrapper_calls())
+        )
 
     def test_overlapping_periodic_tick_skipped(self):
         self.write_list([self.site_row()])

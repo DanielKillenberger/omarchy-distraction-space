@@ -310,9 +310,15 @@ def now() -> float:
     return time.monotonic()
 
 
+_CLASS_REGEX_HINT = re.compile(r"[\\^$*+?{}()\[\]|]")
+
+
 def class_matches(pattern: str, value: str) -> bool:
-    if pattern.startswith("^"):
-        return re.fullmatch(pattern, value) is not None
+    if _CLASS_REGEX_HINT.search(pattern):
+        try:
+            return re.fullmatch(pattern, value) is not None
+        except re.error:
+            return pattern == value
     return pattern == value
 
 
@@ -683,6 +689,7 @@ class NetworkWorker:
         self.started = False
         self.skipped_periodic = 0
         self._thread: threading.Thread | None = None
+        self._submit_lock = threading.Lock()
 
     def start(self) -> None:
         if self.started:
@@ -701,8 +708,16 @@ class NetworkWorker:
         self._thread = None
 
     def bump(self) -> int:
-        self.generation += 1
-        return self.generation
+        with self._submit_lock:
+            self.generation += 1
+            return self.generation
+
+    def _submit_if_current(self, gen: int, action) -> bool:
+        with self._submit_lock:
+            if gen != self.generation:
+                return False
+            action()
+            return True
 
     def request_resolve(self, reason: str) -> bool:
         if reason == "periodic" and (self.inflight or not self.queue.empty()):
@@ -740,20 +755,22 @@ class NetworkWorker:
                 hosts = listed_hosts()
                 last_good = load_addrs_last_good()
             addrs = resolve_hosts(hosts, last_good)
-            if gen != self.generation:
-                return
-            if on_distractions():
-                return
-            if not hosts:
-                flush_ds()
-                return
-            replace_ds(addrs)
+            def submit_resolve() -> None:
+                if on_distractions():
+                    return
+                if not hosts:
+                    flush_ds()
+                    return
+                replace_ds(addrs)
+
+            self._submit_if_current(gen, submit_resolve)
             return
-        if gen != self.generation:
-            return
-        if not on_distractions() and listed_hosts():
-            return
-        flush_ds()
+        def submit_flush() -> None:
+            if not on_distractions() and listed_hosts():
+                return
+            flush_ds()
+
+        self._submit_if_current(gen, submit_flush)
 
 
 def ensure_net_worker() -> NetworkWorker:
