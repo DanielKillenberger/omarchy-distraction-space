@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-2-focus-mode-distraction-notification",
-  "completion_review_status": "needs_work",
-  "completion_reviewed_at": "2026-09-01T01:43:58.694502Z",
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-01T02:19:47.166763Z",
   "created_at": "2026-08-31T21:49:21.048596Z",
   "default_impl": null,
   "default_review": null,
@@ -13,7 +13,7 @@
     "fn-2-focus-mode-distraction-notification.2": 0
   },
   "next_task": 1,
-  "plan_review_rounds": 2,
+  "plan_review_rounds": 0,
   "plan_review_status": "ship",
   "plan_reviewed_at": "2026-09-01T00:04:11.524843Z",
   "ready": true,
@@ -936,13 +936,39 @@
       "task": "fn-2-focus-mode-distraction-notification.1",
       "timestamp": "2026-09-01T02:12:08.249965Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "254919db6c99797b061860e59719fca6268f1d8c0123ab6992c77696c6110de0",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "323fa879fd75bff02e72f887834fa95b1c015af2",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "verdict",
+      "output_bytes": 9051,
+      "output_sha256": "f340f6cf2e1b2b6c0583ff649d1a8654ec7b54f1f6d10dc87006b5c495722365",
+      "reservation_id": "92fcad9f403243b8b8ee5e75eeaa9591",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T02:19:46.637488Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-2-focus-mode-distraction-notification.1": 4,
     "impl:fn-2-focus-mode-distraction-notification.2": 1,
     "plan": 2,
-    "plan#completion": 1
+    "plan#completion": 2
   },
   "review_pending_rounds": {},
   "review_reservations": {},
@@ -966,5 +992,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T02:12:08.782990Z"
+  "updated_at": "2026-09-01T02:19:47.167379Z"
 }
