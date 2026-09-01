@@ -121,6 +121,15 @@ class NftTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2, result.stderr)
         self.assertFalse((self.root / "calls.log").exists())
 
+    def test_flush_rejects_non_whitespace_stdin(self):
+        result = self.run_wrapper(["flush", "ds"], "203.0.113.1\n")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("flush takes no stdin", result.stderr)
+        self.assertFalse((self.root / "calls.log").exists())
+        blank = self.run_wrapper(["flush", "ds"], "  \n\t\n")
+        self.assertEqual(blank.returncode, 0, blank.stderr)
+        self.assertTrue((self.root / "calls.log").exists())
+
     def test_nft_check_skips_without_cap(self):
         nft = shutil.which("nft")
         if not nft:

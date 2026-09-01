@@ -53,11 +53,11 @@ def _same_bytes(path: Path, data: bytes) -> bool:
         return False
 
 
-def _same_text(path: Path, data: str) -> bool:
-    try:
-        return path.read_text(encoding="utf-8") == data
-    except OSError:
-        return False
+def _flush_ok(proc) -> bool:
+    if proc.returncode == 0:
+        return True
+    text = f"{proc.stderr or ''}{proc.stdout or ''}".lower()
+    return "no such file or directory" in text or "does not exist" in text
 
 
 def _rescan() -> int:
@@ -119,7 +119,11 @@ def install():
         if visudo.returncode != 0:
             print((visudo.stderr or "visudo failed").strip(), file=sys.stderr)
             return 1
-        if not _same_text(sudoers, grant):
+        same = subprocess.run(
+            ["sudo", "-n", "cmp", "-s", tmp, str(sudoers)],
+            check=False,
+        )
+        if same.returncode != 0:
             proc = subprocess.run(
                 ["sudo", "install", "-m", "0440", tmp, str(sudoers)],
                 check=False,
@@ -138,11 +142,15 @@ def install():
 
 
 def remove():
-    subprocess.run(
+    proc = subprocess.run(
         ["sudo", "-n", "distractions-nft", "flush", "ds"],
         capture_output=True,
+        text=True,
         check=False,
     )
+    if not _flush_ok(proc):
+        print((proc.stderr or "nft flush failed").strip() or "nft flush failed", file=sys.stderr)
+        return 1
     wrapper = _wrapper_dest()
     sudoers = _sudoers_dest()
     proc = subprocess.run(

@@ -45,6 +45,22 @@ def unlock(path: Path):
         except OSError:
             continue
 
+if len(args) >= 2 and args[-2:] == ["flush", "ds"]:
+    err = os.environ.get("DS_FLUSH_ERR", "")
+    if err:
+        sys.stderr.write(err + "\n")
+    sys.exit(int(os.environ.get("DS_FLUSH_RC", "0")))
+if args[:1] == ["cmp"]:
+    files = [a for a in args[1:] if not a.startswith("-")]
+    src, dest = Path(files[0]), Path(files[1])
+    unlock(dest)
+    try:
+        same = src.read_bytes() == dest.read_bytes()
+    except OSError:
+        relock()
+        sys.exit(2)
+    relock()
+    sys.exit(0 if same else 1)
 if args[:1] == ["install"]:
     mode = 0o755
     dflag = False
@@ -124,6 +140,8 @@ class SetupTests(unittest.TestCase):
         os.environ["DS_RESCAN_LOG"] = str(self.rescan_log)
         os.environ["DS_LOCK_PREFIX"] = str(self.prefix)
         os.environ.pop("DS_SUDO_DENY", None)
+        os.environ.pop("DS_FLUSH_RC", None)
+        os.environ.pop("DS_FLUSH_ERR", None)
         self.box.fake_bin("sudo", SUDO)
         self.box.fake_bin("visudo", VISUDO)
         self.box.fake_bin("omarchy-shell", SHELL_OK)
@@ -226,6 +244,37 @@ class SetupTests(unittest.TestCase):
         self.assertLess(self._rescan_text().find("rescanPlugins"), len(self._rescan_text()))
         last_sudo = lines[-1] if lines else ""
         self.assertFalse(last_sudo.endswith("rescanPlugins"))
+
+    def test_remove_aborts_on_flush_failure(self):
+        self.assertEqual(setup.install(), 0)
+        self.sudo_log.write_text("", encoding="utf-8")
+        os.environ["DS_FLUSH_RC"] = "1"
+        os.environ["DS_FLUSH_ERR"] = "Error: Could not process rule: Operation not permitted"
+        rc = setup.remove()
+        self.assertEqual(rc, 1)
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self.sudoers.is_file())
+        self.assertFalse(any(ln.startswith("rm ") for ln in self._sudo_lines()))
+        os.environ["DS_FLUSH_ERR"] = "Error: No such file or directory"
+        rc = setup.remove()
+        self.assertEqual(rc, 0)
+        self.assertFalse(self.wrapper.exists())
+        self.assertFalse(self.sudoers.exists())
+        self.assertTrue(any(ln.startswith("rm ") for ln in self._sudo_lines()))
+
+    def test_sudoers_idempotent_when_unreadable(self):
+        self.assertEqual(setup.install(), 0)
+        os.chmod(self.sudoers, 0o000)
+        sudo_after_first = self._sudo_lines()
+        try:
+            rc = setup.install()
+        finally:
+            if self.sudoers.exists():
+                os.chmod(self.sudoers, 0o440)
+        self.assertEqual(rc, 0)
+        extra = self._sudo_lines()[len(sudo_after_first):]
+        self.assertTrue(any(ln.startswith("cmp ") for ln in extra))
+        self.assertFalse(any(ln.startswith("install") for ln in extra))
 
     def test_cli_setup_and_remove(self):
         site = self.box.runtime / "pysite"

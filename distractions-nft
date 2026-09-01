@@ -108,10 +108,13 @@ def main(argv: list[str] | None = None) -> int:
         _fail("refused: only target ds is allowed")
     if command not in {"replace", "flush"}:
         _fail("usage: distractions-nft replace|flush ds")
+    text = sys.stdin.read()
     if command == "flush":
+        if text.strip():
+            _fail("refused: flush takes no stdin")
         v4, v6 = [], []
     else:
-        v4, v6 = parse_replace_stdin(sys.stdin.read())
+        v4, v6 = parse_replace_stdin(text)
     return commit(render_table(v4, v6))
 
 

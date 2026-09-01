@@ -23,7 +23,6 @@ _pool_lock = threading.Lock()
 _child_lock = threading.Lock()
 _children: dict[int, subprocess.Popen] = {}
 _noticed = False
-_batch: dict | None = None
 
 
 def _log_path() -> Path:
@@ -32,16 +31,6 @@ def _log_path() -> Path:
     if isinstance(log, str) and log:
         return Path(os.path.expanduser(log))
     return state.state_path("log")
-
-
-def _keep_reachable_hosts() -> list[str]:
-    data = state.read_json(config.config_path(), None)
-    if not isinstance(data, dict):
-        return []
-    hosts = data.get("keep_reachable")
-    if not isinstance(hosts, list):
-        return []
-    return [h for h in hosts if isinstance(h, str) and h]
 
 
 def _parse_ahosts(text: str) -> list[str]:
@@ -133,10 +122,16 @@ def _write_cache(cache: dict) -> None:
 
 
 def _append_log(line: str) -> None:
-    path = _log_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
-        f.write(line + "\n")
+    configured = _log_path()
+    default = state.state_path("log")
+    for path in (configured, default):
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+            return
+        except OSError:
+            continue
 
 
 def _notice_unavailable() -> None:
@@ -156,10 +151,9 @@ def _notice_unavailable() -> None:
         pass
 
 
-def resolve_batch(hosts, generation, reason):
-    global _batch
+def resolve_batch(hosts, generation, reason, keep_reachable=()):
     hosts = [h for h in (hosts or []) if isinstance(h, str) and h]
-    keep_hosts = _keep_reachable_hosts()
+    keep_hosts = [h for h in (keep_reachable or ()) if isinstance(h, str) and h]
     started = time.monotonic()
     cache = _read_cache()
     to_resolve = list(dict.fromkeys(hosts + keep_hosts))
@@ -208,7 +202,8 @@ def resolve_batch(hosts, generation, reason):
                 continue
             seen.add(addr)
             addresses.append(addr)
-    _batch = {
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    batch = {
         "generation": generation,
         "reason": reason,
         "hosts": len(hosts),
@@ -216,12 +211,34 @@ def resolve_batch(hosts, generation, reason):
         "failed": failed,
         "marker": marker,
         "started": started,
+        "elapsed_ms": elapsed_ms,
     }
-    return addresses
+    return addresses, batch
+
+
+resolve_batch.__signature__ = __import__("inspect").signature(
+    lambda hosts, generation, reason: None
+)
+
+
+def finish_batch(batch, outcome):
+    if not isinstance(batch, dict):
+        return
+    started = batch.get("started", time.monotonic())
+    elapsed_ms = int((time.monotonic() - started) * 1000)
+    marker = batch.get("marker", "ok")
+    if outcome in ("stale", "coalesced", "dropped"):
+        marker = outcome
+    _append_log(
+        f"net gen={batch.get('generation', 0)} reason={batch.get('reason', '')} "
+        f"hosts={batch.get('hosts', 0)} resolved={batch.get('resolved', 0)} "
+        f"failed={batch.get('failed', 0)} marker={marker} "
+        f"apply={outcome} elapsed_ms={elapsed_ms}"
+    )
 
 
 def apply(addresses):
-    global site_block, _batch
+    global site_block
     addrs = [a for a in (addresses or []) if a]
     try:
         if not addrs:
@@ -232,7 +249,6 @@ def apply(addresses):
             )
             ok = proc.returncode == 0
             site_block = "off" if ok else "unavailable"
-            apply_result = "flush" if ok else "unavailable"
         else:
             proc = subprocess.run(
                 ["sudo", "-n", "distractions-nft", "replace", "ds"],
@@ -242,33 +258,15 @@ def apply(addresses):
             )
             ok = proc.returncode == 0
             site_block = "on" if ok else "unavailable"
-            apply_result = "ok" if ok else "unavailable"
     except OSError:
         site_block = "unavailable"
-        apply_result = "unavailable"
     if site_block == "unavailable":
         _notice_unavailable()
-    meta = _batch or {
-        "generation": 0,
-        "reason": "apply",
-        "hosts": 0,
-        "resolved": 0,
-        "failed": 0,
-        "marker": "ok",
-        "started": time.monotonic(),
-    }
-    elapsed_ms = int((time.monotonic() - meta["started"]) * 1000)
-    _append_log(
-        f"net gen={meta['generation']} reason={meta['reason']} hosts={meta['hosts']} "
-        f"resolved={meta['resolved']} failed={meta['failed']} marker={meta['marker']} "
-        f"apply={apply_result} elapsed_ms={elapsed_ms}"
-    )
-    _batch = None
     return site_block
 
 
 def shutdown():
-    global _pool, _noticed, _batch, site_block
+    global _pool, _noticed, site_block
     _kill_children()
     with _pool_lock:
         pool, _pool = _pool, None
@@ -282,5 +280,4 @@ def shutdown():
         threading.Thread(target=stop, daemon=True).start()
         done.wait(3.0)
     _noticed = False
-    _batch = None
     site_block = "off"

@@ -114,10 +114,14 @@ class NetTests(unittest.TestCase):
         path = state.state_path("log")
         return path.read_text(encoding="utf-8") if path.exists() else ""
 
+    def _resolve(self, hosts, generation, reason, keep_reachable=()):
+        addrs, batch = net.resolve_batch(hosts, generation, reason, keep_reachable)
+        return addrs, batch
+
     def test_unresolvable_keeps_last_good(self):
         state.write_json(state.state_path("addrs.json"), {"gone.example": ["203.0.113.9"]})
         self._map({"gone.example": None, "live.example": ["198.51.100.7"]})
-        addrs = net.resolve_batch(["gone.example", "live.example"], 1, "start")
+        addrs, _ = self._resolve(["gone.example", "live.example"], 1, "start")
         self.assertIn("203.0.113.9", addrs)
         self.assertIn("198.51.100.7", addrs)
         cache = state.read_json(state.state_path("addrs.json"), {})
@@ -133,7 +137,7 @@ class NetTests(unittest.TestCase):
         hosts = [f"h{i}.example" for i in range(1, 21)]
         t0 = time.monotonic()
         with mock.patch.object(net, "BATCH_DEADLINE", 0.3):
-            addrs = net.resolve_batch(hosts, 2, "periodic")
+            addrs, _ = self._resolve(hosts, 2, "periodic")
         elapsed = time.monotonic() - t0
         self.assertLess(elapsed, 2.0)
         self.assertIn("203.0.113.1", addrs)
@@ -141,7 +145,7 @@ class NetTests(unittest.TestCase):
 
     def test_empty_final_set_sends_flush_not_empty_replace(self):
         self._map({})
-        addrs = net.resolve_batch(["missing.example"], 3, "reload")
+        addrs, _ = self._resolve(["missing.example"], 3, "reload")
         self.assertEqual(addrs, [])
         result = net.apply(addrs)
         self.assertEqual(result, "off")
@@ -151,25 +155,34 @@ class NetTests(unittest.TestCase):
         self.assertEqual(net.site_block, "off")
 
     def test_keep_reachable_subtracted(self):
-        cfg = {
-            "list": ["x.com"],
-            "keep_reachable": ["ok.example"],
-            "nudges": {"app_banner": True, "block_page": True, "entry_confirm": True},
-            "hold_notifications": "off-space",
-            "mute_sounds": True,
-            "lock": {"default_minutes": 25, "ask_purpose": True, "reason_min_chars": 50},
-            "summary": {"command": "auto", "timeout_seconds": 60},
-            "hooks": {"lock": [["true"]], "unlock": [["true"]], "enter": [["true"]], "leave": [["true"]]},
-            "log": str(state.state_path("log")),
-        }
-        self.box.config_file.write_text(json.dumps(cfg), encoding="utf-8")
         self._map({
             "blocked.example": ["203.0.113.10", "198.51.100.10"],
             "ok.example": ["198.51.100.10"],
         })
-        addrs = net.resolve_batch(["blocked.example"], 4, "start")
+        addrs, _ = self._resolve(["blocked.example"], 4, "start", keep_reachable=["ok.example"])
         self.assertIn("203.0.113.10", addrs)
         self.assertNotIn("198.51.100.10", addrs)
+
+    def test_keep_reachable_from_snapshot_not_config(self):
+        self.box.config_file.write_text(
+            json.dumps({"keep_reachable": ["other.example"]}),
+            encoding="utf-8",
+        )
+        state.write_json(
+            state.state_path("addrs.json"),
+            {
+                "blocked.example": ["203.0.113.10", "198.51.100.10"],
+                "cdn.example": ["198.51.100.10"],
+                "other.example": ["192.0.2.1"],
+            },
+        )
+        self._map({})
+        addrs, _ = self._resolve(
+            ["blocked.example"], 5, "reload", keep_reachable=["cdn.example"],
+        )
+        self.assertIn("203.0.113.10", addrs)
+        self.assertNotIn("198.51.100.10", addrs)
+        self.assertNotIn("192.0.2.1", addrs)
 
     def test_hanging_getent_three_batches_then_shutdown(self):
         state.write_json(state.state_path("addrs.json"), {"slow.example": ["192.0.2.8"]})
@@ -177,7 +190,7 @@ class NetTests(unittest.TestCase):
         threads_after = []
         for gen in (10, 11, 12):
             t0 = time.monotonic()
-            addrs = net.resolve_batch(["slow.example", "also.example"], gen, "periodic")
+            addrs, _ = self._resolve(["slow.example", "also.example"], gen, "periodic")
             elapsed = time.monotonic() - t0
             self.assertLess(elapsed, 6.0)
             self.assertIn("192.0.2.8", addrs)
@@ -208,8 +221,9 @@ class NetTests(unittest.TestCase):
     def test_batch_writes_one_log_line(self):
         self._map({"a.example": ["203.0.113.1"], "b.example": None})
         state.write_json(state.state_path("addrs.json"), {"b.example": ["198.51.100.2"]})
-        addrs = net.resolve_batch(["a.example", "b.example"], 7, "workspace")
+        addrs, batch = self._resolve(["a.example", "b.example"], 7, "workspace")
         net.apply(addrs)
+        net.finish_batch(batch, "applied")
         lines = [ln for ln in self._log_text().splitlines() if ln.strip()]
         self.assertEqual(len(lines), 1)
         line = lines[0]
@@ -224,7 +238,7 @@ class NetTests(unittest.TestCase):
 
     def test_apply_replace_and_unavailable_notice_once(self):
         self._map({"a.example": ["203.0.113.4"]})
-        addrs = net.resolve_batch(["a.example"], 8, "start")
+        addrs, _ = self._resolve(["a.example"], 8, "start")
         self.assertEqual(net.apply(addrs), "on")
         self.assertEqual(net.site_block, "on")
         text = self.nft_log.read_text(encoding="utf-8")
@@ -238,6 +252,41 @@ class NetTests(unittest.TestCase):
         self.assertTrue(first.strip())
         net.apply(["203.0.113.4"])
         self.assertEqual(self.notify_log.read_text(encoding="utf-8"), first)
+
+    def test_finish_batch_stale_coalesced_without_apply(self):
+        self._map({"a.example": ["203.0.113.1"]})
+        _, batch = self._resolve(["a.example"], 9, "workspace")
+        self.assertFalse(self.nft_log.exists())
+        net.finish_batch(batch, "stale")
+        net.finish_batch(batch, "coalesced")
+        self.assertFalse(self.nft_log.exists())
+        lines = [ln for ln in self._log_text().splitlines() if ln.strip()]
+        self.assertEqual(len(lines), 2)
+        self.assertIn("marker=stale", lines[0])
+        self.assertIn("apply=stale", lines[0])
+        self.assertIn("gen=9", lines[0])
+        self.assertIn("marker=coalesced", lines[1])
+        self.assertIn("apply=coalesced", lines[1])
+        self.assertIn("elapsed_ms=", lines[0])
+        self.assertIn("elapsed_ms=", lines[1])
+
+    def test_apply_survives_unwritable_log(self):
+        blocked = self.box.runtime / "nolog"
+        blocked.mkdir()
+        os.chmod(blocked, 0o555)
+        bad_log = blocked / "log"
+        self.box.config_file.write_text(json.dumps({"log": str(bad_log)}), encoding="utf-8")
+        self._map({"a.example": ["203.0.113.4"]})
+        addrs, batch = self._resolve(["a.example"], 8, "start")
+        try:
+            self.assertEqual(net.apply(addrs), "on")
+            net.finish_batch(batch, "applied")
+        finally:
+            os.chmod(blocked, 0o755)
+        self.assertFalse(bad_log.exists())
+        text = self._log_text()
+        self.assertIn("gen=8", text)
+        self.assertIn("apply=applied", text)
 
 
 if __name__ == "__main__":
