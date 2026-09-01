@@ -1232,20 +1232,27 @@ def revoke_mute_applied() -> dict:
         lock.close()
 
 
-def arm_summary_after_mute(*, resume: bool = False) -> dict:
+def publish_summary_after_mute(*, resume: bool = False) -> dict:
+    """Record the session mute token and ready marker. Caller already applied mute."""
     if not is_focus() or not agent_summaries_enabled():
         return read_summary_control()
     control = read_summary_control()
     if not control.get("session_id"):
         control = prepare_summary_session()
     session_id = control.get("session_id")
-    if not session_id:
-        return control
-    if not is_focus() or not apply_notification_block() or not is_focus():
-        return revoke_mute_applied()
+    if not session_id or not is_focus():
+        return read_summary_control()
     if not record_mute_applied(session_id):
         return revoke_mute_applied()
     return mark_summary_session_ready(resume=resume, expected_session=session_id)
+
+
+def arm_summary_after_mute(*, resume: bool = False) -> dict:
+    if not is_focus() or not agent_summaries_enabled():
+        return read_summary_control()
+    if not apply_notification_block() or not is_focus():
+        return revoke_mute_applied()
+    return publish_summary_after_mute(resume=resume)
 
 
 def mark_summary_session_ready(
@@ -2255,7 +2262,8 @@ def enable_focus() -> None:
         set_focus(True)
         if on_distractions():
             hide()
-    arm_summary_after_mute()
+    if apply_notification_block():
+        publish_summary_after_mute()
     notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
@@ -2339,7 +2347,8 @@ def listen() -> None:
             except focus_block.BlockError:
                 pass
     if is_focus():
-        arm_summary_after_mute()
+        if apply_notification_block():
+            publish_summary_after_mute()
         if on_distractions():
             hide()
     else:

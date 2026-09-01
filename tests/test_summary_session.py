@@ -203,6 +203,27 @@ class FocusOnOrderTests(SessionHarness):
         self.assertTrue(control["session_id"])
         self.assertFalse(control["session_ready"])
 
+    def test_summaries_off_focus_on_applies_mute_without_ready(self):
+        self.cfg.write_text(json.dumps({"agent_summaries": False}) + "\n")
+        muted: list[bool] = []
+
+        def track_mute():
+            muted.append(True)
+            return True
+
+        with mock.patch.object(distractions, "apply_network_block"):
+            with mock.patch.object(distractions, "on_distractions", return_value=False):
+                with mock.patch.object(distractions, "apply_notification_block", track_mute):
+                    distractions.enable_focus()
+        self.assertEqual(muted, [True])
+        control = distractions.read_summary_control()
+        self.assertTrue(control["session_id"])
+        self.assertFalse(control["session_ready"])
+        self.assertEqual(control.get("mute_applied_session"), "")
+        self.assertFalse(distractions._parser_may_start(control))
+        with self.assertRaises(ValueError):
+            distractions.capture_ping(self.record())
+
 
 class RestartBudgetTests(SessionHarness):
     def test_restart_counter_and_mocked_backoff_then_cap(self):
