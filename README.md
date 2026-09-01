@@ -41,15 +41,10 @@ hyprctl reload
 
 The plugin already appears in the bar layout, so Omarchy loads both the bar widget and the notification filter service from that one enablement. `install` is required once after add or update. It runs one `omarchy-shell shell rescanPlugins` and waits for the notification filter to ping ready. Do not run it while focus is already muting banners: rescan unloads live shell services.
 
-Install the privileged site-block wrapper once (installing uid only, `NOPASSWD` on that path):
+Install the privileged site-block wrapper once. This asks for sudo in the terminal, then checks the grant with `sudo -n` on the wrapper. It never lists `/etc/sudoers.d` (that directory is not user-readable, so `ls` looks like a failed install):
 
 ```bash
-WRAPPER=/usr/local/libexec/omarchy-distraction-space/distractions-nft
-sudo install -D -m 0755 ~/.config/omarchy/plugins/distraction-space/distractions-nft "$WRAPPER"
-sudo sed "s/__INSTALL_USER__/${USER}/" \
-  ~/.config/omarchy/plugins/distraction-space/install/sudoers.omarchy-distraction-space \
-  | sudo tee /etc/sudoers.d/omarchy-distraction-space >/dev/null
-sudo chmod 0644 /etc/sudoers.d/omarchy-distraction-space
+~/.config/omarchy/plugins/distraction-space/distractions setup
 ```
 
 A missing wrapper skips only the site block. Window placement still runs.
@@ -130,6 +125,7 @@ If summaries are off, no usable agent is resolved, ping-text is empty, or the pa
 ~/.config/omarchy/plugins/distraction-space/distractions destinations-add <name-or-host>
 ~/.config/omarchy/plugins/distraction-space/distractions destinations-remove <name-or-host>
 ~/.config/omarchy/plugins/distraction-space/distractions install
+~/.config/omarchy/plugins/distraction-space/distractions setup
 ~/.config/omarchy/plugins/distraction-space/distractions edit-list
 ```
 

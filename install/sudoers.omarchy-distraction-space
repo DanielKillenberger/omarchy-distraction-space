@@ -1,3 +1,3 @@
 # Grant only the installing account NOPASSWD on the ds wrapper.
-# Installer replaces __INSTALL_USER__ with that account name. File mode 0644.
+# Installer replaces __INSTALL_USER__ with that account name. File mode 0440.
 __INSTALL_USER__ ALL=(root) NOPASSWD: /usr/local/libexec/omarchy-distraction-space/distractions-nft

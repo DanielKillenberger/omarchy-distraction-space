@@ -284,6 +284,7 @@ class DocsContractTests(unittest.TestCase):
         self.assertIn("distractions toggle", commands)
         self.assertIn("distractions focus", commands)
         self.assertIn("distractions install", commands)
+        self.assertIn("distractions setup", commands)
         self.assertNotIn("count-increment", commands)
 
     def test_manifest_mentions_mute_and_catchup(self):

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import fcntl
+import getpass
 import json
 import os
 import queue
@@ -180,6 +181,9 @@ RULES_PENDING_NAME = "omarchy-ds-rules.pending.json"
 RULES_LAST_GOOD_NAME = "omarchy-ds-rules.last-good.json"
 ADDRS_LAST_GOOD_NAME = "omarchy-ds-addrs.last-good.json"
 NFT_WRAPPER = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
+SUDOERS_PATH = "/etc/sudoers.d/omarchy-distraction-space"
+SUDOERS_TEMPLATE = PLUGIN_DIR / "install" / "sudoers.omarchy-distraction-space"
+WRAPPER_SRC = PLUGIN_DIR / "distractions-nft"
 BANNER_TITLE = "Consciously choose to view this in your distraction space"
 BANNER_DEBOUNCE_S = 30
 LIST_EDITOR_HEADER = (
@@ -3892,6 +3896,84 @@ def _watcher_main() -> None:
             proc.kill()
 
 
+def _setup_has_tty() -> bool:
+    return sys.stdin.isatty() and sys.stdout.isatty()
+
+
+def _wrapper_grant_ok() -> bool:
+    if not Path(NFT_WRAPPER).is_file():
+        return False
+    probe = subprocess.run(
+        ["sudo", "-n", NFT_WRAPPER],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    blob = f"{probe.stdout}{probe.stderr}"
+    return "replace|flush" in blob or "usage:" in blob.lower()
+
+
+def setup_privileged_helper() -> None:
+    """Install the ds wrapper and grant in one sudo. Never list sudoers.d."""
+    if _wrapper_grant_ok():
+        print(f"Already installed {NFT_WRAPPER}")
+        print("Passwordless sudo for the site-block helper is ready.")
+        return
+    if not _setup_has_tty():
+        raise SystemExit("setup needs a terminal for one sudo prompt")
+    if not WRAPPER_SRC.is_file():
+        raise SystemExit(f"missing wrapper source: {WRAPPER_SRC}")
+    if not SUDOERS_TEMPLATE.is_file():
+        raise SystemExit(f"missing sudoers template: {SUDOERS_TEMPLATE}")
+    user = getpass.getuser()
+    body = SUDOERS_TEMPLATE.read_text(encoding="utf-8").replace("__INSTALL_USER__", user)
+    if not user or "__INSTALL_USER__" in body:
+        raise SystemExit("could not render sudoers for this account")
+    fd, tmp_path = tempfile.mkstemp(prefix="omarchy-ds-sudoers-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(body)
+        os.chmod(tmp_path, 0o440)
+        check = subprocess.run(
+            ["visudo", "-c", "-f", tmp_path],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if check.returncode != 0:
+            raise SystemExit(
+                (check.stderr or check.stdout or "visudo rejected the grant").strip()
+            )
+        result = subprocess.run(
+            [
+                "sudo",
+                "bash",
+                "-c",
+                'install -D -m 0755 "$1" "$2" && install -m 0440 "$3" "$4"',
+                "omarchy-ds-setup",
+                str(WRAPPER_SRC),
+                NFT_WRAPPER,
+                tmp_path,
+                SUDOERS_PATH,
+            ],
+            check=False,
+        )
+        if result.returncode != 0:
+            raise SystemExit("setup was cancelled or sudo failed")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except FileNotFoundError:
+            pass
+    if not _wrapper_grant_ok():
+        raise SystemExit(
+            "wrapper installed, but passwordless sudo did not take; "
+            "re-run setup from a terminal"
+        )
+    print(f"Installed {NFT_WRAPPER}")
+    print("Passwordless sudo for the site-block helper is ready.")
+
+
 def install_notification_service() -> bool:
     code, out = shell_ipc("shell", "rescanPlugins", timeout=8.0)
     if code != 0:
@@ -4190,6 +4272,8 @@ def main() -> None:
         increment_count(" ".join(sys.argv[2:]).strip())
     elif command in {"install", "install-notifications"}:
         raise SystemExit(0 if install_notification_service() else 1)
+    elif command == "setup":
+        setup_privileged_helper()
     elif command == "print-expand":
         print_expand()
     elif command == "edit-list":

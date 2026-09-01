@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Privileged helper: own table inet omarchy_ds and the ds address sets.
 
-One-time install copies this file to
-/usr/local/libexec/omarchy-distraction-space/distractions-nft and renders
-install/sudoers.omarchy-distraction-space. README documents those steps.
-A missing install skips only the network half.
+One-time `distractions setup` copies this file to
+/usr/local/libexec/omarchy-distraction-space/distractions-nft and installs
+install/sudoers.omarchy-distraction-space. It verifies with `sudo -n` on this
+wrapper and never lists /etc/sudoers.d. A missing install skips only the
+network half.
 """
 
 from __future__ import annotations
