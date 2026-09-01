@@ -1,19 +1,983 @@
 {
   "branch_name": "fn-2-focus-mode-distraction-notification",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-01T02:19:47.166763Z",
   "created_at": "2026-08-31T21:49:21.048596Z",
   "default_impl": null,
   "default_review": null,
   "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-2-focus-mode-distraction-notification",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-2-focus-mode-distraction-notification.1": 0,
+    "fn-2-focus-mode-distraction-notification.2": 0
+  },
   "next_task": 1,
   "plan_review_rounds": 0,
-  "plan_review_status": "unknown",
-  "plan_reviewed_at": null,
+  "plan_review_status": "ship",
+  "plan_reviewed_at": "2026-09-01T00:04:11.524843Z",
   "ready": true,
+  "review_attempts": [
+    {
+      "artifact_sha256": "db684c01652e7d8da7ec9fe804be1bf7f7486a447b671a766cd706db53f305f8",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-f566a1165b1b56402e4af802e104efd4",
+            "classification": "introduced",
+            "findingId": "finding-f566a1165b1b56402e4af802e104efd4",
+            "firstSeenThisRound": true,
+            "severity": "P0",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-bffc540af9dbd00fab22d522bc9d1d9b",
+            "classification": "introduced",
+            "findingId": "finding-bffc540af9dbd00fab22d522bc9d1d9b",
+            "firstSeenThisRound": true,
+            "severity": "P0",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-95537f0030576d370378536b6fab6d37",
+            "classification": "introduced",
+            "findingId": "finding-95537f0030576d370378536b6fab6d37",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-d5d0477c20d345766e0d4192787f592e",
+            "classification": "introduced",
+            "findingId": "finding-d5d0477c20d345766e0d4192787f592e",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "defffe115f12af00cd42ee568b81c684644837b2",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 4911,
+      "output_sha256": "d36b01d874ec824be36eff9730f455ffef6ac40c5da63d39fdd880281089c0e9",
+      "reservation_id": "38d28d1622fc4328a46acdb3bb663756",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-08-31T22:25:55.390226Z",
+      "verdict": "MAJOR_RETHINK"
+    },
+    {
+      "artifact_sha256": "1107a0b4dc990c5e8f56df550b112d75db2bf8f7090ff716edb971923959c97f",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "1034c134ca731f3f3e6896fc9d39a9faced13f42",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 3050,
+      "output_sha256": "15dad8acff7a30ff409bf84315542f4426644fe58d47aece22cb097198ef731d",
+      "reservation_id": "91f717b8525648798a51cbf7a34a0107",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-08-31T22:51:29.748269Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "6479a0ea74e01c09de455c0ee6f91bddc3ffee51cddc2aa897584391c3967e86",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "1034c134ca731f3f3e6896fc9d39a9faced13f42",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 1917,
+      "output_sha256": "9bab4795d3fb98c7524bf5c90ac8eeec051b961d8358b1d9f0ab4e5550193939",
+      "reservation_id": "f803fba47bc14a85aa6dff78b3349cf1",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-08-31T23:02:04.399007Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "384977798b454f621ca6baa3bf345c9d200f882be26de5aad58fe33858e5d47c",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "1034c134ca731f3f3e6896fc9d39a9faced13f42",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 1649,
+      "output_sha256": "02766ab8b10f5ba6f4a6794a2888c88ab106f793fc04b73ad72c34bd5bcbd771",
+      "reservation_id": "3963726bc0df48a8aa6e586e75bc1ba4",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-08-31T23:12:36.468230Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "0ec6b86e65bb839eff8e58e037f500febaf5ba1d3c6ce815c6bc90a3a7aac0de",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "1034c134ca731f3f3e6896fc9d39a9faced13f42",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 2139,
+      "output_sha256": "3a65d48c616c7e6d5a8d93f1a950d8e8e0f05a93b553281949892bf0aeee795e",
+      "reservation_id": "663cfae8f8f24203b9b562c3010e08df",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-08-31T23:23:43.762011Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "4b0bd290174bf1ff20f615608ef736dacb495d9e67b7d390dfce6bd12022bfba",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "1034c134ca731f3f3e6896fc9d39a9faced13f42",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 1645,
+      "output_sha256": "7d6e52c126e50863da787d9ba4231e67547ebac404127ef3c6092b73cb28c6c7",
+      "reservation_id": "88de010163fe4cc0bc13bf83de776d94",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-08-31T23:34:04.002431Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "1f9e6c9b80e0edd371ffdd8f29e0f19081aa3094bbb2e2554ed697b47e6cc4b9",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-37a6bbdbfda10ded0ef5c984f6b4f0ed",
+            "classification": "pre_existing",
+            "findingId": "finding-37a6bbdbfda10ded0ef5c984f6b4f0ed",
+            "firstSeenThisRound": true,
+            "severity": "P0",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-b9786438f883037f1a0e346dca9fdcec",
+            "classification": "introduced",
+            "findingId": "finding-b9786438f883037f1a0e346dca9fdcec",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-c0beebc2e6605bb6ef9fc38aa834a2e9",
+            "classification": "introduced",
+            "findingId": "finding-c0beebc2e6605bb6ef9fc38aa834a2e9",
+            "firstSeenThisRound": true,
+            "severity": "P3",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "1034c134ca731f3f3e6896fc9d39a9faced13f42",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 1369,
+      "output_sha256": "117a1e79dcf50015d6dd6a58644ac680939324d2bd3bbe21bfe8e84ee9c9e61e",
+      "reservation_id": "2ab6d9ee08b24a34bff1a125a530d691",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-08-31T23:47:09.095254Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "80d60a12bac1b8a992005da4bc12b947e10b278d65355cc686971e75add35601",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-37a6bbdbfda10ded0ef5c984f6b4f0ed",
+            "classification": "pre_existing",
+            "findingId": "finding-37a6bbdbfda10ded0ef5c984f6b4f0ed",
+            "firstSeenThisRound": false,
+            "severity": "P0",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-1fd422c2f1a3a000e7a4f7ec311ea76d",
+            "classification": "introduced",
+            "findingId": "finding-1fd422c2f1a3a000e7a4f7ec311ea76d",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-b9786438f883037f1a0e346dca9fdcec",
+            "classification": "introduced",
+            "findingId": "finding-b9786438f883037f1a0e346dca9fdcec",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-5dd7ae0da9497048e725232bc486d922",
+            "classification": "introduced",
+            "findingId": "finding-5dd7ae0da9497048e725232bc486d922",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-c0beebc2e6605bb6ef9fc38aa834a2e9",
+            "classification": "introduced",
+            "findingId": "finding-c0beebc2e6605bb6ef9fc38aa834a2e9",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-1c359f77483ad931cfe83a53d48078c2",
+            "classification": "introduced",
+            "findingId": "finding-1c359f77483ad931cfe83a53d48078c2",
+            "firstSeenThisRound": true,
+            "severity": "P3",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "1034c134ca731f3f3e6896fc9d39a9faced13f42",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 1237,
+      "output_sha256": "840042cc869f7a319b965831dfa376d8bcd6034dd9c17e1366d8752d620229b2",
+      "reservation_id": "bd18452517c44f95b59080210b382e59",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-08-31T23:57:45.495189Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "bac6d83123c85fe315c26b12a57db861a39031dc261fba7dee16cf0d3fc70ec4",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-37a6bbdbfda10ded0ef5c984f6b4f0ed",
+            "classification": "pre_existing",
+            "findingId": "finding-37a6bbdbfda10ded0ef5c984f6b4f0ed",
+            "firstSeenThisRound": false,
+            "severity": "P0",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-1fd422c2f1a3a000e7a4f7ec311ea76d",
+            "classification": "introduced",
+            "findingId": "finding-1fd422c2f1a3a000e7a4f7ec311ea76d",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-b9786438f883037f1a0e346dca9fdcec",
+            "classification": "introduced",
+            "findingId": "finding-b9786438f883037f1a0e346dca9fdcec",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-5dd7ae0da9497048e725232bc486d922",
+            "classification": "introduced",
+            "findingId": "finding-5dd7ae0da9497048e725232bc486d922",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-c0beebc2e6605bb6ef9fc38aa834a2e9",
+            "classification": "introduced",
+            "findingId": "finding-c0beebc2e6605bb6ef9fc38aa834a2e9",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-1c359f77483ad931cfe83a53d48078c2",
+            "classification": "introduced",
+            "findingId": "finding-1c359f77483ad931cfe83a53d48078c2",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "1034c134ca731f3f3e6896fc9d39a9faced13f42",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 496,
+      "output_sha256": "32d6ce21abe2ca01dfc009e9fa4d54c5571df838ac33346e628032538e439a5d",
+      "reservation_id": "4ce1fb6a10914f76a811d48524e11bad",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T00:04:10.991431Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "3c8c9fabbf3060a68fbd88ff13c4534b47ff1a7fc1ce250905c9888b2d96e9d8",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "7aa43bd4fd85a0458e779b2d2ba3a56019d1fcd1",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 467,
+      "output_sha256": "e9a0a5cdff113521f61cf8dd11114a603f32a6b4a6a6adeaaef47c7ff2320901",
+      "reservation_id": "d244cb56640545268a3f8373bd550fbd",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T00:23:47.982378Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "318df48d8a484a5fed54f9190737245bf3de6279658e78056b1fbf79d574eb0a",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1f27f38917902a20c4a0ee0e784e7511d1d61245",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 333,
+      "output_sha256": "853a04e4fd9af1b7fcaef1f7ad62c910be3b866f08dad13b39c57bac386c0467",
+      "reservation_id": "3ce2b5f894264d04838d3cabfa1ba64d",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T00:29:10.933027Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "e4b80cd24a2da4cd1741bff2f0b51c95191b1d6bcaa127d2b83ae0943680e6d3",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "0be05816d533aac76d9b8c8bf08fb1c30d8c4ad1",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 378,
+      "output_sha256": "1d61825c38e0d4743bec12f5e3ddd91a7cd7a9e83a02e74ef6680c5bd23f40ab",
+      "reservation_id": "d44c67d63b32453c93445dcfb19aaec5",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T00:34:17.886296Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "a9d3aa4b53045a4d9753f73ff26002e23deb99d822015da0fee87bec7827a047",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "e97e94665ef695284554e70ad34e828fdf09412b",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 3818,
+      "output_sha256": "b2f93bd005f9fa5db95fc0aecd7b4643d3ac55d1d19be116a346594d201cf9da",
+      "reservation_id": "d41593ea4566460998d5fe8500dad3f6",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T00:43:14.487973Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "ba69f040d7ee3eadaefbf4172379267fba2047980e6fd84bf31f3c82a6406c9f",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "9ecc46080ebf31814810cb3d5c01299ddbd601ce",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 4148,
+      "output_sha256": "f049f569111f303ca966c2fcb7f0933a9013497c0d0173078453217c39eb6461",
+      "reservation_id": "3d849aad62c24fd2b9ac743bfaf8c490",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T00:50:36.971727Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "a0aec8cb5a90c04111aeabd189a85ab240ff8ccbaf813427b4ea98940b7a3871",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ec41f4688a7bf1da3389371008e7b0e1",
+            "classification": "introduced",
+            "findingId": "finding-ec41f4688a7bf1da3389371008e7b0e1",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "2306d27027b24e347394223d726ccf7d63b46833",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1846,
+      "output_sha256": "3d8802629f50a63eb45632d9a703275463e516a0d781f072d35793eea8a69ff9",
+      "reservation_id": "95a18c4a932b4d15ba3cb4ab4d91a778",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T00:55:08.307324Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "4ce80be51408fcc6fe6380d2d8ae78a1fd6f021aa3564c799387f12c7c45d017",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ec41f4688a7bf1da3389371008e7b0e1",
+            "classification": "introduced",
+            "findingId": "finding-ec41f4688a7bf1da3389371008e7b0e1",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-50d5f1062c291c71e15c3c3bd90296b1",
+            "classification": "introduced",
+            "findingId": "finding-50d5f1062c291c71e15c3c3bd90296b1",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "b78fdd8e601206c8906046375b9a215865da9d31",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1388,
+      "output_sha256": "49bb611d8be2e42c1d1c89850e456b747cad6a95d4e35d23b0ace751f3364c00",
+      "reservation_id": "f3a691615c75498b8d23f395d0e9e99f",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T00:59:17.256082Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "2f1d691894a39da675b32cac72991d2c6c9c84ef570820f1d191e078cc6453e5",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ec41f4688a7bf1da3389371008e7b0e1",
+            "classification": "introduced",
+            "findingId": "finding-ec41f4688a7bf1da3389371008e7b0e1",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-50d5f1062c291c71e15c3c3bd90296b1",
+            "classification": "introduced",
+            "findingId": "finding-50d5f1062c291c71e15c3c3bd90296b1",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-0aec57c314e689b5d80efc854d99fd5b",
+            "classification": "introduced",
+            "findingId": "finding-0aec57c314e689b5d80efc854d99fd5b",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-3e84794bfabd6c9cab8afb9858496182",
+            "classification": "introduced",
+            "findingId": "finding-3e84794bfabd6c9cab8afb9858496182",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "4eeefd69d021d8c01cf5fc46083a9b3a32a0bfd1",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1785,
+      "output_sha256": "a2fd1919123238d6d7573dfa2cda906debd33910a55fd5ad39cd07ddea84d271",
+      "reservation_id": "1f141aa8eb7e41e7ac9ecb02cb481974",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T01:03:51.129454Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "e655650c08f373dd9dfd6397ab5d6a073362d58a31a206b5c0fe4e761225d0c2",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "75fcebdb789d4ef8f1c68109e129d32dbe698f8c",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 777,
+      "output_sha256": "39c2043fd03fb562bf45ebe20e4247f4a12263aafe530e3be7a1ae4d34da4f5c",
+      "reservation_id": "ab4d74d549374f6fbe4ff6c57709db78",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T01:16:39.352889Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "d89221a7c2a4aae17e3c2f9b30ab16a2d8ceb0ad343e36e912d5169d5a904992",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1ed262d83598c3520db2439eb043b6a0d4a26cbd",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 2244,
+      "output_sha256": "8397572e9a352c850846b908a78a0c174528ebe2059b39c9891b650858a68efb",
+      "reservation_id": "7a750021fe7548c8926002b8c44d5d05",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.2",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.2",
+      "timestamp": "2026-09-01T01:26:31.275172Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "6ab3d217aecc5eee56face846d7a686249e60ace78ee60ff118bfe9695e35528",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "014eca06840b52c8fa5088fcc87fb5401f3acc70",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1792,
+      "output_sha256": "f8b9ba91fb6931fa3c2318b1e368b740d7de6221fd02aa784b823347b679f364",
+      "reservation_id": "798fb4363d3c40baa63953a412cf3e2f",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.2",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.2",
+      "timestamp": "2026-09-01T01:30:43.888572Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "632780a398063160dba74ed2b01b91a6b9cd8e87b7e642794632ef09cfea31c4",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "5190615152015a2773d92b5f51aa2b58d3d29d84",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1111,
+      "output_sha256": "bc9ec29b9339ec536a79187d7d3d82f4645bd0547f402b8d74b561679971bf6a",
+      "reservation_id": "922fb2df02db40c6be4898f702003f39",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.2",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.2",
+      "timestamp": "2026-09-01T01:34:58.889306Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "2aabe5ea89d8a4a38c79ca2da07439b9e13cf824cbaa5f789b35f86670f6a912",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "167b3a06a3b412e5475ea46fdbfa66250833c931",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "verdict",
+      "output_bytes": 5988,
+      "output_sha256": "d69609ff5401656f344c2fde309e8356b89712e2b97855b565f5c8d2efc293a7",
+      "reservation_id": "b82513caf6b54379889db058ea44e5d3",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T01:43:58.187977Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "7a1bb429728f6e4580b443216f51375cadeb391178542d698693f4ad638f7782",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 2,
+      "head_sha": "26eb64819e738c8ea219695a6946f3218c38465a",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 806,
+      "output_sha256": "1820d9f1ea1387bfec3774afb72433d10ca1b4884e9590dc7c70ded1085432f4",
+      "reservation_id": "8192bf87d55a45a9ba3e507bfda89741",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T01:55:20.829460Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "08ea7d25807179eee860c61099992e15c7fef2b7c2ad1871e84c96518bd4712c",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "f1c194331bd3013ee28df0e5ce6475bcb738527a",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "verdict",
+      "output_bytes": 5515,
+      "output_sha256": "f1b5b476482ef0a504a38f3c7eee687c69849887c3c88d05f6acda11029925c7",
+      "reservation_id": "406f18eb688c42938d37b9328fe46ceb",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T02:02:56.660382Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "5d5e755a2f2d34e19b3e1192afff5076ae3a5194dcb6e7aadae875752405e139",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 3,
+      "head_sha": "301c3c82928714e5c1f7f60fb7b1a3f19ab09d20",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 443,
+      "output_sha256": "20d90ea7cea18fa0cd395bb66b583dd9ef6b38ea2da22216bda18d0b53fa96ba",
+      "reservation_id": "0f674cfac42d4e1dadc4e37aa6cce2b2",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T02:12:08.249965Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "254919db6c99797b061860e59719fca6268f1d8c0123ab6992c77696c6110de0",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "323fa879fd75bff02e72f887834fa95b1c015af2",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "verdict",
+      "output_bytes": 9051,
+      "output_sha256": "f340f6cf2e1b2b6c0583ff649d1a8654ec7b54f1f6d10dc87006b5c495722365",
+      "reservation_id": "92fcad9f403243b8b8ee5e75eeaa9591",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T02:19:46.637488Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-2-focus-mode-distraction-notification.1": 4,
+    "impl:fn-2-focus-mode-distraction-notification.2": 1,
+    "plan": 2,
+    "plan#completion": 2
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "completion": 0,
+    "impl:fn-2-focus-mode-distraction-notification.1": 0,
+    "impl:fn-2-focus-mode-distraction-notification.2": 0,
+    "plan": 0
+  },
   "spec_path": ".flow/specs/fn-2-focus-mode-distraction-notification.md",
   "status": "open",
   "title": "Focus-mode distraction notification block",
@@ -28,5 +992,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-08-31T22:04:08.815260Z"
+  "updated_at": "2026-09-01T02:19:47.167379Z"
 }

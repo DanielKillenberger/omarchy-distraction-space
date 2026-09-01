@@ -3,11 +3,16 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
+import re
+import select
 import socket
 import subprocess
 import sys
+import threading
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,11 +25,49 @@ NAME = "distraction"
 REF = f"name:{NAME}"
 SAFE_ID = 99
 MIN_REASON = 50
+MEMBERS_PATH = PLUGIN_DIR / "notification-members.json"
+WINDOWS_PATH = PLUGIN_DIR / "hypr" / "windows.lua"
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy"
 CONFIG_PATH = Path.home() / ".config/omarchy/focus.json"
 FOCUS = STATE_DIR / "distractions.focus"
+MUTED_PATH = STATE_DIR / "distractions.muted.json"
 LISTEN_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.listen.lock"
+NOTIFY_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.lock"
+WATCHER_REQUEST = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.request"
+WATCHER_STATUS = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.status"
 DEFAULT_LOG = STATE_DIR / "focus-disable.log"
+SHELL_BIN = os.environ.get("DISTRACTIONS_OMARCHY_SHELL", "omarchy-shell")
+PACTL_BIN = os.environ.get("DISTRACTIONS_PACTL", "pactl")
+PLUGIN_IPC = "distraction-space-notifications"
+PROC_WALK_DEPTH = 8
+APPLY_WAIT_S = 8.0
+NOTIFY_WAIT_S = 8.0
+GENERIC_BROWSER = {
+    "google chrome",
+    "google-chrome",
+    "chrome",
+    "chromium",
+    "chromium-browser",
+    "brave",
+    "brave-browser",
+    "com.google.chrome",
+    "org.chromium.chromium",
+}
+FORBIDDEN_TOAST_APPS = {"omarchy-action", "notify-send"}
+CHROMIUM_HINTS = ("chrom", "brave", "vivaldi", "microsoft-edge", "opera")
+ORIGIN_LINK = re.compile(
+    r"^\s*<a\b[^>]*>\s*((?:https?://|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:/[^<\s]*)?)\s*</a>",
+    re.I,
+)
+ORIGIN_BARE = re.compile(
+    r"^\s*((?:https?://|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:/\S*)?)(?:\s+|$)",
+    re.I,
+)
+WINDOW_CLASS_RE = re.compile(r'o\.window\("([^"]+)"')
+SINK_EVENT_RE = re.compile(r"Event '(new|change|remove)' on sink-input(?: #(\d+))?")
+
+_watcher_stop = threading.Event()
+_watcher_thread: threading.Thread | None = None
 
 
 def hyprctl(*args: str) -> str:
@@ -39,14 +82,23 @@ def dispatch(lua: str) -> None:
     subprocess.check_call(["hyprctl", "dispatch", lua])
 
 
-def notify(title: str, body: str = "", timeout_ms: int = 4000) -> None:
+def notify(title: str, body: str = "", timeout_ms: int = 4000) -> bool:
     cmd = ["omarchy-notification-send", "-u", "normal", "-t", str(timeout_ms), title]
     if body:
         cmd.append(body)
     try:
-        subprocess.check_call(cmd)
+        subprocess.check_call(cmd, timeout=NOTIFY_WAIT_S)
+        return True
+    except subprocess.TimeoutExpired:
+        return False
     except (subprocess.CalledProcessError, FileNotFoundError):
-        subprocess.call(["notify-send", "-t", str(timeout_ms), title, body])
+        try:
+            return subprocess.call(
+                ["notify-send", "-t", str(timeout_ms), title, body],
+                timeout=NOTIFY_WAIT_S,
+            ) == 0
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return False
 
 
 def load_config() -> dict:
@@ -190,6 +242,932 @@ def lift_network_block() -> None:
     focus_block.lift_block()
 
 
+def normalize_token(value: object) -> str:
+    return str(value or "").strip().lower()
+
+
+def load_members(path: Path | None = None) -> list[dict]:
+    data = json.loads((path or MEMBERS_PATH).read_text())
+    members = data.get("members") if isinstance(data, dict) else None
+    if not isinstance(members, list) or not members:
+        raise ValueError("notification-members.json has no members")
+    for member in members:
+        _reject_generic_member(member)
+    return members
+
+
+def _reject_generic_member(member: dict) -> None:
+    native = member.get("native") or {}
+    for key in ("app", "appIcon", "pulseName", "pulseBinary"):
+        for value in native.get(key) or []:
+            if normalize_token(value) in GENERIC_BROWSER:
+                raise ValueError(
+                    f"member {member.get('label')!r} uses generic browser identity {value!r}"
+                )
+
+
+def window_rule_classes(path: Path | None = None) -> list[str]:
+    text = (path or WINDOWS_PATH).read_text()
+    return WINDOW_CLASS_RE.findall(text)
+
+
+def members_match_windows(members: list[dict] | None = None, windows_path: Path | None = None) -> None:
+    members = members if members is not None else load_members()
+    expected = window_rule_classes(windows_path)
+    got = [str(member.get("window_class") or "") for member in members]
+    if got != expected:
+        raise ValueError(f"member window classes {got} != hypr/windows.lua {expected}")
+
+
+def leading_origin_host(body: str) -> str:
+    text = str(body or "")
+    match = ORIGIN_LINK.match(text) or ORIGIN_BARE.match(text)
+    if not match:
+        return ""
+    token = match.group(1)
+    host = re.sub(r"^https?://", "", token, flags=re.I)
+    host = re.sub(r"^www\.", "", host, flags=re.I)
+    return host.split("/")[0].split(":")[0].lower()
+
+
+def is_chromium_derived(app: str, app_icon: str = "") -> bool:
+    source = f"{app}\n{app_icon}".lower()
+    return any(hint in source for hint in CHROMIUM_HINTS)
+
+
+def is_generic_browser_identity(value: object) -> bool:
+    return normalize_token(value) in GENERIC_BROWSER
+
+
+def _list_has(values: object, candidate: object) -> bool:
+    needle = normalize_token(candidate)
+    if not needle or not isinstance(values, list):
+        return False
+    return any(normalize_token(item) == needle for item in values)
+
+
+def match_banner(app: str, app_icon: str, body: str, members: list[dict] | None = None) -> str | None:
+    if normalize_token(app) in FORBIDDEN_TOAST_APPS:
+        return None
+    members = members if members is not None else load_members()
+    if is_chromium_derived(app, app_icon):
+        host = leading_origin_host(body)
+        if not host:
+            return None
+        for member in members:
+            hosts = ((member.get("chromium") or {}).get("hosts") or [])
+            if any(normalize_token(item) == host for item in hosts):
+                return str(member["label"])
+        return None
+    for member in members:
+        native = member.get("native") or {}
+        if _list_has(native.get("app"), app) or _list_has(native.get("appIcon"), app_icon):
+            return str(member["label"])
+    return None
+
+
+PWA_IDENTITY_FLAGS = ("--app-id", "--app", "--class", "--desktop-file-name")
+PWA_HOST = re.compile(r"^[a-z0-9-]+(?:\.[a-z0-9-]+)+$", re.I)
+PWA_URL_HOST = re.compile(r"^(?:https?://|www\.)([a-z0-9-]+(?:\.[a-z0-9-]+)+)", re.I)
+PWA_DESKTOP_ENTRY = re.compile(r"^chrome-([a-z0-9-]+(?:\.[a-z0-9-]+)+)__", re.I)
+
+
+def _argv_tokens(line: str) -> list[str]:
+    return [token for token in str(line or "").split() if token]
+
+
+def _flag_name(token: str) -> str:
+    return token.split("=", 1)[0].lower()
+
+
+def _pwa_identity_value(value: str) -> str:
+    text = str(value or "").strip().strip("\"'")
+    if not text:
+        return ""
+    desktop = PWA_DESKTOP_ENTRY.match(text)
+    if desktop:
+        return desktop.group(1).lower()
+    url = PWA_URL_HOST.match(text)
+    if url:
+        return url.group(1).lower().rstrip(".")
+    bare = text.split("/")[0].split(":")[0]
+    if PWA_HOST.fullmatch(bare):
+        return bare.lower()
+    return ""
+
+
+def cmdline_identity_tokens(cmdlines: list[str]) -> set[str]:
+    tokens: set[str] = set()
+    for line in cmdlines:
+        argv = _argv_tokens(line)
+        index = 0
+        while index < len(argv):
+            raw = argv[index]
+            name = _flag_name(raw)
+            value = ""
+            if name in PWA_IDENTITY_FLAGS:
+                if "=" in raw:
+                    value = raw.split("=", 1)[1]
+                elif index + 1 < len(argv):
+                    index += 1
+                    value = argv[index]
+            elif PWA_DESKTOP_ENTRY.match(raw):
+                value = raw
+            ident = _pwa_identity_value(value)
+            if ident:
+                tokens.add(ident)
+            index += 1
+    return tokens
+
+
+def match_stream(
+    properties: dict,
+    cmdline_chain: list[str],
+    members: list[dict] | None = None,
+) -> str | None:
+    members = members if members is not None else load_members()
+    name = properties.get("application.name") or ""
+    binary = properties.get("application.process.binary") or ""
+    chromium = is_chromium_derived(name, binary) or any(
+        is_chromium_derived(line, "") for line in cmdline_chain
+    )
+    if not chromium:
+        for member in members:
+            native = member.get("native") or {}
+            if _list_has(native.get("pulseName"), name) or _list_has(native.get("pulseBinary"), binary):
+                return str(member["label"])
+        return None
+    found = cmdline_identity_tokens(cmdline_chain)
+    for member in members:
+        wanted = list((member.get("chromium") or {}).get("hosts") or [])
+        wanted += list((member.get("chromium") or {}).get("appIds") or [])
+        if any(normalize_token(token) in found for token in wanted if token):
+            return str(member["label"])
+    return None
+
+
+def relocate_row(rows: list[dict], original_id, timestamp) -> int:
+    for index, row in enumerate(rows):
+        if row.get("originalId") == original_id and row.get("timestamp") == timestamp:
+            return index
+    return -1
+
+
+def should_use_live_ref(row: dict, is_restored: bool) -> bool:
+    return bool(row) and not is_restored
+
+
+def read_json(path: Path, default):
+    if not path.exists():
+        return default
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return default
+    return data
+
+
+def parse_int(value, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_int_list(value) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    parsed: list[int] = []
+    for item in value:
+        try:
+            parsed.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return parsed
+
+
+def write_json_atomic(path: Path, payload) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(payload) + "\n")
+    tmp.replace(path)
+
+
+def count_path() -> Path:
+    return STATE_DIR / "distractions.notify-count.json"
+
+
+def count_lock_path() -> Path:
+    return STATE_DIR / "distractions.notify-count.lock"
+
+
+def _lock_count():
+    path = count_lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(path, "w")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def read_counts() -> dict[str, int]:
+    data = read_json(count_path(), {})
+    if not isinstance(data, dict):
+        return {}
+    counts: dict[str, int] = {}
+    for key, value in data.items():
+        try:
+            number = int(value)
+        except (TypeError, ValueError):
+            continue
+        if number > 0:
+            counts[str(key)] = number
+    return counts
+
+
+def write_counts_atomic(counts: dict[str, int]) -> None:
+    path = count_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(counts, sort_keys=True) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def increment_count(label: str) -> None:
+    name = str(label or "").strip()
+    if not name:
+        raise SystemExit("count-increment requires a label")
+    lock = _lock_count()
+    try:
+        counts = read_counts()
+        counts[name] = counts.get(name, 0) + 1
+        write_counts_atomic(counts)
+    finally:
+        lock.close()
+
+
+def format_grouped_notice(counts: dict[str, int]) -> tuple[str, str]:
+    lines = [f"{label} {counts[label]}" for label in sorted(counts) if counts[label] > 0]
+    return "While you were focused", "\n".join(lines)
+
+
+def send_catchup_notice() -> bool:
+    lock = _lock_count()
+    try:
+        counts = read_counts()
+        if not counts:
+            return True
+        title, body = format_grouped_notice(counts)
+        if not notify(title, body, timeout_ms=8000):
+            return False
+        path = count_path()
+        if path.exists():
+            path.unlink()
+        return True
+    finally:
+        lock.close()
+
+
+def muted_ids() -> list[int]:
+    data = read_json(MUTED_PATH, [])
+    if not isinstance(data, list):
+        raise RuntimeError("muted sink-input snapshot is invalid")
+    try:
+        return [int(item) for item in data]
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("muted sink-input snapshot is invalid") from exc
+
+
+def save_muted_ids(ids: list[int]) -> None:
+    write_json_atomic(MUTED_PATH, ids)
+
+
+def shell_ipc(*args: str, timeout: float = 4.0) -> tuple[int, str]:
+    try:
+        result = subprocess.run(
+            [SHELL_BIN, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return 127, "omarchy-shell is missing"
+    except subprocess.TimeoutExpired:
+        return 124, "omarchy-shell timed out"
+    return result.returncode, (result.stdout or "").strip()
+
+
+def which_cmd(name: str) -> bool:
+    from shutil import which
+
+    return which(name) is not None
+
+
+def notification_daemon_ok() -> tuple[bool, str]:
+    if not which_cmd(SHELL_BIN) and SHELL_BIN == "omarchy-shell":
+        return False, "omarchy-shell is missing"
+    code, out = shell_ipc("notifications", "dndState", timeout=3.0)
+    if code != 0:
+        return False, "Quickshell NotificationServer is not reachable"
+    lowered = out.lower()
+    if "mako" in lowered:
+        return False, "notification daemon is still mako"
+    return True, out
+
+
+def plugin_ping() -> str:
+    code, out = shell_ipc(PLUGIN_IPC, "ping", timeout=3.0)
+    if code != 0:
+        return ""
+    return out.splitlines()[0] if out else ""
+
+
+def wait_plugin_ready(timeout: float | None = None) -> bool:
+    deadline = time.monotonic() + (APPLY_WAIT_S if timeout is None else timeout)
+    while time.monotonic() < deadline:
+        if plugin_ping() == "ready":
+            return True
+        time.sleep(0.2)
+    return False
+
+
+def plugin_call(method: str) -> tuple[int, str]:
+    return shell_ipc(PLUGIN_IPC, method, timeout=3.0)
+
+
+def read_watcher_request() -> dict:
+    data = read_json(WATCHER_REQUEST, {})
+    if not isinstance(data, dict):
+        return {"generation": 0, "want_armed": False, "keep_muted": []}
+    return {
+        "generation": parse_int(data.get("generation"), 0),
+        "want_armed": bool(data.get("want_armed")),
+        "keep_muted": parse_int_list(data.get("keep_muted") or []),
+    }
+
+
+def next_generation(current: int | None = None) -> int:
+    if current is not None:
+        return parse_int(current, 0) + 1
+    return read_watcher_request()["generation"] + 1
+
+
+def write_watcher_request(generation: int, want_armed: bool, keep_muted: list[int] | None = None) -> None:
+    payload = {"generation": parse_int(generation, 0), "want_armed": bool(want_armed)}
+    if keep_muted is not None:
+        payload["keep_muted"] = parse_int_list(keep_muted)
+    write_json_atomic(WATCHER_REQUEST, payload)
+
+
+def read_watcher_status() -> dict:
+    data = read_json(WATCHER_STATUS, {})
+    return data if isinstance(data, dict) else {}
+
+
+def listener_stamp(pid: int | None = None) -> dict:
+    current = os.getpid() if pid is None else pid
+    return {"pid": current, "starttime": read_proc_starttime(current) or ""}
+
+
+def write_watcher_status(payload: dict) -> None:
+    data = dict(payload)
+    pid = parse_int(data.get("pid"), 0)
+    if pid <= 0:
+        data.update(listener_stamp())
+    elif "starttime" not in data and pid == os.getpid():
+        data["starttime"] = read_proc_starttime(pid) or ""
+    write_json_atomic(WATCHER_STATUS, data)
+
+
+def persist_then_ack_status(generation: int, armed: bool, last_error: str, muted: list[int]) -> tuple[bool, str]:
+    try:
+        save_muted_ids(muted)
+    except OSError as exc:
+        error = str(exc) or "failed to persist muted sink-inputs"
+        write_watcher_status(
+            {
+                **listener_stamp(),
+                "generation": generation,
+                "armed": False,
+                "last_error": error,
+                "muted": muted,
+            }
+        )
+        return False, error
+    write_watcher_status(
+        {
+            **listener_stamp(),
+            "generation": generation,
+            "armed": armed,
+            "last_error": last_error,
+            "muted": muted,
+        }
+    )
+    return armed, last_error
+
+
+def watcher_pid_live(status: dict) -> bool:
+    try:
+        pid = int(status.get("pid") or 0)
+    except (TypeError, ValueError):
+        return False
+    recorded = str(status.get("starttime") or "")
+    if pid <= 0 or not recorded:
+        return False
+    live = read_proc_starttime(pid)
+    return live is not None and live == recorded
+
+
+def watcher_acknowledged_armed(status: dict | None = None) -> bool:
+    last = status if isinstance(status, dict) else read_watcher_status()
+    return bool(last.get("armed")) and watcher_pid_live(last)
+
+
+def watcher_desired_armed(request: dict | None = None) -> bool:
+    data = request if isinstance(request, dict) else read_watcher_request()
+    return bool(data.get("want_armed")) and is_focus()
+
+
+def watcher_needs_transition(generation: int, armed: bool, request: dict) -> bool:
+    want_gen = parse_int(request.get("generation"), 0)
+    want_armed = watcher_desired_armed(request)
+    return bool(want_gen and want_gen != generation) or (bool(armed) != bool(want_armed))
+
+
+def wait_watcher_ack(generation: int, want_armed: bool, timeout: float | None = None) -> tuple[bool, str]:
+    deadline = time.monotonic() + (APPLY_WAIT_S if timeout is None else timeout)
+    last = {}
+    while time.monotonic() < deadline:
+        last = read_watcher_status()
+        if not watcher_pid_live(last):
+            time.sleep(0.2)
+            continue
+        if parse_int(last.get("generation"), 0) == generation:
+            error = str(last.get("last_error") or "")
+            if error:
+                return False, error
+            if bool(last.get("armed")) == bool(want_armed):
+                return True, ""
+        time.sleep(0.2)
+    if not watcher_pid_live(last):
+        return False, "notification stream watcher is not running"
+    return False, str(last.get("last_error") or "watcher acknowledgement timed out")
+
+
+def _lock_notify():
+    handle = open(NOTIFY_LOCK, "w")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def apply_notification_block() -> bool:
+    lock = _lock_notify()
+    try:
+        return _apply_notification_block()
+    finally:
+        lock.close()
+
+
+def lift_notification_block() -> bool:
+    lock = _lock_notify()
+    try:
+        return _lift_notification_block()
+    finally:
+        lock.close()
+
+
+def sink_exists(index: int) -> bool:
+    try:
+        return any(sink_index(entry) == index for entry in list_sink_inputs())
+    except Exception:
+        return True
+
+
+def unmute_owned(ids: list[int]) -> list[int]:
+    leftover: list[int] = []
+    for index in ids:
+        if pactl_mute(index, False):
+            continue
+        if sink_exists(index):
+            leftover.append(index)
+    return leftover
+
+
+def restore_owned_after_failed_arm(
+    current_muted: list[int],
+    previously_owned: list[int],
+) -> list[int]:
+    owned = set(previously_owned)
+    extras = [item for item in current_muted if item not in owned]
+    leftover = unmute_owned(extras)
+    restored = list(previously_owned)
+    for item in leftover:
+        if item not in restored:
+            restored.append(item)
+    return restored
+
+
+def arm_sink_transition(
+    members: list[dict],
+    muted: list[int],
+    was_armed: bool,
+) -> tuple[set[int], list[int], str, bool]:
+    previously_owned = list(muted)
+    seen, muted, last_error = evaluate_sink_inputs(True, members, set(), muted)
+    if last_error:
+        muted = restore_owned_after_failed_arm(muted, previously_owned)
+        return seen, muted, last_error, was_armed
+    return seen, muted, "", True
+
+
+def _apply_notification_block() -> bool:
+    if not is_focus():
+        return True
+    snapshot_muted: list[int] = []
+    was_armed = False
+    generation = 0
+    try:
+        was_armed = watcher_acknowledged_armed()
+        snapshot_muted = muted_ids()
+        generation = next_generation()
+        members_match_windows()
+        load_members()
+        ok, reason = notification_daemon_ok()
+        if not ok:
+            raise RuntimeError(reason)
+        write_watcher_request(generation, True)
+        ack_ok, ack_err = wait_watcher_ack(generation, True)
+        if not ack_ok:
+            raise RuntimeError(ack_err)
+        if not wait_plugin_ready():
+            raise RuntimeError(
+                "notification filter is not ready; reload or reinstall the plugin"
+            )
+        code, out = plugin_call("arm")
+        if code != 0 or out not in {"ok", "ready"}:
+            raise RuntimeError(out or "failed to arm the notification filter")
+        return True
+    except Exception as exc:
+        _rollback_apply(snapshot_muted, generation, was_armed)
+        notify(
+            "Focus mode",
+            f"Could not mute distraction notifications. {exc}",
+        )
+        return False
+
+
+def _lift_notification_block() -> bool:
+    generation = next_generation()
+    try:
+        code, out = plugin_call("disarm")
+        if code != 0 and "missing" not in (out or "").lower():
+            raise RuntimeError(out or "failed to disarm the notification filter")
+        write_watcher_request(generation, False)
+        ack_ok, ack_err = wait_watcher_ack(generation, False)
+        if not ack_ok:
+            raise RuntimeError(ack_err)
+        deadline = time.monotonic() + APPLY_WAIT_S
+        drained = out == "drained"
+        while time.monotonic() < deadline:
+            drain_code, drain_out = plugin_call("drainState")
+            if drain_code != 0:
+                raise RuntimeError(drain_out or "failed to read notification filter drain state")
+            if drain_out == "error":
+                raise RuntimeError("notification count increment failed")
+            if drain_out == "drained":
+                drained = True
+                break
+            time.sleep(0.2)
+        if not drained:
+            raise RuntimeError("notification filter did not drain")
+        send_catchup_notice()
+        return True
+    except Exception as exc:
+        notify(
+            "Focus mode",
+            f"Could not restore distraction notifications. {exc}",
+        )
+        return False
+
+
+def _rollback_apply(
+    snapshot_muted: list[int],
+    failed_generation: int,
+    was_armed: bool,
+) -> None:
+    try:
+        rollback_gen = max(parse_int(failed_generation, 0) + 1, next_generation())
+        if was_armed:
+            plugin_call("arm")
+            write_watcher_request(rollback_gen, True)
+            wait_watcher_ack(rollback_gen, True, timeout=3.0)
+            status = read_watcher_status()
+            save_muted_ids(parse_int_list(status.get("muted")))
+            return
+        plugin_call("disarm")
+        write_watcher_request(rollback_gen, False, keep_muted=snapshot_muted)
+        wait_watcher_ack(rollback_gen, False, timeout=3.0)
+        try:
+            current = muted_ids()
+        except RuntimeError:
+            current = list(snapshot_muted)
+        save_muted_ids(restore_owned_after_failed_arm(current, snapshot_muted))
+    except Exception:
+        try:
+            write_watcher_request(parse_int(failed_generation, 0) + 1, False, keep_muted=snapshot_muted)
+        except Exception:
+            pass
+
+
+def pactl(*args: str, timeout: float = 4.0) -> tuple[int, str]:
+    try:
+        result = subprocess.run(
+            [PACTL_BIN, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError:
+        return 127, "pactl is missing"
+    except subprocess.TimeoutExpired:
+        return 124, "pactl timed out"
+    return result.returncode, (result.stdout or "").strip()
+
+
+def pactl_mute(index: int, muted: bool) -> bool:
+    code, _out = pactl("set-sink-input-mute", str(index), "1" if muted else "0")
+    return code == 0
+
+
+def list_sink_inputs() -> list[dict]:
+    code, out = pactl("--format=json", "list", "sink-inputs")
+    if code != 0:
+        raise RuntimeError(out or "pactl list sink-inputs failed")
+    data = json.loads(out or "[]")
+    if not isinstance(data, list):
+        raise RuntimeError("pactl list sink-inputs returned invalid JSON")
+    return data
+
+
+def read_proc_starttime(pid: int) -> str | None:
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    close = stat.rfind(")")
+    if close < 0:
+        return None
+    fields = stat[close + 2 :].split()
+    if len(fields) < 20:
+        return None
+    return fields[19]
+
+
+def read_proc_ppid(pid: int) -> int | None:
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    close = stat.rfind(")")
+    if close < 0:
+        return None
+    fields = stat[close + 2 :].split()
+    if len(fields) < 2:
+        return None
+    try:
+        return int(fields[1])
+    except ValueError:
+        return None
+
+
+def read_proc_cmdline(pid: int) -> str | None:
+    try:
+        raw = Path(f"/proc/{pid}/cmdline").read_bytes()
+    except OSError:
+        return None
+    return raw.replace(b"\x00", b" ").decode("utf-8", "replace")
+
+
+def walk_process_cmdlines(pid: int, depth: int = PROC_WALK_DEPTH) -> list[str]:
+    chain: list[str] = []
+    seen: set[int] = set()
+    current = pid
+    for _ in range(depth):
+        if current <= 1 or current in seen:
+            break
+        seen.add(current)
+        start = read_proc_starttime(current)
+        cmdline = read_proc_cmdline(current)
+        again = read_proc_starttime(current)
+        if not start or start != again or cmdline is None:
+            break
+        chain.append(cmdline)
+        parent = read_proc_ppid(current)
+        if parent is None:
+            break
+        current = parent
+    return chain
+
+
+def sink_properties(entry: dict) -> dict:
+    props = entry.get("properties") or entry.get("property_list") or {}
+    if not isinstance(props, dict):
+        return {}
+    return {str(key): str(value) for key, value in props.items()}
+
+
+def sink_index(entry: dict) -> int | None:
+    for key in ("index", "sink_input_index"):
+        if key in entry:
+            try:
+                return int(entry[key])
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def sink_is_muted(entry: dict) -> bool:
+    for key in ("mute", "muted"):
+        if key not in entry:
+            continue
+        value = entry[key]
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        text = str(value).strip().lower()
+        if text in {"1", "true", "yes", "on", "muted"}:
+            return True
+        if text in {"0", "false", "no", "off", "unmuted"}:
+            return False
+    return False
+
+
+def evaluate_sink_inputs(armed: bool, members: list[dict], seen: set[int], muted: list[int]) -> tuple[set[int], list[int], str]:
+    try:
+        entries = list_sink_inputs()
+    except Exception as exc:
+        return seen, muted, str(exc)
+    current_ids = set()
+    owned = set(muted)
+    for entry in entries:
+        index = sink_index(entry)
+        if index is None:
+            continue
+        current_ids.add(index)
+        if not armed:
+            continue
+        props = sink_properties(entry)
+        pid_raw = props.get("application.process.id") or props.get("application.process.id".replace(".", "_"))
+        try:
+            pid = int(pid_raw) if pid_raw else 0
+        except ValueError:
+            pid = 0
+        chain = walk_process_cmdlines(pid) if pid else []
+        if not match_stream(props, chain, members):
+            seen.add(index)
+            continue
+        already_muted = sink_is_muted(entry)
+        if index in owned:
+            if not already_muted and not pactl_mute(index, True):
+                return seen, muted, f"failed to mute sink-input {index}"
+            seen.add(index)
+            continue
+        if already_muted:
+            seen.add(index)
+            continue
+        if not pactl_mute(index, True):
+            return seen, muted, f"failed to mute sink-input {index}"
+        muted.append(index)
+        owned.add(index)
+        seen.add(index)
+    muted = [item for item in muted if item in current_ids]
+    seen = {item for item in seen if item in current_ids}
+    return seen, muted, ""
+
+
+def start_stream_watcher() -> None:
+    global _watcher_thread
+    if _watcher_thread and _watcher_thread.is_alive():
+        return
+    _watcher_stop.clear()
+    _watcher_thread = threading.Thread(target=_watcher_main, name="distractions-pactl", daemon=True)
+    _watcher_thread.start()
+
+
+def _watcher_main() -> None:
+    members: list[dict] = []
+    try:
+        members = load_members()
+        members_match_windows()
+        muted = muted_ids()
+    except Exception as exc:
+        write_watcher_status(
+            {**listener_stamp(), "generation": 0, "armed": False, "last_error": str(exc), "muted": []}
+        )
+        return
+    seen: set[int] = set(muted)
+    armed = False
+    generation = 0
+    last_error = ""
+    proc = None
+    try:
+        proc = subprocess.Popen(
+            [PACTL_BIN, "subscribe"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+    except FileNotFoundError:
+        write_watcher_status(
+            {
+                **listener_stamp(),
+                "generation": generation,
+                "armed": False,
+                "last_error": "pactl is missing",
+                "muted": muted,
+            }
+        )
+        return
+
+    def publish() -> None:
+        nonlocal armed, last_error
+        armed, last_error = persist_then_ack_status(generation, armed, last_error, muted)
+
+    publish()
+    assert proc.stdout is not None
+    while not _watcher_stop.is_set():
+        request = read_watcher_request()
+        want_gen = request["generation"]
+        want_armed = watcher_desired_armed(request)
+        keep_muted = set(request["keep_muted"])
+        if watcher_needs_transition(generation, armed, request):
+            if want_gen:
+                generation = want_gen
+            last_error = ""
+            if want_armed:
+                seen, muted, last_error, armed = arm_sink_transition(members, muted, armed)
+            else:
+                release = [item for item in muted if item not in keep_muted]
+                leftovers = unmute_owned(release)
+                muted = leftovers + [item for item in muted if item in keep_muted]
+                seen = set(muted)
+                armed = False
+                if leftovers:
+                    last_error = "failed to unmute snapshotted sink-inputs"
+            publish()
+        if proc.poll() is not None:
+            last_error = "pactl subscribe exited"
+            armed = False
+            publish()
+            break
+        ready, _, _ = select.select([proc.stdout], [], [], 0.2)
+        if not ready:
+            continue
+        line = proc.stdout.readline()
+        if not line:
+            continue
+        event = SINK_EVENT_RE.search(line)
+        if not event:
+            continue
+        kind = event.group(1)
+        removed = int(event.group(2)) if event.group(2) else None
+        if kind == "remove" and removed is not None:
+            muted = [item for item in muted if item != removed]
+            seen.discard(removed)
+            publish()
+            continue
+        if armed and is_focus():
+            seen, muted, last_error = evaluate_sink_inputs(True, members, seen, muted)
+            if last_error:
+                armed = False
+            publish()
+    if proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+def install_notification_service() -> bool:
+    code, out = shell_ipc("shell", "rescanPlugins", timeout=8.0)
+    if code != 0:
+        notify("Focus mode", out or "Could not reload the notification filter plugin.")
+        return False
+    if wait_plugin_ready():
+        return True
+    notify(
+        "Focus mode",
+        "Notification filter did not become ready after install; reload the plugin.",
+    )
+    return False
+
+
 def enable_focus() -> None:
     with focus_block.network_lock():
         try:
@@ -199,6 +1177,7 @@ def enable_focus() -> None:
         set_focus(True)
         if on_distractions():
             hide()
+    apply_notification_block()
     notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
@@ -216,7 +1195,8 @@ def disable_focus(reason: str) -> None:
         try:
             lift_network_block()
         except focus_block.BlockError:
-            return
+            pass
+    lift_notification_block()
     notify("Focus mode off", "Super+D opens the distraction space.")
 
 
@@ -266,12 +1246,11 @@ def listen() -> None:
 
     lock = open(LISTEN_LOCK, "w")
     try:
-        import fcntl
-
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         return
 
+    start_stream_watcher()
     with focus_block.network_lock():
         if is_focus() and on_distractions():
             hide()
@@ -280,13 +1259,21 @@ def listen() -> None:
                 apply_network_block()
             except focus_block.BlockError:
                 pass
+    if is_focus():
+        apply_notification_block()
+        if on_distractions():
+            hide()
+    else:
+        write_watcher_request(next_generation(), False)
 
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.connect(str(sock_path))
     with sock.makefile("r") as events:
         for _line in events:
-            if is_focus() and on_distractions():
-                hide()
+            if is_focus():
+                apply_notification_block()
+                if on_distractions():
+                    hide()
 
 
 def main() -> None:
@@ -357,6 +1344,10 @@ def main() -> None:
             notify("Focus mode", str(exc))
             raise SystemExit(str(exc))
         print(removed)
+    elif command == "count-increment":
+        increment_count(" ".join(sys.argv[2:]).strip())
+    elif command in {"install", "install-notifications"}:
+        raise SystemExit(0 if install_notification_service() else 1)
     else:
         raise SystemExit(f"unknown command: {command}")
 

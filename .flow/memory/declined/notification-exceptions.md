@@ -7,3 +7,5 @@ An exception path would reopen the same pings focus mode is meant to stop.
 ## Prior requests
 
 - 2026-08-31 — business interview on fn-2-focus-mode-distraction-notification offered allow-list and urgent-only. Chose no-exceptions.
+- 2026-08-31 — /flow-next:plan --depth=short on fn-2-focus-mode-distraction-notification. Kept no allow-list and no urgent bypass.
+- 2026-08-31 — /flow-next:plan --depth=short replan after MAJOR_RETHINK (Quickshell). Kept no allow-list and no urgent bypass.
