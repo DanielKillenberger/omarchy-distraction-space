@@ -41,6 +41,19 @@ PERMANENT_OPEN = (
 
 USER_ADD_ONLY = ("Bluesky", "Pinterest", "Tumblr")
 
+# A blocked host and a wanted host can share one CDN anycast address, and an
+# IP-only block cannot tell them apart: pbs.twimg.com and grok.com both answer
+# on 104.18.28.234, so blocking X takes Grok down with it. Addresses that also
+# serve a keep-reachable host are dropped from the nftables set. Suffix DNS
+# blocking is exact and keeps blocking the site itself.
+KEEP_REACHABLE_DEFAULT = (
+    "grok.com",
+    "www.grok.com",
+    "assets.grok.com",
+    "api.x.ai",
+    "grok.x.ai",
+)
+
 FALLBACK_CATALOG = {
     "Telegram": [
         "telegram.org",
@@ -534,6 +547,54 @@ def resolve_host(host: str) -> tuple[list[str], list[str]]:
         elif family == socket.AF_INET6:
             ipv6.append(sockaddr[0].split("%", 1)[0])
     return _unique(ipv4), _unique(ipv6)
+
+
+def keep_reachable_hosts(config: dict | None = None, path: Path | None = None) -> list[str]:
+    """Hosts that must survive an IP block, shipped defaults plus config."""
+    data = load_config(path) if config is None else config
+    names = list(KEEP_REACHABLE_DEFAULT)
+    extra = data.get("keep_reachable") if isinstance(data, dict) else None
+    if isinstance(extra, list):
+        names.extend(item for item in extra if isinstance(item, str))
+    kept: list[str] = []
+    seen: set[str] = set()
+    for raw in names:
+        host = raw.strip().rstrip(".").lower()
+        if not host or host in seen or not is_hostname_or_ip(host):
+            continue
+        seen.add(host)
+        kept.append(host)
+    return kept
+
+
+def keep_reachable_addrs(
+    config: dict | None = None,
+    resolve=None,
+    path: Path | None = None,
+) -> set[str]:
+    """Every address a keep-reachable host answers on right now."""
+    lookup = resolve or resolve_host
+    addrs: set[str] = set()
+    for host in keep_reachable_hosts(config, path):
+        try:
+            ipv4, ipv6 = lookup(host)
+        except Exception:
+            continue
+        addrs.update(ipv4)
+        addrs.update(ipv6)
+    return addrs
+
+
+def drop_keep_reachable(addresses: list[str], keep: set[str]) -> list[str]:
+    """Drop one host's shared addresses, unless that would unblock it outright.
+
+    The carve-out exists to rescue an address a wanted host happens to share,
+    not to lift a block. If every address of a blocked host looks shared the
+    block wins, so a resolver that answers the same for every name -- a captive
+    portal, an NXDOMAIN hijack, a wildcard -- cannot empty the set.
+    """
+    kept = [address for address in addresses if address not in keep]
+    return kept if kept else list(addresses)
 
 
 SINKHOLE_V4 = {"0.0.0.0", "127.0.0.1"}
@@ -1147,10 +1208,13 @@ def _apply_block_locked(
         captured = backend.capture_upstreams() if hasattr(backend, "capture_upstreams") else []
         if suffixes and kind == "resolv" and not captured:
             raise BlockError("no upstream DNS servers captured for unblocked names")
+        keep = keep_reachable_addrs(config)
         for host in hostnames:
             v4, v6 = backend.resolve(host, captured or None)
-            ipv4.extend(item for item in v4 if usable_v4(item))
-            ipv6.extend(item for item in v6 if usable_v6(item))
+            usable = [item for item in v4 if usable_v4(item)]
+            usable += [item for item in v6 if usable_v6(item)]
+            for item in drop_keep_reachable(usable, keep):
+                (ipv6 if ":" in item else ipv4).append(item)
         ipv4 = _unique(ipv4)
         ipv6 = _unique(ipv6)
         ruleset = nft_ruleset(ipv4, ipv6)

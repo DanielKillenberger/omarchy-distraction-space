@@ -102,6 +102,30 @@ Edit the list without rebuilding the plugin. Product names from the catalog and 
 
 `destinations-add` / `destinations-remove` write a `destinations` array into `~/.config/omarchy/focus.json`. Until that key exists, the plugin keeps using the shipped defaults.
 
+### Keeping a host reachable
+
+The network block drops packets by address. A blocked host and a host you want
+can share one CDN address, and the block cannot tell them apart: `pbs.twimg.com`
+and `grok.com` both answer on `104.18.28.234`, so blocking X used to take Grok
+down with it.
+
+Addresses that also serve a keep-reachable host are left out of the nftables
+set. `grok.com`, `www.grok.com`, `assets.grok.com`, `api.x.ai`, and `grok.x.ai`
+ship as defaults, so the Grok summary agent keeps working while X stays blocked.
+Add your own with a `keep_reachable` array in `~/.config/omarchy/focus.json`:
+
+```json
+{
+  "keep_reachable": ["status.example.com"]
+}
+```
+
+The carve-out is address-level and narrow. A blocked host keeps every address it
+does not share, and suffix DNS blocking is exact, so the site itself stays
+blocked. The last good answer is cached at
+`~/.local/state/omarchy/omarchy-ds-keep-addrs.last-good.json` so a momentary
+resolver failure cannot hand a shared address back to the block.
+
 ## Agent summaries
 
 Agent summaries stay off until you enable them in the plugin. An Omarchy default agent is not consent.

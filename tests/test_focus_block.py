@@ -818,5 +818,56 @@ class DnsSinkholeTests(unittest.TestCase):
             self.assertTrue(answer.endswith(bytes(16)))
 
 
+
+class KeepReachableTests(unittest.TestCase):
+    """A shared CDN address must not take a wanted host down with the block."""
+
+    def test_defaults_cover_the_grok_hosts(self) -> None:
+        hosts = focus_block.keep_reachable_hosts({})
+        self.assertIn("grok.com", hosts)
+        self.assertIn("api.x.ai", hosts)
+
+    def test_config_appends_and_rejects_junk(self) -> None:
+        config = {"keep_reachable": ["Example.COM.", "not a host", 7, ""]}
+        hosts = focus_block.keep_reachable_hosts(config)
+        self.assertIn("example.com", hosts)
+        self.assertNotIn("not a host", hosts)
+        self.assertEqual(len(hosts), len(set(hosts)))
+
+    def test_addrs_collect_v4_and_v6(self) -> None:
+        answers = {
+            "grok.com": (["104.18.28.234"], ["2606:4700::6812:1cea"]),
+            "api.x.ai": (["104.18.18.80"], []),
+        }
+        addrs = focus_block.keep_reachable_addrs(
+            {}, resolve=lambda host: answers.get(host, ([], []))
+        )
+        self.assertIn("104.18.28.234", addrs)
+        self.assertIn("2606:4700::6812:1cea", addrs)
+
+    def test_a_failed_lookup_is_skipped_not_fatal(self) -> None:
+        def resolve(host: str):
+            if host == "grok.com":
+                raise OSError("dns down")
+            return (["104.18.18.80"], [])
+
+        addrs = focus_block.keep_reachable_addrs({}, resolve=resolve)
+        self.assertEqual(addrs, {"104.18.18.80"})
+
+    def test_an_all_shared_host_stays_blocked(self) -> None:
+        # A resolver that answers the same for every name must not empty the
+        # set. The carve-out rescues a shared address, it does not lift a block.
+        blocked = ["203.0.113.10", "2001:db8::10"]
+        kept = focus_block.drop_keep_reachable(blocked, set(blocked))
+        self.assertEqual(kept, blocked)
+
+    def test_shared_address_is_dropped_and_the_rest_kept(self) -> None:
+        # pbs.twimg.com and grok.com answer on the same Cloudflare anycast IP.
+        blocked = ["104.18.28.234", "104.18.29.234", "104.18.37.127", "172.66.0.227"]
+        kept = focus_block.drop_keep_reachable(blocked, {"104.18.28.234", "104.18.29.234"})
+        self.assertEqual(kept, ["104.18.37.127", "172.66.0.227"])
+        self.assertIn("172.66.0.227", kept)  # x.com stays blocked
+
+
 if __name__ == "__main__":
     unittest.main()
