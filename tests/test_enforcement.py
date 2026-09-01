@@ -255,6 +255,14 @@ class EnforcementTests(unittest.TestCase):
         self.assertTrue(any("windowrule[omarchy-ds-telegram]:match:class" in k for k in keys))
         self.assertTrue(self.notes)
 
+    def test_corrupt_without_last_good_expand_does_not_flush(self):
+        self.user.write_text("{not-json")
+        self.mod.save_addrs_last_good({"blocked.example": ["198.51.100.40"]})
+        self.mod.bootstrap_enforcement()
+        self.wait_net()
+        self.assertFalse(any(call["argv"] == ["flush", "ds"] for call in self.wrapper_calls()))
+        self.assertFalse(any(call["argv"] == ["replace", "ds"] for call in self.wrapper_calls()))
+
     def test_missing_wrapper_skips_network_only(self):
         self.mod.NFT_WRAPPER = str(self.root / "missing-wrapper")
         self.write_list([self.telegram_row(), self.site_row()])

@@ -823,6 +823,8 @@ def bootstrap_enforcement() -> None:
     status, expanded = load_for_enforcement()
     apply_enforcement(expanded, mutate_rules=(status == "ok"))
     scan_existing_clients(notify_banner=False)
+    if status == "corrupt" and not expanded:
+        return
     sync_network_to_workspace()
 
 
