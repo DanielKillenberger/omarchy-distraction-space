@@ -956,7 +956,7 @@
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-6-focus-mode-start-popup.md",
-  "status": "open",
+  "status": "done",
   "title": "Focus-mode start popup",
   "tracker": {
     "baseHashFlow": null,
@@ -969,5 +969,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T17:11:48.438451Z"
+  "updated_at": "2026-09-01T18:16:01.683580Z"
 }
