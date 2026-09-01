@@ -2474,16 +2474,35 @@ def spawn_focus_timer_off() -> None:
     )
 
 
-_timer_off_launched = False
+_timer_off_launched_for: tuple[str, str] | None = None
+
+
+def _timer_off_identity(active: dict | None) -> tuple[str, str] | None:
+    if not active:
+        return None
+    session_id = active.get("session_id")
+    deadline = active.get("deadline")
+    if not isinstance(session_id, str) or not session_id:
+        return None
+    if not isinstance(deadline, str) or not deadline:
+        return None
+    return (session_id, deadline)
 
 
 def maybe_fire_session_timer() -> None:
-    global _timer_off_launched
-    if _timer_off_launched or not is_focus():
+    global _timer_off_launched_for
+    if not is_focus():
+        _timer_off_launched_for = None
         return
-    if not session_deadline_due(read_session_active()):
+    active = read_session_active()
+    identity = _timer_off_identity(active)
+    if identity is None or not session_deadline_due(active):
+        if identity != _timer_off_launched_for:
+            _timer_off_launched_for = None
         return
-    _timer_off_launched = True
+    if _timer_off_launched_for == identity:
+        return
+    _timer_off_launched_for = identity
     spawn_focus_timer_off()
 
 
@@ -4123,13 +4142,13 @@ def _enable_focus_locked() -> None:
 
 
 def disable_focus(reason: str) -> None:
+    if not is_focus():
+        return
     reason = " ".join(reason.split())
     if len(reason) < MIN_REASON:
         raise SystemExit(
             f"reason must be at least {MIN_REASON} characters (got {len(reason)})"
         )
-    if not is_focus():
-        return
     lock = _lock_focus_transition()
     try:
         if not is_focus():
@@ -4146,7 +4165,7 @@ def disable_focus_timer() -> None:
     try:
         if not is_focus():
             return
-        if read_session_active() is None:
+        if not session_deadline_due(read_session_active()):
             return
         _disable_focus_locked("", timer=True)
     finally:

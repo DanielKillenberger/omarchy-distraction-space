@@ -51,7 +51,7 @@ class TimerHarness(unittest.TestCase):
             patch.start()
             self.addCleanup(patch.stop)
         self.addCleanup(self.tmp.cleanup)
-        distractions._timer_off_launched = False
+        distractions._timer_off_launched_for = None
         distractions.set_focus(True)
 
     def _notify(self, title, body="", **_kwargs):
@@ -137,6 +137,23 @@ class TimerDisableTests(TimerHarness):
         self.assertFalse(distractions.is_focus())
         self.assertIsNotNone(distractions.read_session_active())
 
+    def test_late_short_handoff_after_timer_is_noop(self):
+        self.seed_session("timer won")
+        distractions.disable_focus_timer()
+        self.assertFalse(distractions.is_focus())
+        distractions.disable_focus("too short")
+        self.assertIn("timer", self.log_text())
+        self.assertEqual(self.log_text().count("\n"), 1)
+        self.assertFalse(distractions.is_focus())
+
+    def test_timer_off_before_deadline_is_noop(self):
+        self.seed_session("not yet", past=False)
+        self.write_active("far future", datetime(2999, 1, 1, tzinfo=timezone.utc), "sess-2999")
+        distractions.disable_focus_timer()
+        self.assertTrue(distractions.is_focus())
+        self.assertEqual(self.log_text(), "")
+        self.assertIsNotNone(distractions.read_session_active())
+
 
 class TimerFireTests(TimerHarness):
     def test_listener_restart_future_deadline_does_not_fire_past_does(self):
@@ -155,10 +172,28 @@ class TimerFireTests(TimerHarness):
             distractions.maybe_fire_session_timer()
             self.assertEqual(spawned, [])
             self.assertTrue(distractions.is_focus())
-            distractions._timer_off_launched = False
+            distractions._timer_off_launched_for = None
             self.seed_session("overdue", past=True)
             distractions.maybe_fire_session_timer()
         self.assertEqual(spawned, ["timer-off"])
+        self.assertTrue(distractions.is_focus())
+
+    def test_consecutive_due_sessions_each_fire_timer(self):
+        spawned: list[str] = []
+
+        def fake_spawn():
+            spawned.append("timer-off")
+
+        with mock.patch.object(distractions, "spawn_focus_timer_off", fake_spawn):
+            self.write_active("first", self.wall_now() - timedelta(minutes=5), "sess-a")
+            distractions.maybe_fire_session_timer()
+            self.assertEqual(spawned, ["timer-off"])
+            distractions.set_focus(False)
+            distractions.maybe_fire_session_timer()
+            distractions.set_focus(True)
+            self.write_active("second", self.wall_now() - timedelta(minutes=1), "sess-b")
+            distractions.maybe_fire_session_timer()
+        self.assertEqual(spawned, ["timer-off", "timer-off"])
         self.assertTrue(distractions.is_focus())
 
     def test_missing_corrupt_truncated_does_not_timer_disable(self):
@@ -173,7 +208,7 @@ class TimerFireTests(TimerHarness):
         for case in cases:
             with self.subTest(case=case):
                 distractions.set_focus(True)
-                distractions._timer_off_launched = False
+                distractions._timer_off_launched_for = None
                 if path.exists():
                     path.unlink()
                 if case == "truncated":
