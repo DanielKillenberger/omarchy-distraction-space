@@ -1,0 +1,11 @@
+{
+  "id": "fn-3-focus-mode-agent-notification-summary.2",
+  "mode": "host",
+  "model": "gpt-5.6-sol-high",
+  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.2\n\nPrior finding #1: fixed\nPrior finding #2: fixed\nPrior finding #3: fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\nPrior finding #7: fixed\nPrior finding #8: fixed\nPrior finding #9: fixed\nPrior finding #10: fixed\nPrior finding #11: fixed\nPrior finding #12: fixed\nPrior finding #13: fixed\nPrior finding #14: fixed\nPrior finding #15: fixed\nPrior finding #16: fixed\nPrior finding #17: fixed\nPrior finding #18: fixed\nPrior finding #19: fixed\nPrior finding #20: fixed\nPrior finding #21: withdrawn\n\nNo blocking findings. Findings #19 and #20 are fixed; #21 reopens settled singleton behavior and is withdrawn.\n\nVerification passed:\n- `python3 -m py_compile distractions`\n- `python3 -m unittest tests.test_summary_session` \u2014 35 tests\n\n<verdict>SHIP</verdict>\n",
+  "session_id": null,
+  "spec": "host",
+  "timestamp": "2026-09-01T09:28:00Z",
+  "type": "impl_review",
+  "verdict": "SHIP"
+}

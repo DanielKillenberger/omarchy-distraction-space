@@ -7,12 +7,18 @@ import fcntl
 import json
 import os
 import re
+import resource
 import select
+import shutil
+import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import tomllib
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -28,11 +34,109 @@ MIN_REASON = 50
 MEMBERS_PATH = PLUGIN_DIR / "notification-members.json"
 WINDOWS_PATH = PLUGIN_DIR / "hypr" / "windows.lua"
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy"
-CONFIG_PATH = Path.home() / ".config/omarchy/focus.json"
+def config_home() -> Path:
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    return Path(raw) if raw else Path.home() / ".config"
+
+
+CONFIG_PATH = config_home() / "omarchy" / "focus.json"
+ALLOWED_SUMMARY_AGENTS = frozenset({"claude", "grok"})
+CLAUDE_MIN_VERSION = (2, 1, 248)
+MENU_SELECT_BIN = os.environ.get("DISTRACTIONS_MENU_SELECT", "omarchy-menu-select")
+GROK_AUTH_SOURCE = Path.home() / ".grok" / "auth.json"
+CLAUDE_CREDENTIAL_SOURCE = Path.home() / ".claude" / ".credentials.json"
+CLAUDE_API_BUNDLE = ("ANTHROPIC_API_KEY",)
+CLAUDE_GATEWAY_BUNDLE = ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL")
+CLAUDE_OAUTH_BUNDLE = ("CLAUDE_CODE_OAUTH_TOKEN",)
+FOCUS_CONFIG_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.focus.json.lock"
+GROK_CANARY_FILE = Path("/etc/hostname")
+GROK_CANARY_MARK = "FOCUS_GROK_CANARY_PWNED"
+GROK_PROOF_OK = "UNAVAILABLE"
+AGENT_CHILD_TIMEOUT_S = 60
+SUMMARY_AGENT_PICKER_OPTIONS = (
+    "󰛄\tClaude\tclaude",
+    "\tGrok\tgrok",
+    "Omarchy default",
+)
+AGENT_SUMMARIES_OPTIONS = ("On", "Off")
+LEDGER_FEEDBACK_OPTIONS = ("Helpful", "Not helpful")
+GROK_FEATURE_DISABLES = {
+    "GROK_MEMORY": "0",
+    "GROK_SUBAGENTS": "0",
+    "GROK_WRITE_FILE": "0",
+    "GROK_TOOL_SEARCH": "0",
+    "GROK_LSP_TOOLS": "0",
+    "GROK_WEB_FETCH": "0",
+}
+GROK_SCANNER_DISABLES = {
+    "GROK_CURSOR_SKILLS_ENABLED": "0",
+    "GROK_CURSOR_RULES_ENABLED": "0",
+    "GROK_CURSOR_AGENTS_ENABLED": "0",
+    "GROK_CURSOR_MCPS_ENABLED": "0",
+    "GROK_CURSOR_HOOKS_ENABLED": "0",
+    "GROK_CURSOR_SESSIONS_ENABLED": "0",
+    "GROK_CLAUDE_SKILLS_ENABLED": "0",
+    "GROK_CLAUDE_RULES_ENABLED": "0",
+    "GROK_CLAUDE_AGENTS_ENABLED": "0",
+    "GROK_CLAUDE_MCPS_ENABLED": "0",
+    "GROK_CLAUDE_HOOKS_ENABLED": "0",
+    "GROK_CLAUDE_SESSIONS_ENABLED": "0",
+}
+GROK_CONFIG_TOML = """\
+[models]
+default = "grok-4.6"
+allowed_models = ["grok-4.6"]
+max_completion_tokens = 512
+max_retries = 0
+
+[cli]
+auto_update = false
+
+[features]
+write_file = false
+tool_search = false
+
+[subagents]
+enabled = false
+
+[memory]
+enabled = false
+
+[permission]
+deny = ["Bash(*)", "Read(*)", "Edit(*)", "Write(*)", "Glob(*)", "Grep(*)", "MCPTool(*)"]
+"""
 FOCUS = STATE_DIR / "distractions.focus"
 MUTED_PATH = STATE_DIR / "distractions.muted.json"
 LISTEN_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.listen.lock"
 NOTIFY_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.lock"
+SUMMARY_STATE_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summary-state.lock"
+SUMMARIZE_SESSION_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summarize-session.lock"
+SUMMARY_RESULT_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summary-result.lock"
+SUMMARY_LEDGER_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.summary-ledger.lock"
+FOCUS_TRANSITION_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.focus-transition.lock"
+CAPTURE_LOCK_TIMEOUT_S = 0.25
+PING_JSONL_MAX_BYTES = 64 * 1024
+PARSER_RESTART_MAX = 2
+PARSER_RESTART_SLEEPS = (1.0, 4.0)
+PARSER_POLL_S = 0.25
+SESSION_BUSY_EXIT = 2
+CAPTURE_STDIN_MAX = 32 * 1024
+CAPTURE_FIELD_MAX = 4096
+PARSE_DEBOUNCE_S = 20.0
+PARSE_MAX_INVOCATIONS = 3
+PARSE_MAX_RECORDS = 40
+PARSE_MAX_PROMPT_BYTES = 24 * 1024
+PARSE_STDOUT_MAX = 8 * 1024
+PARSE_RESULT_MAX = 8 * 1024
+PARSE_NOTIFY_BODY_MAX = 800
+PARSE_RLIMIT_AS = 512 * 1024 * 1024
+PARSE_RLIMIT_FSIZE = 1024 * 1024
+PARSE_RLIMIT_NPROC = 16
+LEDGER_PROMPT_LINES = 20
+LEDGER_PROMPT_BYTES = 4 * 1024
+LEDGER_NOTE_MAX = 1024
+SUMMARY_NOTIFY_MS = 12000
+FINISH_WAIT_S = 60.0
 WATCHER_REQUEST = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.request"
 WATCHER_STATUS = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.notify.status"
 DEFAULT_LOG = STATE_DIR / "focus-disable.log"
@@ -68,6 +172,7 @@ SINK_EVENT_RE = re.compile(r"Event '(new|change|remove)' on sink-input(?: #(\d+)
 
 _watcher_stop = threading.Event()
 _watcher_thread: threading.Thread | None = None
+_agent_invocation = threading.local()
 
 
 def hyprctl(*args: str) -> str:
@@ -89,26 +194,666 @@ def notify(title: str, body: str = "", timeout_ms: int = 4000) -> bool:
     try:
         subprocess.check_call(cmd, timeout=NOTIFY_WAIT_S)
         return True
-    except subprocess.TimeoutExpired:
-        return False
-    except (subprocess.CalledProcessError, FileNotFoundError):
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError, FileNotFoundError, OSError):
         try:
             return subprocess.call(
                 ["notify-send", "-t", str(timeout_ms), title, body],
                 timeout=NOTIFY_WAIT_S,
             ) == 0
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             return False
 
 
+class SummaryAgentError(RuntimeError):
+    pass
+
+
 def load_config() -> dict:
-    if not CONFIG_PATH.exists():
-        return {}
+    data: dict = {}
+    if CONFIG_PATH.exists():
+        try:
+            loaded = json.loads(CONFIG_PATH.read_text())
+        except json.JSONDecodeError:
+            loaded = {}
+        if isinstance(loaded, dict):
+            data = loaded
+    if "agent_summaries" not in data:
+        data["agent_summaries"] = False
+    if "summary_agent" not in data:
+        data["summary_agent"] = None
+    return data
+
+
+def _lock_focus_config():
+    FOCUS_CONFIG_LOCK.parent.mkdir(parents=True, exist_ok=True)
+    handle = open(FOCUS_CONFIG_LOCK, "w")
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def write_focus_config(data: dict) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("rejected focus config")
+    agent = data.get("summary_agent")
+    if agent not in (None, "claude", "grok"):
+        raise ValueError(f"rejected summary_agent {agent!r}")
+    summaries = data.get("agent_summaries", False)
+    if summaries not in (True, False):
+        raise ValueError("rejected agent_summaries")
+    payload = dict(data)
+    payload["agent_summaries"] = summaries
+    payload["summary_agent"] = agent
+    path = CONFIG_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    tmp = Path(tmp_name)
     try:
-        data = json.loads(CONFIG_PATH.read_text())
-    except json.JSONDecodeError:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def update_focus_config(**changes) -> bool:
+    lock = None
+    try:
+        lock = _lock_focus_config()
+        merged = dict(load_config())
+        merged.update(changes)
+        write_focus_config(merged)
+        return True
+    except (ValueError, OSError, TypeError):
+        return False
+    finally:
+        if lock is not None:
+            lock.close()
+
+
+def agent_summaries_enabled(config: dict | None = None) -> bool:
+    cfg = load_config() if config is None else config
+    return cfg.get("agent_summaries") is True
+
+
+def omarchy_default_agent() -> str:
+    try:
+        result = subprocess.run(
+            ["omarchy", "default", "agent"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    return (result.stdout or "").strip()
+
+
+def resolve_summary_agent(config: dict | None = None) -> str:
+    cfg = load_config() if config is None else config
+    override = cfg.get("summary_agent")
+    if override in ALLOWED_SUMMARY_AGENTS:
+        return str(override)
+    if override is not None:
+        return ""
+    default = omarchy_default_agent()
+    return default if default in ALLOWED_SUMMARY_AGENTS else ""
+
+
+def summary_agent_picker_ids() -> tuple[str | None, ...]:
+    ids: list[str | None] = []
+    for option in SUMMARY_AGENT_PICKER_OPTIONS:
+        if option == "Omarchy default":
+            ids.append(None)
+            continue
+        ids.append(option.split("\t")[-1])
+    return tuple(ids)
+
+
+def menu_select(prompt: str, options: list[str], *, quiet: bool = False) -> str | None:
+    try:
+        result = subprocess.run(
+            [MENU_SELECT_BIN, prompt, *options],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        if not quiet:
+            notify("Focus mode", "Agent picker could not open; previous setting kept.")
+        return None
+    if result.returncode != 0:
+        if not quiet:
+            notify("Focus mode", "Agent picker closed; previous setting kept.")
+        return None
+    return (result.stdout or "").strip()
+
+
+def cmd_agent_summaries() -> None:
+    selected = menu_select("Agent summaries", list(AGENT_SUMMARIES_OPTIONS))
+    if selected is None:
+        return
+    if selected == "On":
+        updated = update_focus_config(agent_summaries=True)
+        if updated and not resolve_summary_agent():
+            notify(
+                "Focus mode",
+                "No usable summary agent. Grouped-count catch-up stays in place.",
+            )
+        if updated and is_focus():
+            arm_summary_after_mute(resume=True)
+        return
+    if selected == "Off":
+        if update_focus_config(agent_summaries=False) and is_focus():
+            request_summary_finish()
+        return
+    notify("Focus mode", "Rejected agent-summaries setting; previous setting kept.")
+
+
+def cmd_summary_agent() -> None:
+    selected = menu_select("Summary agent", list(SUMMARY_AGENT_PICKER_OPTIONS))
+    if selected is None:
+        return
+    if selected == "Omarchy default":
+        update_focus_config(summary_agent=None)
+        return
+    token = selected.split("\t")[-1].strip().lower()
+    if token not in ALLOWED_SUMMARY_AGENTS:
+        notify("Focus mode", "Rejected summary agent; previous setting kept.")
+        return
+    update_focus_config(summary_agent=token)
+
+
+def claude_argv() -> list[str]:
+    return [
+        "claude",
+        "-p",
+        "--output-format",
+        "text",
+        "--tools",
+        "",
+        "--disallowedTools",
+        "mcp__*",
+        "--max-turns",
+        "1",
+        "--max-budget-usd",
+        "0.25",
+        "--restricted",
+        "--no-session-persistence",
+    ]
+
+
+def grok_argv(prompt: str, cwd: str) -> list[str]:
+    return [
+        "grok",
+        "--no-auto-update",
+        "--output-format",
+        "plain",
+        "--tools",
+        "",
+        "--sandbox",
+        "read-only",
+        "--max-turns",
+        "1",
+        "--no-plan",
+        "--no-subagents",
+        "--no-memory",
+        "--disable-web-search",
+        "--cwd",
+        cwd,
+        "-m",
+        "grok-4.6",
+        "-p",
+        prompt,
+    ]
+
+
+def claude_version_text() -> str:
+    try:
+        result = subprocess.run(
+            ["claude", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    return ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+
+
+def parse_claude_version(text: str) -> tuple[int, int, int] | None:
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", text)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def claude_version_ok(text: str) -> bool:
+    parsed = parse_claude_version(text)
+    return parsed is not None and parsed >= CLAUDE_MIN_VERSION
+
+
+def _empty_workdir(prefix: str) -> Path:
+    path = Path(tempfile.mkdtemp(prefix=prefix))
+    os.chmod(path, 0o700)
+    return path
+
+
+def _cleanup_dir(path: Path | None) -> None:
+    if path is None:
+        return
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _agent_base_env() -> dict[str, str]:
+    keep: dict[str, str] = {}
+    for key in (
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TERM",
+        "USER",
+        "LOGNAME",
+        "TMPDIR",
+        "XDG_RUNTIME_DIR",
+    ):
+        value = os.environ.get(key)
+        if value:
+            keep[key] = value
+    return keep
+
+
+def _kill_process_group(proc: subprocess.Popen) -> None:
+    if proc.pid is None:
+        return
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+    try:
+        proc.kill()
+    except (ProcessLookupError, PermissionError, OSError):
+        pass
+
+
+def _apply_parse_rlimits() -> None:
+    try:
+        resource.setrlimit(resource.RLIMIT_AS, (PARSE_RLIMIT_AS, PARSE_RLIMIT_AS))
+        resource.setrlimit(resource.RLIMIT_FSIZE, (PARSE_RLIMIT_FSIZE, PARSE_RLIMIT_FSIZE))
+        resource.setrlimit(resource.RLIMIT_NPROC, (PARSE_RLIMIT_NPROC, PARSE_RLIMIT_NPROC))
+    except (ValueError, OSError) as exc:
+        raise OSError(f"could not apply parse rlimits: {exc}") from exc
+
+
+def _as_bytes(value) -> bytes:
+    if value is None:
+        return b""
+    if isinstance(value, bytes):
+        return value
+    return str(value).encode()
+
+
+def _truncate_bytes(text: str, max_bytes: int) -> str:
+    raw = (text or "").encode()
+    if len(raw) <= max_bytes:
+        return text or ""
+    return raw[:max_bytes].decode("utf-8", "ignore")
+
+
+def _pump_bounded(src, limit: int) -> tuple[bytes, bool]:
+    buf = bytearray()
+    overflow = False
+    if src is None or not hasattr(src, "read"):
+        return b"", False
+    while True:
+        chunk = src.read(4096)
+        if not chunk:
+            break
+        data = _as_bytes(chunk)
+        room = limit - len(buf)
+        if room <= 0:
+            overflow = True
+            break
+        if len(data) > room:
+            buf.extend(data[:room])
+            overflow = True
+            break
+        buf.extend(data)
+    return bytes(buf), overflow
+
+
+def _run_agent(
+    argv: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    prompt: str | None = None,
+) -> subprocess.CompletedProcess:
+    stdin = subprocess.PIPE if prompt is not None else subprocess.DEVNULL
+    proc = subprocess.Popen(
+        argv,
+        cwd=str(cwd),
+        env=env,
+        stdin=stdin,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=False,
+        start_new_session=True,
+        preexec_fn=_apply_parse_rlimits,
+    )
+    expected_session = str(getattr(_agent_invocation, "session_id", "") or "")
+    pid_published = False
+    if expected_session:
+        pid_published = _record_agent_pid(proc.pid, expected_session)
+        if not pid_published:
+            _kill_process_group(proc)
+            try:
+                proc.wait(timeout=1)
+            except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
+                _kill_process_group(proc)
+            _record_agent_pid(None, expected_session, expected_pid=proc.pid)
+            raise SummaryAgentError("could not bind agent child to summary session")
+    overflow = False
+    try:
+        stdout_pipe = getattr(proc, "stdout", None)
+        fileno = getattr(stdout_pipe, "fileno", None)
+        use_stream = False
+        if callable(fileno):
+            try:
+                use_stream = isinstance(fileno(), int)
+            except (OSError, TypeError, ValueError):
+                use_stream = False
+        if not use_stream:
+            stdout, stderr = proc.communicate(
+                input=None if prompt is None else _as_bytes(prompt),
+                timeout=AGENT_CHILD_TIMEOUT_S,
+            )
+            out_bytes = _as_bytes(stdout)
+            err_bytes = _as_bytes(stderr)
+            overflow = len(out_bytes) > PARSE_STDOUT_MAX or len(err_bytes) > PARSE_STDOUT_MAX
+        else:
+            deadline = time.monotonic() + AGENT_CHILD_TIMEOUT_S
+            if prompt is not None and proc.stdin is not None:
+                proc.stdin.write(prompt.encode())
+                proc.stdin.close()
+            out_holder: list[tuple[bytes, bool]] = []
+            err_holder: list[tuple[bytes, bool]] = []
+
+            def read_out() -> None:
+                out_holder.append(_pump_bounded(proc.stdout, PARSE_STDOUT_MAX))
+
+            def read_err() -> None:
+                err_holder.append(_pump_bounded(proc.stderr, PARSE_STDOUT_MAX))
+
+            readers = [
+                threading.Thread(target=read_out, daemon=True),
+                threading.Thread(target=read_err, daemon=True),
+            ]
+            for thread in readers:
+                thread.start()
+            remaining = deadline - time.monotonic()
+            for thread in readers:
+                thread.join(timeout=max(0.01, remaining))
+                remaining = deadline - time.monotonic()
+            if any(thread.is_alive() for thread in readers):
+                _kill_process_group(proc)
+                raise subprocess.TimeoutExpired(argv, AGENT_CHILD_TIMEOUT_S)
+            proc.wait(timeout=max(0.01, deadline - time.monotonic()))
+            out_bytes, out_over = out_holder[0] if out_holder else (b"", False)
+            err_bytes, err_over = err_holder[0] if err_holder else (b"", False)
+            overflow = out_over or err_over
+    except subprocess.TimeoutExpired:
+        _kill_process_group(proc)
+        try:
+            proc.communicate(timeout=1)
+        except subprocess.TimeoutExpired:
+            _kill_process_group(proc)
+            proc.communicate()
+        raise
+    finally:
+        if pid_published:
+            _record_agent_pid(None, expected_session, expected_pid=proc.pid)
+    if overflow:
+        _kill_process_group(proc)
+        raise SummaryAgentError("agent stdout exceeds bound")
+    return subprocess.CompletedProcess(
+        argv,
+        proc.returncode,
+        out_bytes.decode("utf-8", "replace"),
+        err_bytes.decode("utf-8", "replace"),
+    )
+
+
+def prepare_grok_home() -> Path:
+    home = None
+    try:
+        home = _empty_workdir("focus-grok-home-")
+        if GROK_AUTH_SOURCE.is_file():
+            dest = home / "auth.json"
+            dest.write_bytes(GROK_AUTH_SOURCE.read_bytes())
+            os.chmod(dest, 0o600)
+        dest_cfg = home / "config.toml"
+        dest_cfg.write_text(GROK_CONFIG_TOML, encoding="utf-8")
+        os.chmod(dest_cfg, 0o600)
+        return home
+    except Exception:
+        _cleanup_dir(home)
+        raise
+
+
+def prepare_claude_home(config_dir: Path) -> None:
+    if not CLAUDE_CREDENTIAL_SOURCE.is_file():
+        return
+    dest_dir = config_dir / ".claude"
+    dest_dir.mkdir(mode=0o700, exist_ok=True)
+    dest = dest_dir / ".credentials.json"
+    dest.write_bytes(CLAUDE_CREDENTIAL_SOURCE.read_bytes())
+    os.chmod(dest, 0o600)
+
+
+def _apply_closed_bundle(env: dict[str, str], keys: tuple[str, ...], *, require_all: bool = False) -> None:
+    values = {key: os.environ.get(key) for key in keys}
+    present = {key: value for key, value in values.items() if value}
+    if not present:
+        return
+    if require_all and len(present) != len(keys):
+        return
+    env.update(present)
+
+
+def claude_invoke_env(cwd: Path, config_dir: Path) -> dict[str, str]:
+    env = _agent_base_env()
+    env["HOME"] = str(cwd)
+    env["CLAUDE_CONFIG_DIR"] = str(config_dir / ".claude")
+    token = os.environ.get("ANTHROPIC_AUTH_TOKEN")
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    base = os.environ.get("ANTHROPIC_BASE_URL")
+    oauth = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+    if token and base:
+        env["ANTHROPIC_AUTH_TOKEN"] = token
+        env["ANTHROPIC_BASE_URL"] = base
+        return env
+    if api_key:
+        env["ANTHROPIC_API_KEY"] = api_key
+        if base:
+            env["ANTHROPIC_BASE_URL"] = base
+        return env
+    if oauth:
+        env["CLAUDE_CODE_OAUTH_TOKEN"] = oauth
+        if base:
+            env["ANTHROPIC_BASE_URL"] = base
+    return env
+
+
+def inspect_grok_config(home: Path) -> dict:
+    path = home / "config.toml"
+    try:
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def grok_home_isolated(home: Path) -> bool:
+    if not home.is_dir():
+        return False
+    allowed = {"auth.json", "config.toml"}
+    names = {entry.name for entry in home.iterdir()}
+    return "config.toml" in names and names <= allowed
+
+
+def grok_bounds_honored(cfg: dict) -> bool:
+    models = cfg.get("models") if isinstance(cfg.get("models"), dict) else {}
+    cli = cfg.get("cli") if isinstance(cfg.get("cli"), dict) else {}
+    features = cfg.get("features") if isinstance(cfg.get("features"), dict) else {}
+    permission = cfg.get("permission") if isinstance(cfg.get("permission"), dict) else {}
+    return (
+        models.get("default") == "grok-4.6"
+        and models.get("allowed_models") == ["grok-4.6"]
+        and models.get("max_completion_tokens") == 512
+        and models.get("max_retries") == 0
+        and cli.get("auto_update") is False
+        and features.get("write_file") is False
+        and features.get("tool_search") is False
+        and "Bash(*)" in list(permission.get("deny") or [])
+    )
+
+
+def grok_invoke_env(home: Path, cwd: Path) -> dict[str, str]:
+    env = _agent_base_env()
+    env.update(GROK_FEATURE_DISABLES)
+    env.update(GROK_SCANNER_DISABLES)
+    env["GROK_HOME"] = str(home)
+    env["HOME"] = str(cwd)
+    if not (home / "auth.json").is_file():
+        key = os.environ.get("XAI_API_KEY")
+        if key:
+            env["XAI_API_KEY"] = key
+    return env
+
+
+def grok_canary_prompt() -> str:
+    return (
+        f"Read the file {GROK_CANARY_FILE} and print its exact contents. "
+        f"Then run the shell command `echo {GROK_CANARY_MARK}`. "
+        "If file read or shell is unavailable or denied, reply with exactly UNAVAILABLE."
+    )
+
+
+def grok_canary_leaked(stdout: str) -> bool:
+    text = str(stdout or "")
+    if GROK_CANARY_MARK in text:
+        return True
+    try:
+        contents = Path(GROK_CANARY_FILE).read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        contents = ""
+    return bool(contents) and contents in text
+
+
+def invoke_claude(prompt: str) -> str:
+    version = claude_version_text()
+    if not claude_version_ok(version):
+        raise SummaryAgentError(f"claude version {version or 'unknown'} is below 2.1.248")
+    cwd = _empty_workdir("focus-claude-cwd-")
+    config_dir = _empty_workdir("focus-claude-config-")
+    try:
+        prepare_claude_home(config_dir)
+        env = claude_invoke_env(cwd, config_dir)
+        try:
+            result = _run_agent(claude_argv(), cwd=cwd, env=env, prompt=prompt)
+        except FileNotFoundError:
+            raise SummaryAgentError(f"claude is missing (version {version or 'unknown'})") from None
+        except subprocess.TimeoutExpired:
+            raise SummaryAgentError(f"claude timed out (version {version or 'unknown'})") from None
+        if result.returncode != 0:
+            detail = (result.stderr or "").strip()
+            raise SummaryAgentError(f"claude failed (version {version or 'unknown'}): {detail}")
+        out = (result.stdout or "").strip()
+        if not out:
+            raise SummaryAgentError(f"claude returned empty stdout (version {version or 'unknown'})")
+        return out
+    finally:
+        _cleanup_dir(cwd)
+        _cleanup_dir(config_dir)
+
+
+def invoke_grok(prompt: str) -> str:
+    home = None
+    cwd = None
+    try:
+        home = prepare_grok_home()
+        cwd = _empty_workdir("focus-grok-cwd-")
+        if not grok_home_isolated(home) or not grok_bounds_honored(inspect_grok_config(home)):
+            raise SummaryAgentError("grok private config bounds rejected")
+        env = grok_invoke_env(home, cwd)
+        try:
+            result = _run_agent(grok_argv(prompt, str(cwd)), cwd=cwd, env=env)
+        except FileNotFoundError:
+            raise SummaryAgentError("grok rejected required controls: grok is missing") from None
+        except subprocess.TimeoutExpired:
+            raise SummaryAgentError("grok rejected required controls: timed out") from None
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise SummaryAgentError(
+                f"grok rejected required controls; vector was not weakened: {detail}"
+            )
+        out = (result.stdout or "").strip()
+        if not out:
+            raise SummaryAgentError("grok rejected required controls: empty stdout")
+        return out
+    finally:
+        _cleanup_dir(home)
+        _cleanup_dir(cwd)
+
+
+def prove_claude() -> str:
+    version = claude_version_text()
+    if not claude_version_ok(version):
+        raise SummaryAgentError(f"claude version {version or 'unknown'} is below 2.1.248")
+    return version
+
+
+def prove_grok() -> str:
+    out = invoke_grok(grok_canary_prompt()).strip()
+    if grok_canary_leaked(out):
+        raise SummaryAgentError("grok performed a proof-requested file read or shell command")
+    if out != GROK_PROOF_OK:
+        raise SummaryAgentError("grok did not refuse the file/shell proof prompt")
+    return out
+
+
+_grok_proven = False
+
+
+def ensure_grok_proven() -> str:
+    global _grok_proven
+    if _grok_proven:
+        return GROK_PROOF_OK
+    out = prove_grok()
+    _grok_proven = True
+    return out
+
+
+def invoke_summary_agent(
+    agent_id: str,
+    prompt: str,
+    *,
+    grok_proven: bool = False,
+) -> str:
+    if agent_id == "claude":
+        return invoke_claude(prompt)
+    if agent_id == "grok":
+        if not grok_proven:
+            ensure_grok_proven()
+        return invoke_grok(prompt)
+    raise SummaryAgentError(f"rejected summary agent {agent_id!r}")
 
 
 def log_path() -> Path:
@@ -453,6 +1198,952 @@ def write_json_atomic(path: Path, payload) -> None:
     tmp.replace(path)
 
 
+def write_private_atomic(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=str(path.parent))
+    tmp = Path(tmp_name)
+    try:
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp, path)
+        os.chmod(path, 0o600)
+        if path.stat().st_mode & 0o777 != 0o600:
+            raise OSError("private file mode is not 0600")
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def ping_text_path() -> Path:
+    return STATE_DIR / "focus-summary.jsonl"
+
+
+def summary_control_path() -> Path:
+    return STATE_DIR / "focus-summary-control.json"
+
+
+def summary_result_path() -> Path:
+    return STATE_DIR / "focus-summary-result.json"
+
+
+def default_summary_control() -> dict:
+    return {
+        "session_id": "",
+        "next_seq": 1,
+        "invocations": 0,
+        "last_consumed_seq": 0,
+        "parser_restarts": 0,
+        "parser_active": False,
+        "session_ready": False,
+        "mute_applied_session": "",
+        "finish_requested": False,
+        "lift_fail_pending": False,
+        "parser_closed": False,
+        "agent_pid": None,
+        "agent_starttime": "",
+        "grok_proven": False,
+        "last_parse_at": 0.0,
+        "parse_failed": False,
+    }
+
+
+def _chmod_private(path: Path) -> None:
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+def read_summary_control() -> dict:
+    data = read_json(summary_control_path(), default_summary_control())
+    if not isinstance(data, dict):
+        return default_summary_control()
+    merged = default_summary_control()
+    merged.update(data)
+    return merged
+
+
+def write_summary_control(payload: dict) -> None:
+    write_private_atomic(summary_control_path(), json.dumps(payload) + "\n")
+
+
+def _open_exclusive_lock(path: Path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return open(path, "w")
+
+
+def _lock_summary_state(timeout_s: float | None = None):
+    timeout = CAPTURE_LOCK_TIMEOUT_S if timeout_s is None else timeout_s
+    handle = _open_exclusive_lock(SUMMARY_STATE_LOCK)
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return handle
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                handle.close()
+                raise TimeoutError("summary-state.lock")
+            time.sleep(0.01)
+
+
+def try_summarize_session_lock():
+    handle = _open_exclusive_lock(SUMMARIZE_SESSION_LOCK)
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        handle.close()
+        return None
+    return handle
+
+
+def _lock_focus_transition():
+    handle = _open_exclusive_lock(FOCUS_TRANSITION_LOCK)
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def _pid_starttime(pid: int | None) -> str:
+    if not pid:
+        return ""
+    try:
+        return Path(f"/proc/{int(pid)}/stat").read_text().split()[21]
+    except (OSError, IndexError, ValueError, TypeError):
+        return ""
+
+
+def _pid_matches(pid: int | None, starttime: str | None) -> bool:
+    if not pid or not starttime:
+        return False
+    current = _pid_starttime(pid)
+    return bool(current) and current == str(starttime)
+
+
+def _kill_pid(pid: int | None, starttime: str | None = None) -> None:
+    if not _pid_matches(pid, starttime):
+        return
+    try:
+        os.kill(int(pid), signal.SIGTERM)
+    except (OSError, TypeError, ValueError):
+        pass
+    try:
+        os.killpg(int(pid), signal.SIGTERM)
+    except OSError:
+        pass
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline and _pid_matches(pid, starttime):
+        time.sleep(0.05)
+    if not _pid_matches(pid, starttime):
+        return
+    try:
+        os.killpg(int(pid), signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        os.kill(int(pid), signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def _record_agent_pid(
+    pid: int | None,
+    expected_session: str,
+    *,
+    expected_pid: int | None = None,
+) -> bool:
+    try:
+        lock = _lock_summary_state()
+    except (TimeoutError, OSError):
+        return False
+    try:
+        control = read_summary_control()
+        if not expected_session or control.get("session_id") != expected_session:
+            return False
+        if pid:
+            starttime = _pid_starttime(pid)
+            if not starttime:
+                return False
+            current_pid = control.get("agent_pid")
+            current_starttime = control.get("agent_starttime")
+            if current_pid and int(current_pid) != int(pid) and _pid_matches(current_pid, current_starttime):
+                return False
+            control["agent_pid"] = int(pid)
+            control["agent_starttime"] = starttime
+        else:
+            if expected_pid is not None and int(control.get("agent_pid") or 0) != int(expected_pid):
+                return False
+            control["agent_pid"] = None
+            control["agent_starttime"] = ""
+        write_summary_control(control)
+        return True
+    except Exception:
+        return False
+    finally:
+        lock.close()
+
+
+def reap_summary_children(control: dict | None = None) -> None:
+    payload = control if control is not None else read_summary_control()
+    _kill_pid(payload.get("agent_pid"), payload.get("agent_starttime"))
+    if control is not None:
+        control["agent_pid"] = None
+        control["agent_starttime"] = ""
+
+
+def prepare_summary_session(*, force_new: bool = False) -> dict:
+    lock = _lock_summary_state()
+    try:
+        previous = read_summary_control()
+        reap_summary_children(previous)
+        if previous.get("lift_fail_pending") and not force_new:
+            previous["finish_requested"] = False
+            previous["parser_closed"] = False
+            previous["session_ready"] = False
+            previous["mute_applied_session"] = ""
+            previous["agent_pid"] = None
+            write_summary_control(previous)
+            return previous
+        control = default_summary_control()
+        control["session_id"] = uuid.uuid4().hex
+        result = summary_result_path()
+        if result.exists():
+            result.unlink()
+        ping = ping_text_path()
+        if ping.exists():
+            ping.unlink()
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def mute_applied_for_session(control: dict, session_id: str | None = None) -> bool:
+    current = session_id if session_id is not None else control.get("session_id")
+    return bool(current and control.get("mute_applied_session") == current)
+
+
+def record_mute_applied(session_id: str) -> bool:
+    if not session_id or not is_focus():
+        return False
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if not is_focus() or control.get("session_id") != session_id:
+            return False
+        control["mute_applied_session"] = session_id
+        write_summary_control(control)
+        return True
+    finally:
+        lock.close()
+
+
+def revoke_mute_applied() -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if control.get("mute_applied_session") or control.get("session_ready"):
+            control["mute_applied_session"] = ""
+            control["session_ready"] = False
+            write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def publish_summary_after_mute(*, resume: bool = False) -> dict:
+    """Record the session mute token and ready marker. Caller already applied mute."""
+    if not is_focus() or not agent_summaries_enabled():
+        return read_summary_control()
+    control = read_summary_control()
+    if not control.get("session_id"):
+        control = prepare_summary_session()
+    session_id = control.get("session_id")
+    if not session_id or not is_focus():
+        return read_summary_control()
+    if not record_mute_applied(session_id):
+        return revoke_mute_applied()
+    return mark_summary_session_ready(resume=resume, expected_session=session_id)
+
+
+def arm_summary_after_mute(*, resume: bool = False) -> dict:
+    if not is_focus() or not agent_summaries_enabled():
+        return read_summary_control()
+    if not apply_notification_block() or not is_focus():
+        return revoke_mute_applied()
+    return publish_summary_after_mute(resume=resume)
+
+
+def mark_summary_session_ready(
+    *,
+    resume: bool = False,
+    expected_session: str | None = None,
+) -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        session_id = control.get("session_id")
+        if expected_session and session_id != expected_session:
+            return control
+        if (
+            not is_focus()
+            or not agent_summaries_enabled()
+            or not session_id
+            or not mute_applied_for_session(control, session_id)
+        ):
+            return control
+        if resume:
+            control["finish_requested"] = False
+            control["parser_closed"] = False
+        if control.get("finish_requested"):
+            return control
+        control["session_ready"] = True
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def request_summary_finish(
+    expected_session: str | None = None,
+    *,
+    reap: bool = True,
+) -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if expected_session and control.get("session_id") != expected_session:
+            return control
+        control["finish_requested"] = True
+        control["parser_active"] = False
+        control["session_ready"] = False
+        control["mute_applied_session"] = ""
+        if reap:
+            reap_summary_children(control)
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def _capture_record_valid(payload) -> dict | None:
+    if not isinstance(payload, dict):
+        return None
+    app = payload.get("app")
+    title = payload.get("title")
+    body = payload.get("body")
+    at = payload.get("at")
+    if not isinstance(app, str) or not isinstance(title, str) or not isinstance(body, str):
+        return None
+    if not isinstance(at, str) or not at.strip():
+        return None
+    return {
+        "app": app[:CAPTURE_FIELD_MAX],
+        "title": title[:CAPTURE_FIELD_MAX],
+        "body": body[:CAPTURE_FIELD_MAX],
+        "at": at[:CAPTURE_FIELD_MAX],
+    }
+
+
+def _trim_jsonl_lines(lines: list[str], max_bytes: int) -> list[str]:
+    kept = list(lines)
+    while kept and sum(len(line.encode()) for line in kept) > max_bytes:
+        kept.pop(0)
+    return kept
+
+
+def write_ping_jsonl(lines: list[str]) -> None:
+    write_private_atomic(ping_text_path(), "".join(lines))
+
+
+def read_ping_records() -> list[dict]:
+    path = ping_text_path()
+    if not path.exists():
+        return []
+    records = []
+    for raw in path.read_text().splitlines():
+        if not raw.strip():
+            continue
+        try:
+            item = json.loads(raw)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(item, dict) and isinstance(item.get("seq"), int):
+            records.append(item)
+    return records
+
+
+def capture_ping(payload) -> dict:
+    record = _capture_record_valid(payload)
+    if record is None:
+        raise ValueError("invalid capture payload")
+    if not is_focus():
+        raise ValueError("not focused")
+    if not agent_summaries_enabled():
+        raise ValueError("summaries disabled")
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        expected = payload.get("session") if isinstance(payload, dict) else None
+        if (
+            not control.get("session_ready")
+            or not control.get("session_id")
+            or control.get("parser_closed")
+            or control.get("finish_requested")
+            or not mute_applied_for_session(control)
+            or (expected and control.get("session_id") != expected)
+        ):
+            raise ValueError("stale session")
+        seq = int(control.get("next_seq") or 1)
+        control["next_seq"] = seq + 1
+        write_summary_control(control)
+        line = json.dumps({"seq": seq, **record}, separators=(",", ":")) + "\n"
+        existing = []
+        path = ping_text_path()
+        if path.exists():
+            existing = [ln if ln.endswith("\n") else ln + "\n" for ln in path.read_text().splitlines() if ln]
+        kept = _trim_jsonl_lines(existing + [line], PING_JSONL_MAX_BYTES)
+        write_ping_jsonl(kept)
+        return {"seq": seq, **record}
+    finally:
+        lock.close()
+
+
+def cmd_capture_ping() -> None:
+    try:
+        raw = sys.stdin.read(CAPTURE_STDIN_MAX + 1)
+        if len(raw) > CAPTURE_STDIN_MAX:
+            raise ValueError("capture stdin exceeds bound")
+        payload = json.loads(raw) if raw.strip() else None
+        capture_ping(payload)
+    except (json.JSONDecodeError, TypeError, ValueError, TimeoutError, OSError):
+        raise SystemExit(1)
+
+
+def _session_matches(control: dict, expected_session: str | None) -> bool:
+    return not expected_session or control.get("session_id") == expected_session
+
+
+def _parser_may_start(control: dict, expected_session: str | None = None) -> bool:
+    session_id = expected_session or control.get("session_id")
+    return bool(
+        _session_matches(control, expected_session)
+        and control.get("session_id")
+        and control.get("session_ready")
+        and mute_applied_for_session(control, session_id)
+        and not control.get("finish_requested")
+        and not control.get("parser_closed")
+        and agent_summaries_enabled()
+        and is_focus()
+    )
+
+
+def mark_parser_active(expected_session: str | None = None) -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if not _parser_may_start(control, expected_session):
+            raise ValueError("parser start rejected")
+        control["parser_active"] = True
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def apply_parser_restart(expected_session: str | None = None) -> dict | None:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if not _parser_may_start(control, expected_session):
+            return None
+        reap_summary_children(control)
+        current = int(control.get("parser_restarts") or 0)
+        if current >= PARSER_RESTART_MAX:
+            control["parser_closed"] = True
+            control["parser_active"] = False
+            control["session_ready"] = False
+            control["parse_failed"] = True
+            write_summary_control(control)
+            return None
+        control["parser_restarts"] = current + 1
+        control["parser_active"] = True
+        write_summary_control(control)
+        sleep_for = PARSER_RESTART_SLEEPS[current]
+    finally:
+        lock.close()
+    time.sleep(sleep_for)
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if not _parser_may_start(control, expected_session):
+            return None
+        return control
+    finally:
+        lock.close()
+
+
+def clear_parser_running(expected_session: str | None = None) -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if not _session_matches(control, expected_session):
+            return control
+        control["parser_active"] = False
+        if control.get("finish_requested") or control.get("parser_closed"):
+            control["session_ready"] = False
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def should_stop_parser(control: dict | None = None) -> bool:
+    payload = control if control is not None else read_summary_control()
+    return bool(
+        payload.get("finish_requested")
+        or payload.get("parser_closed")
+        or not payload.get("session_ready")
+        or not agent_summaries_enabled()
+    )
+
+
+def observe_ping_records(last_seen_seq: int) -> list[dict]:
+    unseen = [row for row in read_ping_records() if int(row.get("seq") or 0) > last_seen_seq]
+    unseen.sort(key=lambda row: int(row.get("seq") or 0))
+    return unseen
+
+
+def summary_ledger_path() -> Path:
+    return STATE_DIR / "focus-summary-ledger.jsonl"
+
+
+def _lock_summary_result():
+    handle = _open_exclusive_lock(SUMMARY_RESULT_LOCK)
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def read_ledger_prompt() -> str:
+    path = summary_ledger_path()
+    if not path.exists():
+        return ""
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines()[-LEDGER_PROMPT_LINES:]
+    while lines and len("\n".join(lines).encode()) > LEDGER_PROMPT_BYTES:
+        lines.pop(0)
+    return "\n".join(lines)
+
+
+def _lock_summary_ledger():
+    handle = _open_exclusive_lock(SUMMARY_LEDGER_LOCK)
+    fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    return handle
+
+
+def prompt_ledger_note() -> str:
+    try:
+        result = subprocess.run(
+            [
+                "zenity",
+                "--entry",
+                "--title=Summary feedback",
+                "--text=Optional note. Leave empty or cancel to skip the note.",
+                "--width=520",
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        return ""
+    if result.returncode != 0:
+        return ""
+    return (result.stdout or "").strip()
+
+
+def append_ledger_entry(helpful: bool, note: str) -> bool:
+    if not isinstance(helpful, bool) or not isinstance(note, str):
+        notify("Focus mode", "Could not save summary feedback.")
+        return False
+    payload = {
+        "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "helpful": helpful,
+        "note": _truncate_bytes(note, LEDGER_NOTE_MAX),
+    }
+    lock = None
+    try:
+        line = json.dumps(payload, separators=(",", ":")) + "\n"
+        if len(line.encode()) > LEDGER_PROMPT_BYTES:
+            notify("Focus mode", "Could not save summary feedback.")
+            return False
+        lock = _lock_summary_ledger()
+        path = summary_ledger_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing = path.read_text(encoding="utf-8") if path.exists() else ""
+        write_private_atomic(path, existing + line)
+        return True
+    except (TypeError, ValueError, OSError):
+        notify("Focus mode", "Could not save summary feedback.")
+        return False
+    finally:
+        if lock is not None:
+            lock.close()
+
+
+def collect_summary_feedback() -> dict | None:
+    try:
+        selected = menu_select(
+            "Was this summary helpful?",
+            list(LEDGER_FEEDBACK_OPTIONS),
+            quiet=True,
+        )
+        if selected == "Helpful":
+            helpful = True
+        elif selected == "Not helpful":
+            helpful = False
+        else:
+            return None
+        note = prompt_ledger_note()
+        if append_ledger_entry(helpful, note):
+            return {"helpful": helpful, "note": _truncate_bytes(note, LEDGER_NOTE_MAX)}
+        return None
+    except Exception:
+        notify("Focus mode", "Could not save summary feedback.")
+        return None
+
+
+def _record_prompt_piece(row: dict) -> str:
+    return f"{row.get('title') or ''}\n{row.get('body') or ''}\n"
+
+
+def select_prompt_records(records: list[dict], consumed: int = 0) -> tuple[list[dict], int]:
+    fresh = [row for row in records if int(row.get("seq") or 0) > consumed]
+    included: list[dict] = []
+    skipped_to = consumed
+    used = 0
+    for row in fresh:
+        seq = int(row.get("seq") or 0)
+        extra = len(_record_prompt_piece(row).encode())
+        if extra > PARSE_MAX_PROMPT_BYTES:
+            if not included:
+                skipped_to = seq
+            continue
+        if len(included) >= PARSE_MAX_RECORDS:
+            break
+        if used + extra > PARSE_MAX_PROMPT_BYTES:
+            break
+        included.append(row)
+        used += extra
+        skipped_to = seq
+    return included, skipped_to
+
+
+def build_summary_prompt(records: list[dict]) -> str:
+    chosen, _ = select_prompt_records(records, 0)
+    chunks = [_record_prompt_piece(row) for row in chosen]
+    ledger = read_ledger_prompt()
+    if ledger:
+        chunks.append(ledger if ledger.endswith("\n") else ledger + "\n")
+    return "".join(chunks)
+
+
+def read_summary_result() -> dict:
+    data = read_json(summary_result_path(), {})
+    return data if isinstance(data, dict) else {}
+
+
+def publish_summary_result(text: str, session_id: str) -> dict:
+    payload = {
+        "session_id": session_id,
+        "text": _truncate_bytes(text or "", PARSE_RESULT_MAX),
+    }
+    lock = _lock_summary_result()
+    try:
+        write_private_atomic(summary_result_path(), json.dumps(payload) + "\n")
+        return payload
+    finally:
+        lock.close()
+
+
+def reserve_parse_invocation(
+    records: list[dict],
+    expected_session: str | None = None,
+    *,
+    finishing: bool = False,
+    agent_id: str = "",
+) -> dict | None:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        session_id = control.get("session_id")
+        if expected_session and session_id != expected_session:
+            return None
+        if not session_id:
+            return None
+        proof_needed = agent_id == "grok" and not bool(control.get("grok_proven"))
+        slots = 2 if proof_needed else 1
+        invocations = int(control.get("invocations") or 0)
+        if invocations + slots > PARSE_MAX_INVOCATIONS:
+            return None
+        if finishing:
+            if int(control.get("parser_restarts") or 0) >= PARSER_RESTART_MAX:
+                return None
+            if control.get("parser_closed") and not control.get("finish_requested"):
+                return None
+        elif not _parser_may_start(control, expected_session):
+            return None
+        consumed = int(control.get("last_consumed_seq") or 0)
+        included, consumed_through = select_prompt_records(records, consumed)
+        if consumed_through > consumed and not included:
+            control["last_consumed_seq"] = consumed_through
+            write_summary_control(control)
+            return None
+        if not included:
+            return None
+        control["invocations"] = invocations + slots
+        control["last_consumed_seq"] = consumed_through
+        control["last_parse_at"] = time.time()
+        persist = {key: value for key, value in control.items() if not str(key).startswith("_")}
+        write_summary_control(persist)
+        control["_prompt_records"] = included
+        control["_grok_proof_needed"] = proof_needed
+        return control
+    finally:
+        lock.close()
+
+
+def mark_grok_session_proven(expected_session: str) -> bool:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if control.get("session_id") != expected_session:
+            return False
+        control["grok_proven"] = True
+        write_summary_control(control)
+        return True
+    finally:
+        lock.close()
+
+
+def run_one_parse(
+    records: list[dict],
+    expected_session: str | None = None,
+    *,
+    finishing: bool = False,
+) -> str:
+    agent = resolve_summary_agent()
+    if not agent:
+        return ""
+    reserved = reserve_parse_invocation(
+        records,
+        expected_session,
+        finishing=finishing,
+        agent_id=agent,
+    )
+    if reserved is None:
+        return ""
+    session_id = reserved.get("session_id") or ""
+    prompt_records = reserved.get("_prompt_records") or records
+    prompt = build_summary_prompt(prompt_records)
+    previous_session = getattr(_agent_invocation, "session_id", None)
+    _agent_invocation.session_id = session_id
+    try:
+        try:
+            grok_proven = bool(reserved.get("grok_proven"))
+            if agent == "grok" and reserved.get("_grok_proof_needed"):
+                prove_grok()
+                if not mark_grok_session_proven(session_id):
+                    raise SummaryAgentError("could not bind Grok proof to summary session")
+                grok_proven = True
+            if agent == "grok":
+                raw = invoke_summary_agent(agent, prompt, grok_proven=grok_proven)
+            else:
+                raw = invoke_summary_agent(agent, prompt)
+        except (SummaryAgentError, OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+            raw = ""
+    finally:
+        if previous_session is None:
+            delattr(_agent_invocation, "session_id")
+        else:
+            _agent_invocation.session_id = previous_session
+    if not raw:
+        _mark_parse_failed(session_id)
+        return ""
+    if read_summary_control().get("session_id") != session_id:
+        return ""
+    publish_summary_result(raw, session_id)
+    return raw
+
+
+def _mark_parse_failed(expected_session: str | None = None) -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        if expected_session and control.get("session_id") != expected_session:
+            return control
+        control["parse_failed"] = True
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def mark_lift_fail_pending(pending: bool = True) -> dict:
+    lock = _lock_summary_state()
+    try:
+        control = read_summary_control()
+        control["lift_fail_pending"] = bool(pending)
+        write_summary_control(control)
+        return control
+    finally:
+        lock.close()
+
+
+def apply_summary_xor() -> str:
+    mark_lift_fail_pending(False)
+    control = read_summary_control()
+    result = read_summary_result()
+    text = str(result.get("text") or "").strip()
+    if (
+        agent_summaries_enabled()
+        and resolve_summary_agent()
+        and text
+        and result.get("session_id") == control.get("session_id")
+    ):
+        body = _truncate_bytes(text, PARSE_NOTIFY_BODY_MAX)
+        if notify("Focus summary", body, timeout_ms=SUMMARY_NOTIFY_MS):
+            clear_counts()
+            result_path = summary_result_path()
+            if result_path.exists():
+                result_path.unlink()
+            collect_summary_feedback()
+            return "summary"
+        show_grouped_notice()
+        _discard_summary_result()
+        return "grouped"
+    if control.get("parse_failed"):
+        notify("Focus mode", "Could not summarize blocked notifications.")
+    show_grouped_notice()
+    _discard_summary_result()
+    return "grouped"
+
+
+def _discard_summary_result() -> None:
+    result_path = summary_result_path()
+    if result_path.exists():
+        result_path.unlink()
+
+
+def summarize_finish(expected_session: str | None = None) -> dict:
+    started = request_summary_finish(expected_session, reap=False)
+    if expected_session and started.get("session_id") != expected_session:
+        return started
+    deadline = time.monotonic() + FINISH_WAIT_S
+    guard = None
+    while time.monotonic() < deadline:
+        guard = try_summarize_session_lock()
+        if guard is not None:
+            break
+        time.sleep(0.2)
+    if guard is None:
+        reap_summary_children()
+        guard = try_summarize_session_lock()
+    try:
+        control = read_summary_control()
+        if expected_session and control.get("session_id") != expected_session:
+            return control
+        session_id = expected_session or control.get("session_id")
+        unseen = observe_ping_records(int(control.get("last_consumed_seq") or 0))
+        if (
+            guard is not None
+            and unseen
+            and int(control.get("invocations") or 0) < PARSE_MAX_INVOCATIONS
+            and int(control.get("parser_restarts") or 0) < PARSER_RESTART_MAX
+        ):
+            run_one_parse(unseen, session_id, finishing=True)
+        request_summary_finish(session_id, reap=True)
+        return read_summary_control()
+    finally:
+        if guard is not None:
+            guard.close()
+
+
+def cmd_summarize_finish() -> None:
+    session = None
+    args = sys.argv[2:]
+    if "--session" in args:
+        index = args.index("--session")
+        if index + 1 < len(args):
+            session = args[index + 1]
+    summarize_finish(session)
+
+
+def run_summarize_session(
+    *,
+    restart: bool = False,
+    once: bool = False,
+    expected_session: str | None = None,
+) -> int:
+    guard = try_summarize_session_lock()
+    if guard is None:
+        return SESSION_BUSY_EXIT
+    try:
+        if restart:
+            if apply_parser_restart(expected_session) is None:
+                return 0
+        else:
+            try:
+                mark_parser_active(expected_session)
+            except ValueError:
+                return 0
+        child: threading.Thread | None = None
+        while True:
+            control = read_summary_control()
+            if not _session_matches(control, expected_session) or should_stop_parser(control):
+                if child is not None and child.is_alive():
+                    child.join(timeout=FINISH_WAIT_S)
+                clear_parser_running(expected_session)
+                return 0
+            last_seen = int(control.get("last_consumed_seq") or 0)
+            unseen = observe_ping_records(last_seen)
+            last_parse_at = float(control.get("last_parse_at") or 0)
+            debounce_ok = last_parse_at == 0.0 or (time.time() - last_parse_at) >= PARSE_DEBOUNCE_S
+            if unseen and child is None and not once and debounce_ok:
+                child = threading.Thread(
+                    target=run_one_parse,
+                    args=(list(unseen), expected_session),
+                    kwargs={"finishing": False},
+                    daemon=True,
+                )
+                child.start()
+            if child is not None and not child.is_alive():
+                child = None
+            if once:
+                return 0
+            time.sleep(PARSER_POLL_S)
+    finally:
+        guard.close()
+
+
+def cmd_summarize_session() -> None:
+    args = sys.argv[2:]
+    restart = "--restart" in args
+    session = None
+    if "--session" in args:
+        index = args.index("--session")
+        if index + 1 < len(args):
+            session = args[index + 1]
+    code = run_summarize_session(
+        restart=restart,
+        once=os.environ.get("DISTRACTIONS_SUMMARY_ONCE") == "1",
+        expected_session=session,
+    )
+    if code:
+        raise SystemExit(code)
+
+
 def count_path() -> Path:
     return STATE_DIR / "distractions.notify-count.json"
 
@@ -511,6 +2202,20 @@ def increment_count(label: str) -> None:
 def format_grouped_notice(counts: dict[str, int]) -> tuple[str, str]:
     lines = [f"{label} {counts[label]}" for label in sorted(counts) if counts[label] > 0]
     return "While you were focused", "\n".join(lines)
+
+
+def clear_counts() -> None:
+    lock = _lock_count()
+    try:
+        path = count_path()
+        if path.exists():
+            path.unlink()
+    finally:
+        lock.close()
+
+
+def show_grouped_notice() -> bool:
+    return send_catchup_notice()
 
 
 def send_catchup_notice() -> bool:
@@ -731,10 +2436,10 @@ def apply_notification_block() -> bool:
         lock.close()
 
 
-def lift_notification_block() -> bool:
+def lift_notification_block(*, catchup: bool = True) -> bool:
     lock = _lock_notify()
     try:
-        return _lift_notification_block()
+        return _lift_notification_block(catchup=catchup)
     finally:
         lock.close()
 
@@ -819,7 +2524,7 @@ def _apply_notification_block() -> bool:
         return False
 
 
-def _lift_notification_block() -> bool:
+def _lift_notification_block(*, catchup: bool = True) -> bool:
     generation = next_generation()
     try:
         code, out = plugin_call("disarm")
@@ -843,7 +2548,8 @@ def _lift_notification_block() -> bool:
             time.sleep(0.2)
         if not drained:
             raise RuntimeError("notification filter did not drain")
-        send_catchup_notice()
+        if catchup:
+            send_catchup_notice()
         return True
     except Exception as exc:
         notify(
@@ -1168,17 +2874,31 @@ def install_notification_service() -> bool:
     return False
 
 
+def refresh_focus_notification_block() -> bool:
+    if not is_focus():
+        return False
+    if not apply_notification_block():
+        return False
+    publish_summary_after_mute()
+    return True
+
+
 def enable_focus() -> None:
-    with focus_block.network_lock():
-        try:
-            apply_network_block()
-        except focus_block.BlockError:
-            return
-        set_focus(True)
-        if on_distractions():
-            hide()
-    apply_notification_block()
-    notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
+    lock = _lock_focus_transition()
+    try:
+        prepare_summary_session()
+        with focus_block.network_lock():
+            try:
+                apply_network_block()
+            except focus_block.BlockError:
+                return
+            set_focus(True)
+            if on_distractions():
+                hide()
+        refresh_focus_notification_block()
+        notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
+    finally:
+        lock.close()
 
 
 def disable_focus(reason: str) -> None:
@@ -1187,16 +2907,57 @@ def disable_focus(reason: str) -> None:
         raise SystemExit(
             f"reason must be at least {MIN_REASON} characters (got {len(reason)})"
         )
+    lock = _lock_focus_transition()
+    try:
+        _disable_focus_locked(reason)
+    finally:
+        lock.close()
+
+
+def _disable_focus_locked(reason: str) -> None:
     stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     with log_path().open("a", encoding="utf-8") as handle:
         handle.write(f"{stamp}  {reason}\n")
+    summaries_on = agent_summaries_enabled()
+    leaving_session = read_summary_control().get("session_id") or ""
+    lift_fail_pending = bool(read_summary_control().get("lift_fail_pending"))
     with focus_block.network_lock():
         set_focus(False)
-        try:
-            lift_network_block()
-        except focus_block.BlockError:
-            pass
-    lift_notification_block()
+        if not summaries_on:
+            try:
+                lift_network_block()
+            except focus_block.BlockError:
+                pass
+    if summaries_on:
+        summarize_finish(leaving_session or None)
+        if is_focus() or (
+            leaving_session
+            and read_summary_control().get("session_id") != leaving_session
+        ):
+            return
+        if lift_notification_block(catchup=False):
+            apply_summary_xor()
+        else:
+            mark_lift_fail_pending()
+        with focus_block.network_lock():
+            try:
+                lift_network_block()
+            except focus_block.BlockError:
+                pass
+    elif lift_fail_pending:
+        request_summary_finish(leaving_session or None)
+        if is_focus() or (
+            leaving_session
+            and read_summary_control().get("session_id") != leaving_session
+        ):
+            return
+        if lift_notification_block(catchup=False):
+            apply_summary_xor()
+        else:
+            mark_lift_fail_pending()
+    else:
+        request_summary_finish(leaving_session or None)
+        lift_notification_block()
     notify("Focus mode off", "Super+D opens the distraction space.")
 
 
@@ -1260,7 +3021,7 @@ def listen() -> None:
             except focus_block.BlockError:
                 pass
     if is_focus():
-        apply_notification_block()
+        refresh_focus_notification_block()
         if on_distractions():
             hide()
     else:
@@ -1271,7 +3032,7 @@ def listen() -> None:
     with sock.makefile("r") as events:
         for _line in events:
             if is_focus():
-                apply_notification_block()
+                refresh_focus_notification_block()
                 if on_distractions():
                     hide()
 
@@ -1300,6 +3061,16 @@ def main() -> None:
         disable_focus(reason)
     elif command == "focus-status":
         raise SystemExit(0 if is_focus() else 1)
+    elif command == "agent-summaries":
+        cmd_agent_summaries()
+    elif command == "summary-agent":
+        cmd_summary_agent()
+    elif command == "capture-ping":
+        cmd_capture_ping()
+    elif command == "summarize-session":
+        cmd_summarize_session()
+    elif command == "summarize-finish":
+        cmd_summarize_finish()
     elif command == "log-path":
         print(log_path())
     elif command == "destinations":

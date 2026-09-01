@@ -1,0 +1,240 @@
+{
+  "findings": {
+    "backend": "host",
+    "headSha": "0626bdfc20633d32d925d9335c9af145561d9dff",
+    "items": [
+      {
+        "body": "`invoke_claude()` replaces `HOME` with an empty directory while `_agent_base_env()` removes `ANTHROPIC_API_KEY`, OAuth tokens, and related variables. On Omarchy/Linux, Claude credentials normally live in `~/.claude/.credentials.json`, so an already authenticated Claude installation cannot authenticate. The mocked test does not exercise this.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "id": "finding-9fee359c4f78e1f0f3697fec30e56f4a",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 1,
+        "rIds": [
+          "R5",
+          "R11"
+        ],
+        "severity": "P1",
+        "status": "fixed",
+        "suggestion": "Use a private Claude config directory containing only copied credentials, or pass through supported authentication variables while retaining the empty working directory and no-session controls.",
+        "title": "`invoke_claude()` replaces `HOME` with an empty directory while `_agent_base_env()` removes `ANTHROPIC_API_KEY`, OAuth tokens, and related variables"
+      },
+      {
+        "body": "`invoke_summary_agent()` calls `invoke_grok()` directly, bypassing `prove_grok()`. Moreover, `prove_grok()` accepts any response lacking the exact hostname and marker\u2014even \u201cI completed both operations\u201d\u2014rather than requiring refusal. Configuration validation only reparses the file just written; it does not inspect effective Grok configuration, including higher-priority system requirements. Thus tool access and 512-token/zero-retry enforcement are not proven.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "id": "finding-b90c8cb09c4ad02be1e41dc66ef9112c",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 2,
+        "rIds": [
+          "R11"
+        ],
+        "severity": "P1",
+        "status": "fixed",
+        "suggestion": "Gate Grok use on validation of its effective configuration in the same isolated environment, execute the canary, and require an explicit refusal such as exactly `UNAVAILABLE`.",
+        "title": "`invoke_summary_agent()` calls `invoke_grok()` directly, bypassing `prove_grok()`"
+      },
+      {
+        "body": "Stored Linux credentials and three token variables are now supported, but associated authentication configuration is discarded. For example, `ANTHROPIC_AUTH_TOKEN` is preserved while `ANTHROPIC_BASE_URL` is removed, potentially sending a gateway token to the default endpoint. Bedrock, Vertex, Foundry, profiles, federation, and credential-helper authentication are also unusable.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "id": "finding-cbb4ff586c46785cbad4f2c8f55fec19",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 7,
+        "rIds": [
+          "R5",
+          "R11"
+        ],
+        "severity": "P1",
+        "status": "fixed",
+        "suggestion": "Forward complete, closed authentication bundles\u2014including their endpoint/provider selectors\u2014or fail unsupported authentication modes without forwarding partial credentials.",
+        "title": "Stored Linux credentials and three token variables are now supported, but associated authentication configuration is discarded"
+      },
+      {
+        "body": "Invocation now requires the canary\u2019s exact refusal, but `grok_bounds_honored()` only reparses the TOML the plugin itself wrote. It does not establish that the installed Grok loaded or honored `max_completion_tokens = 512` and `max_retries = 0`. The canary only exercises file/shell access.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "id": "finding-279c9ac9a6d3c7f75adffea110c7bc2c",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 8,
+        "rIds": [
+          "R11"
+        ],
+        "severity": "P1",
+        "status": "withdrawn",
+        "suggestion": "Validate effective settings through a Grok-supported capability or observable request metadata, and fail closed when the installed version cannot prove both bounds.",
+        "title": "Invocation now requires the canary\u2019s exact refusal, but `grok_bounds_honored()` only reparses the TOML the plugin itself wrote"
+      },
+      {
+        "body": "`ANTHROPIC_API_KEY` is always forwarded independently, while `ANTHROPIC_BASE_URL` is forwarded only with `ANTHROPIC_AUTH_TOKEN`. Claude officially supports API-key gateways using `ANTHROPIC_API_KEY` plus `ANTHROPIC_BASE_URL`. For that configuration, the child receives the gateway key without its URL; print mode then sends it to Anthropic\u2019s default endpoint.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-9b4a22068ede8e727c788f8b18ce78fefbb8ee0e746947cb9c9cb93ae1e53f24",
+        "id": "finding-11f1abb8d6d59c25cc408fc8a126a720",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 12,
+        "rIds": [
+          "R5",
+          "R11"
+        ],
+        "severity": "P1",
+        "status": "fixed",
+        "suggestion": "Select one complete authentication route. When `ANTHROPIC_BASE_URL` is present, forward it only with exactly one supported gateway credential\u2014API key or auth token. Fail closed for incomplete or unsupported provider bundles.",
+        "title": "`ANTHROPIC_API_KEY` is always forwarded independently, while `ANTHROPIC_BASE_URL` is forwarded only with `ANTHROPIC_AUTH_TOKEN`"
+      },
+      {
+        "body": "An incomplete `ANTHROPIC_AUTH_TOKEN` route returned immediately. If a valid API key or OAuth token was also present, neither fallback was forwarded.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "id": "finding-e4bfb1ef70662f55cc6ead03e9f20bfd",
+        "lastSeenReceiptId": "review-2f9ba3c900d74387b2fa144b9d6f69f2",
+        "ordinal": 13,
+        "rIds": [
+          "R5",
+          "R11"
+        ],
+        "severity": "P1",
+        "status": "fixed",
+        "suggestion": "Return from the token branch only when both token and base URL exist; otherwise continue to API-key and OAuth selection.",
+        "title": "An incomplete `ANTHROPIC_AUTH_TOKEN` route returned immediately"
+      },
+      {
+        "body": "`start_new_session=True` creates a process group, but `subprocess.run(..., timeout=...)` kills only the direct process. Descendants can survive, continue consuming resources, or keep captured pipes open and prevent timeout cleanup.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "id": "finding-455deec1055974072d9f7de462473d80",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 3,
+        "rIds": [
+          "R11"
+        ],
+        "severity": "P2",
+        "status": "fixed",
+        "suggestion": "Use `Popen`, and on timeout explicitly kill the process group with `os.killpg()`, then drain and wait for it.",
+        "title": "`start_new_session=True` creates a process group, but `subprocess"
+      },
+      {
+        "body": "`summary_agent=\"\"` falls through to Omarchy-default resolution. The contract permits only null, `claude`, or `grok`; every other value must resolve unusable. This can send notifications to the default agent despite a malformed override.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "id": "finding-96e28a96f2fa237f557b3f3eec777a20",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 4,
+        "rIds": [
+          "R7",
+          "R8"
+        ],
+        "severity": "P2",
+        "status": "fixed",
+        "suggestion": "Resolve the default only when `override is None`; reject the empty string like every other unsupported value.",
+        "title": "`summary_agent=\"\"` falls through to Omarchy-default resolution"
+      },
+      {
+        "body": "If copying/chmodding `auth.json` or writing `config.toml` fails, `prepare_grok_home()` raises before returning the path. The caller still has `home=None`, so its `finally` cannot remove the partially prepared directory and copied credentials.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "id": "finding-4fba17c52c904a1c1a2d3eb44437af2b",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 6,
+        "rIds": [
+          "R11"
+        ],
+        "severity": "P2",
+        "status": "fixed",
+        "suggestion": "Wrap preparation internally and remove `home` on every exception before re-raising.",
+        "title": "If copying/chmodding `auth"
+      },
+      {
+        "body": "`prepare_claude_home(cwd)` places `.claude/.credentials.json` inside the directory subsequently used as the agent\u2019s working directory. This violates the dedicated-empty-cwd requirement and puts credentials directly beneath the agent cwd.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "id": "finding-4131b0deb634e2d119c86c5bd3eeca72",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 9,
+        "rIds": [
+          "R11"
+        ],
+        "severity": "P2",
+        "status": "fixed",
+        "suggestion": "Use separate temporary directories for the empty cwd and private Claude configuration.",
+        "title": "`prepare_claude_home(cwd)` places `"
+      },
+      {
+        "body": "Unique temporary files fixed the prior collision, but `update_focus_config()` still performs an unlocked read-modify-write. Concurrent picker processes can lose one another\u2019s changes. A stale summary-agent update can restore `agent_summaries: true` after another process writes `Off`.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "id": "finding-c2324c40d711c1eadfa501991d654288",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 10,
+        "rIds": [
+          "R5",
+          "R8",
+          "R13"
+        ],
+        "severity": "P2",
+        "status": "fixed",
+        "suggestion": "Lock the complete load/merge/validate/replace transaction.",
+        "title": "Unique temporary files fixed the prior collision, but `update_focus_config()` still performs an unlocked read-modify-write"
+      },
+      {
+        "body": "`menu_select()` catches only `FileNotFoundError`. Other launch failures such as `PermissionError` or executable-format errors propagate and terminate without notifying the user.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-18ec69400544281578e75b0b903f71bc733936d00b8423168ba2abed20699936",
+        "id": "finding-68af507bbd801b6ba69d94129628e21b",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 11,
+        "rIds": [
+          "R12"
+        ],
+        "severity": "P2",
+        "status": "fixed",
+        "suggestion": "Catch `OSError` for picker launch failures and retain the existing notification behavior.",
+        "title": "`menu_select()` catches only `FileNotFoundError`"
+      },
+      {
+        "body": "All writers use `focus.json.tmp`. Concurrent commands can open the same inode, overwrite one another, leave trailing bytes, or make one rename fail after the other moves the shared file. The resulting object need not match either requested update.",
+        "classification": "introduced",
+        "confidence": 75,
+        "firstSeenReceiptId": "review-e15ac96a782bd8545e87b6c15746fb60c36e3312065164142b4cba097a1980da",
+        "id": "finding-3e9cb48767ac21d315add1459ac88c32",
+        "lastSeenReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8",
+        "ordinal": 5,
+        "rIds": [
+          "R5",
+          "R8"
+        ],
+        "severity": "P2",
+        "status": "fixed",
+        "suggestion": "Create a unique temporary file in the destination directory, fsync it, rename it atomically, and clean it up on failure.",
+        "title": "All writers use `focus"
+      }
+    ],
+    "reviewKind": "implementation",
+    "round": 5,
+    "schemaVersion": 1,
+    "sourceReceiptId": "review-2f9ba3c900d74387b2fa144b9d6f69f2",
+    "supersedesReceiptId": "review-bfca00f61175bc73ed33a30ce00194b9677b9235e1164d1924006eab90fc9ea8"
+  },
+  "id": "fn-3-focus-mode-agent-notification-summary.1",
+  "mode": "host",
+  "model": "gpt-5.6-sol-high",
+  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.1 (round 5)\n\n<verdict>SHIP</verdict>\n\nThe exclusive flock wraps every `focus.json` load/merge/write, including picker and `--set` paths. Claude isolation keeps empty cwd and private `CLAUDE_CONFIG_DIR` separate, copies only `.credentials.json`, and uses one complete auth route with incomplete `ANTHROPIC_AUTH_TOKEN` (no `ANTHROPIC_BASE_URL`) falling through. Grok home is private 0700, `auth.json` 0600, and contains only `auth.json` plus the controlled `config.toml`. `invoke_summary_agent(\"grok\")` proves once via `_grok_proven`. `Popen` + `start_new_session` + `os.killpg` covers the timeout path.\n\nNo remaining findings against task `.1` acceptance, Touches, or R5/R7/R8/R11/R12/R13.\n",
+  "review_reservation_id": "2f9ba3c900d74387b2fa144b9d6f69f2",
+  "session_id": null,
+  "spec": "host",
+  "timestamp": "2026-09-01T08:25:05Z",
+  "type": "impl_review",
+  "verdict": "SHIP",
+  "backend": "host"
+}

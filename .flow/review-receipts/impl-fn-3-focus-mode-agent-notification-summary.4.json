@@ -1,0 +1,21 @@
+{
+  "findings": {
+    "backend": "host",
+    "headSha": "e398cb158c869b9fc8dced16f4eafad12928874a",
+    "items": [],
+    "reviewKind": "implementation",
+    "round": 1,
+    "schemaVersion": 1,
+    "sourceReceiptId": "review-c8adcf4732e7fed0c5bcde4316419cb8860e17f20e8e20b2a23bf4901a3a727d"
+  },
+  "id": "fn-3-focus-mode-agent-notification-summary.4",
+  "mode": "host",
+  "model": "gpt-5.6-sol-high",
+  "review": "Prior findings: all fixed\n\n## Findings\nNone.\n\nR9 and R10 are addressed. Both authorized verification commands pass.\n\n<verdict>SHIP</verdict>\n",
+  "review_reservation_id": "fa83d093244d445783237a76ce9ac461",
+  "session_id": null,
+  "spec": "host",
+  "timestamp": "2026-09-01T10:01:00Z",
+  "type": "impl_review",
+  "verdict": "SHIP"
+}

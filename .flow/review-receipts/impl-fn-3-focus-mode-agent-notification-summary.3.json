@@ -1,0 +1,21 @@
+{
+  "findings": {
+    "backend": "host",
+    "headSha": "195930b42d33e29a35475c93a85e43644fb2647e",
+    "items": [],
+    "reviewKind": "implementation",
+    "round": 1,
+    "schemaVersion": 1,
+    "sourceReceiptId": "review-3428f522e0b179b8197f24c8e2513708ed9329c77ad6ab24ee0890e02562758a"
+  },
+  "id": "fn-3-focus-mode-agent-notification-summary.3",
+  "mode": "host",
+  "model": "gpt-5.6-sol-high",
+  "review": "Prior findings: all fixed\n\nNo surviving findings. The transition lock serializes complete focus enable/disable paths.\n\nVerification passed:\n- `python3 -m py_compile distractions`\n- `python3 -m unittest tests.test_summary_parse` \u2014 34 tests\n\n<verdict>SHIP</verdict>\n",
+  "review_reservation_id": "31d05c897d37410cba95d2e815ccc8c7",
+  "session_id": null,
+  "spec": "host",
+  "timestamp": "2026-09-01T09:52:55Z",
+  "type": "impl_review",
+  "verdict": "SHIP"
+}

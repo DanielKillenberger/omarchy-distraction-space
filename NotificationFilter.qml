@@ -229,6 +229,7 @@ Item {
     var row = root.notifications.popupModel.get(idx)
     if (!row || !memberLabelFor(row))
       return
+    pingCapture.enqueueMemberToast(row)
     if (root.notifications.isRestoredRow(row)) {
       root.pendingOps += 1
       root.restoredQueue = root.restoredQueue.concat([{
@@ -474,6 +475,11 @@ Item {
         return
       root.enqueueObserved(row.originalId, row.timestamp)
     }
+  }
+
+  PingCapture {
+    id: pingCapture
+    host: root
   }
 
   IpcHandler {
