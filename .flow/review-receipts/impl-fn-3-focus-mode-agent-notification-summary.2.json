@@ -1,7 +1,7 @@
 {
   "findings": {
     "backend": "host",
-    "headSha": "6bda85a4898ddf23609b4e73a5a5fb98fb960528",
+    "headSha": "4d99e20279373b9298a5e68ccf1bba375aa23e5a",
     "items": [
       {
         "body": "Parser launches are not bound to `sessionId`; the property is never passed to Python. A delayed launch/restart can increment or clear a newer session\u2019s state, especially across the 1s/4s backoff.",
@@ -9,7 +9,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-a30b68640495786bf9d974ce27b6ba0d",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 1,
         "rIds": [
           "R1"
@@ -25,7 +25,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-cb799c9f971f35ece3f495e97e695121",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 2,
         "rIds": [
           "R1"
@@ -41,7 +41,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-69f5b6cb018bd6644dd47199735710b7",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 3,
         "rIds": [
           "R1",
@@ -58,7 +58,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-122d6f22a37ba046a061d5a4ac1c33de",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 4,
         "rIds": [
           "R14"
@@ -74,7 +74,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-9f6dd5e87d0585006817f1de018345d1",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 5,
         "rIds": [
           "R14"
@@ -90,7 +90,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-0c04942213353bfc13dd49dfb5f6c953",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 10,
         "rIds": [
           "R1"
@@ -106,7 +106,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-04cec60fee1278e27bc7366a9e0c4d76",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 11,
         "rIds": [
           "R1"
@@ -122,7 +122,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-227b7a322495da2e68a6576686c4587c",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 12,
         "rIds": [
           "R1"
@@ -138,7 +138,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-c212712bbf6ee4f3fcdb90fe50a1bf0f",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 13,
         "rIds": [
           "R1",
@@ -155,13 +155,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "id": "finding-03ca1ea8c8ba0c3f8b7445feff117108",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 15,
         "rIds": [
           "R1"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Bind ready publication to the expected session and, under the state lock, require focus still on, summaries enabled, and finish not requested unless this is an explicit resume.",
         "title": "After the initial `is_focus()` check, `_apply_notification_block()` returns True without muting when focus has become off"
       },
@@ -171,13 +171,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "id": "finding-7ced3016137441de2ec599a6bb013b3f",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 16,
         "rIds": [
           "R14"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Stop queued/in-flight capture when readiness is lost and pass the enqueue-time session ID to `capture-ping`.",
         "title": "Finish does not clear `captureQueue`, and `capture-ping` receives no expected session"
       },
@@ -187,15 +187,32 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "id": "finding-e36dd870a35e4fe72be2d59d609970ce",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 17,
         "rIds": [
           "R1"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Track the launched process session and reset ownership on session changes.",
         "title": "An old-session parser exit can start the current session as `--restart`"
+      },
+      {
+        "body": "If `disable_focus()` sets `finish_requested` before flipping the focus flag, concurrent mid-session enable can `resume=True` and republish ready.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "id": "finding-8a3ce370736ee8edf4520650912cf5b8",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+        "ordinal": 18,
+        "rIds": [
+          "R1",
+          "R14"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Flip focus off before requesting finish, and never let resume clear a finish that belongs to an in-progress leave.",
+        "title": "If `disable_focus()` sets `finish_requested` before flipping the focus flag, concurrent mid-session enable can `resume=True` and republish ready"
       },
       {
         "body": "Clean reset overwrites the old control object before reaping `agent_pid`; consequently the old child is never signalled.",
@@ -203,7 +220,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-c091536a034bd7c06f7e418f5bc03f96",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 6,
         "rIds": [
           "R1"
@@ -219,7 +236,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-2814d8feca16a692ee623032f0bb1ee2",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 7,
         "rIds": [
           "R2"
@@ -235,7 +252,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-f2735134ac8fae61c86cfc17c1b9ff90",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 8,
         "rIds": [
           "R14"
@@ -251,7 +268,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-1fe5000811e5145d181499ff8b5c36e4",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 9,
         "rIds": [
           "R1",
@@ -268,7 +285,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-2fd6cc6dc5db1df3144a2284e55d4654",
-        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "lastSeenReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
         "ordinal": 14,
         "rIds": [
           "R14"
@@ -280,19 +297,19 @@
       }
     ],
     "reviewKind": "implementation",
-    "round": 3,
+    "round": 4,
     "schemaVersion": 1,
-    "sourceReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
-    "supersedesReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304"
+    "sourceReceiptId": "review-dadb4b83d0ea357ca40c5fb6f5a625af796abdf8193e9fd1eb6a2a873eebb730",
+    "supersedesReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94"
   },
   "id": "fn-3-focus-mode-agent-notification-summary.2",
   "mode": "host",
   "model": "gpt-5.6-sol-high",
-  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.2 (round 3)\n\nPrior finding #1: fixed\nPrior finding #2: fixed\nPrior finding #3: fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\nPrior finding #7: fixed\nPrior finding #8: fixed\nPrior finding #9: fixed\nPrior finding #10: fixed\nPrior finding #11: fixed\nPrior finding #12: fixed\nPrior finding #13: not-fixed\nPrior finding #14: fixed\n\n## Findings\n\n### 1. Ready publication can follow a no-op mute after focus-off\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:325`\n- **R-IDs**: `[R1]`\n- **Problem**: After the initial `is_focus()` check, `_apply_notification_block()` returns True without muting when focus has become off. `arm_summary_after_mute()` then republishes ready.\n- **Suggestion**: Bind ready publication to the expected session and, under the state lock, require focus still on, summaries enabled, and finish not requested unless this is an explicit resume.\n\n### 2. Capture jobs are not session-bound\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:52`\n- **R-IDs**: `[R14]`\n- **Problem**: Finish does not clear `captureQueue`, and `capture-ping` receives no expected session. Queued session-A toasts can append to session B.\n- **Suggestion**: Stop queued/in-flight capture when readiness is lost and pass the enqueue-time session ID to `capture-ping`.\n\n### 3. parserOwned is not reset on session change\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:122`\n- **R-IDs**: `[R1]`\n- **Problem**: An old-session parser exit can start the current session as `--restart`.\n- **Suggestion**: Track the launched process session and reset ownership on session changes.\n\nUnaddressed R-IDs: R1, R14\n<verdict>NEEDS_WORK</verdict>\n",
-  "review_reservation_id": "d85135fca2c74dfdb183cec6e1711508",
+  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.2 (round 4)\n\nPrior finding #1: fixed\nPrior finding #2: fixed\nPrior finding #3: fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\nPrior finding #7: fixed\nPrior finding #8: fixed\nPrior finding #9: fixed\nPrior finding #10: fixed\nPrior finding #11: fixed\nPrior finding #12: fixed\nPrior finding #13: not-fixed\nPrior finding #14: fixed\nPrior finding #15: fixed\nPrior finding #16: fixed\nPrior finding #17: fixed\n\n## Findings\n\n### 1. Resume can clear an in-progress focus-off finish\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1215`\n- **R-IDs**: `[R1, R14]`\n- **Problem**: If `disable_focus()` sets `finish_requested` before flipping the focus flag, concurrent mid-session enable can `resume=True` and republish ready.\n- **Suggestion**: Flip focus off before requesting finish, and never let resume clear a finish that belongs to an in-progress leave.\n\nUnaddressed R-IDs: R1, R14\n<verdict>NEEDS_WORK</verdict>\n",
+  "review_reservation_id": "028cd6ebc9134518a267648f939b7df0",
   "session_id": null,
   "spec": "host",
-  "timestamp": "2026-09-01T08:48:09Z",
+  "timestamp": "2026-09-01T08:51:54Z",
   "type": "impl_review",
   "verdict": "NEEDS_WORK"
 }

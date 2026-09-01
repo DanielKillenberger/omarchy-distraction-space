@@ -370,6 +370,31 @@ class ReviewFixTests(SessionHarness):
         self.assertTrue(distractions.read_summary_control()["finish_requested"])
         self.assertFalse(distractions.read_summary_control()["parser_active"])
 
+    def test_disable_flips_focus_before_finish(self):
+        self.ready_session()
+        order: list[str] = []
+        real_set = distractions.set_focus
+        real_finish = distractions.request_summary_finish
+
+        def track_set(value):
+            order.append("flag")
+            return real_set(value)
+
+        def track_finish():
+            order.append("finish")
+            self.assertFalse(distractions.is_focus())
+            return real_finish()
+
+        with mock.patch.object(distractions, "set_focus", track_set):
+            with mock.patch.object(distractions, "request_summary_finish", track_finish):
+                with mock.patch.object(distractions, "log_path", return_value=self.state / "log"):
+                    with mock.patch.object(distractions, "on_distractions", return_value=False):
+                        with mock.patch.object(distractions, "lift_network_block"):
+                            with mock.patch.object(distractions, "lift_notification_block", return_value=True):
+                                distractions.disable_focus("x" * 50)
+        self.assertEqual(order, ["flag", "finish"])
+        self.assertFalse(distractions.arm_summary_after_mute(resume=True)["session_ready"])
+
     def test_ready_requires_focus_and_capture_requires_session(self):
         self.ready_session(session_ready=False, finish_requested=True)
         distractions.set_focus(False)

@@ -2211,13 +2211,13 @@ def disable_focus(reason: str) -> None:
     stamp = datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
     with log_path().open("a", encoding="utf-8") as handle:
         handle.write(f"{stamp}  {reason}\n")
-    request_summary_finish()
     with focus_block.network_lock():
         set_focus(False)
         try:
             lift_network_block()
         except focus_block.BlockError:
             pass
+    request_summary_finish()
     lift_notification_block()
     notify("Focus mode off", "Super+D opens the distraction space.")
 
