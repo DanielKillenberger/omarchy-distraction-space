@@ -224,6 +224,20 @@ class FocusOnOrderTests(SessionHarness):
         with self.assertRaises(ValueError):
             distractions.capture_ping(self.record())
 
+    def test_later_mute_success_publishes_ready_on_refresh(self):
+        self.ready_session(session_ready=False, mute_applied_session="")
+        with mock.patch.object(distractions, "apply_notification_block", return_value=False):
+            self.assertFalse(distractions.refresh_focus_notification_block())
+        stalled = distractions.read_summary_control()
+        self.assertFalse(stalled["session_ready"])
+        self.assertFalse(distractions._parser_may_start(stalled))
+        with mock.patch.object(distractions, "apply_notification_block", return_value=True):
+            self.assertTrue(distractions.refresh_focus_notification_block())
+        armed = distractions.read_summary_control()
+        self.assertTrue(armed["session_ready"])
+        self.assertEqual(armed["mute_applied_session"], "sess-1")
+        self.assertTrue(distractions._parser_may_start(armed))
+
 
 class RestartBudgetTests(SessionHarness):
     def test_restart_counter_and_mocked_backoff_then_cap(self):

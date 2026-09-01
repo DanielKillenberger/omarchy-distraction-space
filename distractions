@@ -2252,6 +2252,15 @@ def install_notification_service() -> bool:
     return False
 
 
+def refresh_focus_notification_block() -> bool:
+    if not is_focus():
+        return False
+    if not apply_notification_block():
+        return False
+    publish_summary_after_mute()
+    return True
+
+
 def enable_focus() -> None:
     prepare_summary_session()
     with focus_block.network_lock():
@@ -2262,8 +2271,7 @@ def enable_focus() -> None:
         set_focus(True)
         if on_distractions():
             hide()
-    if apply_notification_block():
-        publish_summary_after_mute()
+    refresh_focus_notification_block()
     notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
@@ -2347,8 +2355,7 @@ def listen() -> None:
             except focus_block.BlockError:
                 pass
     if is_focus():
-        if apply_notification_block():
-            publish_summary_after_mute()
+        refresh_focus_notification_block()
         if on_distractions():
             hide()
     else:
@@ -2359,7 +2366,7 @@ def listen() -> None:
     with sock.makefile("r") as events:
         for _line in events:
             if is_focus():
-                apply_notification_block()
+                refresh_focus_notification_block()
                 if on_distractions():
                     hide()
 
