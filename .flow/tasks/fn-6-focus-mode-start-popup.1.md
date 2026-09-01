@@ -50,9 +50,11 @@ Existing session tests call `enable_focus()` directly. Do not put the dialog ins
 - [ ] `python3 -m unittest tests.test_focus_start tests.test_summary_agent tests.test_summary_session` is green
 - [ ] `python3 -m py_compile distractions` is green
 ## Done summary
-TBD
+Start dialog now gates focus/focus-on. Confirm persists purpose, wall-clock deadline, and session id under the transition lock, and writes recap_pending only when that session has none. Session UI flags default true, reject non-bool writes, and picker cancel keeps the previous file. Review fixes require timezone-aware ISO deadlines and refuse raw minutes outside 1-240 before the spin-button clamp.
 
+stage: impl-review - ran host gpt-5.6-sol-high SHIP (3 rounds; receipt /tmp/impl-review-receipt-fn-6-focus-mode-start-popup.1.json)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 5ea78eb368b050a26c102b5a4c1ef5122b5ce433, 9544d334a7f8a43f53992e3828e504455e1b20c3, 4f34d4f7943b99cf31c4c6604ba2960d94daee5c
+- Tests: baseline: green, python3 -m py_compile distractions, python3 -m unittest tests.test_focus_start tests.test_summary_agent tests.test_summary_session, review: /tmp/impl-review-receipt-fn-6-focus-mode-start-popup.1.json host gpt-5.6-sol-high SHIP
 - PRs:
