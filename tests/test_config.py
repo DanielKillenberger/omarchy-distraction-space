@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""Config schema, flock, migration, and list CLI tests."""
+
+from __future__ import annotations
+
+import inspect
+import json
+import sys
+import time
+import unittest
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from harness import ROOT, Sandbox
+
+sys.path.insert(0, str(ROOT))
+from ds.config import DEFAULTS, is_schema_key, _lock_timeout, update as config_update
+
+DEFAULT_LIST = [
+    "Telegram",
+    "Discord",
+    "WhatsApp",
+    "Signal",
+    "Google Messages",
+    "Facebook",
+    "Instagram",
+    "Threads",
+    "X",
+    "Reddit",
+    "TikTok",
+    "Snapchat",
+    "YouTube",
+    "Twitch",
+    "Netflix",
+]
+
+GOOD_VALUES = [
+    ("list", json.dumps(["Telegram", "x.com"]), ["Telegram", "x.com"]),
+    ("keep_reachable", json.dumps(["example.com"]), ["example.com"]),
+    ("nudges.app_banner", "false", False),
+    ("nudges.block_page", "false", False),
+    ("nudges.entry_confirm", "false", False),
+    ("hold_notifications", "locked", "locked"),
+    ("hold_notifications", "never", "never"),
+    ("hold_notifications", "off-space", "off-space"),
+    ("mute_sounds", "false", False),
+    ("lock.default_minutes", "40", 40),
+    ("lock.ask_purpose", "false", False),
+    ("lock.reason_min_chars", "0", 0),
+    ("summary.command", "off", "off"),
+    ("summary.command", "auto", "auto"),
+    ("summary.command", '["agent","--flag"]', ["agent", "--flag"]),
+    ("summary.timeout_seconds", "90", 90),
+    ("hooks.lock", '[["/bin/true"]]', [["/bin/true"]]),
+    ("hooks.unlock", "[]", []),
+    ("hooks.enter", '[["echo","hi"]]', [["echo", "hi"]]),
+    ("hooks.leave", "[]", []),
+    ("log", "~/custom.log", "~/custom.log"),
+]
+
+BAD_VALUES = [
+    ("hold_notifications", "sometimes"),
+    ("mute_sounds", "yes"),
+    ("summary.command", "later"),
+    ("summary.command", '[""]'),
+    ("summary.timeout_seconds", "-1"),
+    ("summary.timeout_seconds", "x"),
+    ("lock.default_minutes", "-5"),
+    ("lock.reason_min_chars", "true"),
+    ("nudges.app_banner", "1"),
+    ("list", '["not a host"]'),
+    ("list", '[{"name": "Y"}]'),
+    ("keep_reachable", '["nodots"]'),
+    ("hooks.enter", '["notlist"]'),
+    ("log", ""),
+]
+
+
+class ConfigTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.box = Sandbox()
+        self.addCleanup(self.box.cleanup)
+
+    def test_defaults_written_on_first_run(self):
+        r = self.box.run("config", "get", "lock.default_minutes")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), 25)
+        self.assertTrue(self.box.config_file.is_file())
+        r = self.box.run("config", "get", "list")
+        self.assertEqual(json.loads(r.stdout), DEFAULT_LIST)
+
+    def test_invalid_values_leave_file_unchanged(self):
+        self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
+        before = self.box.config_file.read_bytes()
+        for key, value in BAD_VALUES:
+            with self.subTest(key=key, value=value):
+                r = self.box.run("config", "set", key, value)
+                self.assertEqual(r.returncode, 1, r.stderr)
+                self.assertIn(key.split(".")[0], r.stderr)
+                self.assertEqual(self.box.config_file.read_bytes(), before)
+
+    def test_every_schema_key_roundtrips(self):
+        self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
+        for key, raw, expected in GOOD_VALUES:
+            with self.subTest(key=key, value=raw):
+                r = self.box.run("config", "set", key, raw)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                got = json.loads(self.box.run("config", "get", key).stdout)
+                self.assertEqual(got, expected)
+        slack = [{"name": "Slack", "class": "^Slack$", "hosts": ["slack.com", "app.slack.com"]}]
+        r = self.box.run("config", "set", "list", json.dumps(slack))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(self.box.run("config", "get", "list").stdout), slack)
+
+    def test_start_locked_absent_from_schema(self):
+        self.assertNotIn("start_locked", DEFAULTS["lock"])
+        self.assertFalse(is_schema_key("lock.start_locked"))
+        self.assertTrue(is_schema_key("hold_notifications"))
+        self.assertTrue(is_schema_key("mute_sounds"))
+        self.assertTrue(is_schema_key("summary.command"))
+
+    def test_config_path_honors_xdg(self):
+        r = self.box.run("config", "path")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout.strip(), str(self.box.config_file))
+        self.assertTrue(str(self.box.config_file).startswith(str(self.box.config)))
+
+    def test_update_timeout_default_is_five_seconds(self):
+        self.assertEqual(_lock_timeout(), 5.0)
+        self.assertEqual(inspect.signature(config_update).parameters["timeout"].default, None)
+
+    def test_start_locked_unknown_key_round_trips(self):
+        self.box.config_file.write_text(
+            json.dumps(
+                {"lock": {"start_locked": True}, "extra_top": "keep-me"},
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        r = self.box.run("config", "set", "lock.ask_purpose", "false")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(self.box.run("config", "get", "lock.start_locked").stdout), True)
+        self.assertEqual(json.loads(self.box.run("config", "get", "extra_top").stdout), "keep-me")
+        self.assertEqual(json.loads(self.box.run("config", "get", "lock.ask_purpose").stdout), False)
+        before = self.box.config_file.read_bytes()
+        r = self.box.run("config", "set", "lock.start_locked", "true")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self.box.config_file.read_bytes(), before)
+
+    def test_unknown_top_level_key_survives(self):
+        self.box.config_file.write_text(
+            json.dumps({"mystery": 7}) + "\n",
+            encoding="utf-8",
+        )
+        r = self.box.run("config", "set", "mute_sounds", "false")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(self.box.run("config", "get", "mystery").stdout), 7)
+
+    def test_concurrent_sets_both_land(self):
+        self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
+        p1 = self.box.popen("config", "set", "mute_sounds", "false")
+        p2 = self.box.popen("config", "set", "hold_notifications", "locked")
+        out1, err1 = p1.communicate(timeout=30)
+        out2, err2 = p2.communicate(timeout=30)
+        self.assertEqual(p1.returncode, 0, err1)
+        self.assertEqual(p2.returncode, 0, err2)
+        self.assertEqual(json.loads(self.box.run("config", "get", "mute_sounds").stdout), False)
+        self.assertEqual(json.loads(self.box.run("config", "get", "hold_notifications").stdout), "locked")
+
+    def test_held_flock_refuses_with_config_busy(self):
+        self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
+        before = self.box.config_file.read_bytes()
+        holder = self.box.hold_config_lock()
+        try:
+            t0 = time.monotonic()
+            r = self.box.run(
+                "config", "set", "mute_sounds", "false",
+                extra_env={"DS_CONFIG_LOCK_TIMEOUT": "0.2"},
+            )
+            elapsed = time.monotonic() - t0
+            self.assertEqual(r.returncode, 1, r.stderr)
+            self.assertIn("config busy", r.stderr)
+            self.assertGreaterEqual(elapsed, 0.15)
+            self.assertLess(elapsed, 2)
+            self.assertEqual(self.box.config_file.read_bytes(), before)
+        finally:
+            holder.kill()
+            holder.wait(timeout=5)
+
+    def test_reads_take_no_lock(self):
+        self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
+        holder = self.box.hold_config_lock()
+        try:
+            r = self.box.run("config", "get", "mute_sounds")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertEqual(json.loads(r.stdout), True)
+        finally:
+            holder.kill()
+            holder.wait(timeout=5)
+
+    def test_atomic_write_leaves_no_tmp(self):
+        r = self.box.run("config", "set", "mute_sounds", "false")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        leftovers = [
+            p for p in (self.box.config / "omarchy").iterdir()
+            if p.name.endswith(".tmp") or ".tmp" in p.name
+        ]
+        self.assertEqual(leftovers, [])
+        self.assertTrue(self.box.config_file.is_file())
+
+    def test_migration_from_old_files(self):
+        self.box.old_app_list.write_text(
+            json.dumps([{"name": "Telegram"}, {"name": "Reddit"}, {"name": ""}]),
+            encoding="utf-8",
+        )
+        self.box.old_focus.write_text(
+            json.dumps({"destinations": ["Reddit", "x.com"], "log": "~/custom.log"}),
+            encoding="utf-8",
+        )
+        app_bytes = self.box.old_app_list.read_bytes()
+        focus_bytes = self.box.old_focus.read_bytes()
+        r = self.box.run("config", "get", "list")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), ["Telegram", "Reddit", "x.com"])
+        self.assertEqual(json.loads(self.box.run("config", "get", "log").stdout), "~/custom.log")
+        self.assertEqual(self.box.old_app_list.read_bytes(), app_bytes)
+        self.assertEqual(self.box.old_focus.read_bytes(), focus_bytes)
+
+    def test_unreadable_old_files_use_defaults(self):
+        self.box.old_app_list.write_text("{not json", encoding="utf-8")
+        self.box.old_focus.write_text("nope", encoding="utf-8")
+        r = self.box.run("config", "get", "list")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), DEFAULT_LIST)
+
+    def test_invalid_first_set_does_not_create_file(self):
+        self.assertFalse(self.box.config_file.exists())
+        r = self.box.run("config", "set", "hold_notifications", "sometimes")
+        self.assertEqual(r.returncode, 1)
+        self.assertFalse(self.box.config_file.exists())
+
+    def test_invalid_new_file_get_exits_1_unchanged(self):
+        self.box.config_file.write_text("{not json", encoding="utf-8")
+        before = self.box.config_file.read_bytes()
+        r = self.box.run("config", "get", "list")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(self.box.config_file.read_bytes(), before)
+
+    def test_list_add_remove_expand(self):
+        self.assertEqual(self.box.run("config", "get", "list").returncode, 0)
+        r = self.box.run("list", "add", "x.com")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.box.run("list", "add", "Telegram")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.box.run("list", "add", "Telegram")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.box.run("list", "add", "class=^Foo$")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.box.run("list", "add", "nonsense")
+        self.assertEqual(r.returncode, 1)
+        r = self.box.run("list", "remove", "Reddit")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.box.run("list", "remove", "Missing")
+        self.assertEqual(r.returncode, 1)
+        listed = self.box.run("list").stdout.splitlines()
+        self.assertIn("x.com", listed)
+        self.assertIn("Telegram", listed)
+        self.assertIn("class=^Foo$", listed)
+        self.assertNotIn("Reddit", listed)
+        self.assertEqual(listed.count("Telegram"), 1)
+        expanded = json.loads(self.box.run("list", "expand").stdout)
+        names = [e["name"] for e in expanded]
+        self.assertIn("x.com", names)
+        self.assertIn("class=^Foo$", names)
+        by_name = {e["name"]: e for e in expanded}
+        self.assertEqual(by_name["x.com"]["classes"], ["^chrome-x\\.com__.*$"])
+        self.assertEqual(by_name["x.com"]["hosts"], ["x.com", "www.x.com"])
+        self.assertEqual(by_name["class=^Foo$"]["classes"], ["^Foo$"])
+        self.assertEqual(by_name["class=^Foo$"]["hosts"], [])
+        self.assertEqual(
+            by_name["Telegram"]["classes"],
+            ["org.telegram.desktop", "^chrome-web\\.telegram\\.org__.*$"],
+        )
+        self.assertIn("hosts", by_name["Telegram"])
+        self.assertIn("senders", by_name["Telegram"])
+        self.assertIn("audio", by_name["Telegram"])
+
+
+if __name__ == "__main__":
+    unittest.main()
