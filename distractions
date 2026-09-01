@@ -323,7 +323,7 @@ def cmd_agent_summaries() -> None:
                 "No usable summary agent. Grouped-count catch-up stays in place.",
             )
         if updated and is_focus() and apply_notification_block():
-            arm_summary_after_mute()
+            arm_summary_after_mute(resume=True)
         return
     if selected == "Off":
         if update_focus_config(agent_summaries=False) and is_focus():
@@ -1197,21 +1197,27 @@ def prepare_summary_session(*, force_new: bool = False) -> dict:
         lock.close()
 
 
-def arm_summary_after_mute() -> dict:
+def arm_summary_after_mute(*, resume: bool = False) -> dict:
+    if not is_focus() or not agent_summaries_enabled():
+        return read_summary_control()
     control = read_summary_control()
     if not control.get("session_id"):
         control = prepare_summary_session()
-    return mark_summary_session_ready()
+    return mark_summary_session_ready(resume=resume)
 
 
-def mark_summary_session_ready() -> dict:
+def mark_summary_session_ready(*, resume: bool = False) -> dict:
     lock = _lock_summary_state()
     try:
         control = read_summary_control()
-        if not control.get("session_id"):
+        if not is_focus() or not agent_summaries_enabled() or not control.get("session_id"):
+            return control
+        if resume:
+            control["finish_requested"] = False
+            control["parser_closed"] = False
+        if control.get("finish_requested"):
             return control
         control["session_ready"] = True
-        control["finish_requested"] = False
         write_summary_control(control)
         return control
     finally:
@@ -1290,11 +1296,13 @@ def capture_ping(payload) -> dict:
     lock = _lock_summary_state()
     try:
         control = read_summary_control()
+        expected = payload.get("session") if isinstance(payload, dict) else None
         if (
             not control.get("session_ready")
             or not control.get("session_id")
             or control.get("parser_closed")
             or control.get("finish_requested")
+            or (expected and control.get("session_id") != expected)
         ):
             raise ValueError("stale session")
         seq = int(control.get("next_seq") or 1)

@@ -33,6 +33,7 @@ Item {
   property bool singletonElsewhere: false
   property bool seenRemoteOwner: false
   property string heldSession: ""
+  property string launchedSession: ""
 
   function clipField(value) {
     var text = String(value || "")
@@ -58,10 +59,13 @@ Item {
       title = String(row.summary)
     else if (row.title)
       title = String(row.title)
+    if (!capture.sessionReady || !capture.sessionId)
+      return
     capture.captureQueue = capture.captureQueue.concat([{
       app: capture.clipField(row.app || ""),
       title: capture.clipField(title),
       body: capture.clipField(row.body || ""),
+      session: capture.sessionId,
       at: capture.clipField(new Date().toISOString())
     }])
     pumpCapture()
@@ -93,7 +97,11 @@ Item {
     try {
       var parsed = JSON.parse(text)
       capture.sessionReady = !!(parsed && parsed.session_ready)
-      capture.sessionId = parsed && parsed.session_id ? String(parsed.session_id) : ""
+      var nextId = parsed && parsed.session_id ? String(parsed.session_id) : ""
+      var nextReady = !!(parsed && parsed.session_ready)
+      if (nextId !== capture.sessionId || !nextReady)
+        capture.stopCaptureWork()
+      capture.sessionId = nextId
       capture.parserActive = !!(parsed && parsed.parser_active)
       capture.parserClosed = !!(parsed && parsed.parser_closed)
       capture.finishRequested = !!(parsed && parsed.finish_requested)
@@ -122,6 +130,8 @@ Item {
     if (capture.heldSession !== capture.sessionId) {
       capture.singletonElsewhere = false
       capture.seenRemoteOwner = false
+      capture.parserOwned = false
+      capture.launchedSession = ""
       capture.heldSession = capture.sessionId
     }
     if (!shouldRunParser()) {
@@ -143,6 +153,7 @@ Item {
       return
     parserProc.command = capture.parserCommand(capture.parserOwned || capture.parserActive)
     capture.parserOwned = true
+    capture.launchedSession = capture.sessionId
     parserProc.running = true
   }
 
@@ -205,6 +216,14 @@ Item {
     stdout: StdioCollector {}
     stderr: StdioCollector {}
     onExited: function (exitCode) {
+      var launched = capture.launchedSession
+      if (launched !== capture.sessionId) {
+        capture.parserOwned = false
+        capture.launchedSession = ""
+        if (exitCode !== 2)
+          capture.syncParser()
+        return
+      }
       if (exitCode === 2) {
         capture.singletonElsewhere = true
         capture.seenRemoteOwner = capture.parserActive

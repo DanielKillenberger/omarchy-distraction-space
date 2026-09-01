@@ -1,7 +1,7 @@
 {
   "findings": {
     "backend": "host",
-    "headSha": "1a33485b14f6af8dd040c760afe84f2ebe5fe6e8",
+    "headSha": "6bda85a4898ddf23609b4e73a5a5fb98fb960528",
     "items": [
       {
         "body": "Parser launches are not bound to `sessionId`; the property is never passed to Python. A delayed launch/restart can increment or clear a newer session\u2019s state, especially across the 1s/4s backoff.",
@@ -9,13 +9,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-a30b68640495786bf9d974ce27b6ba0d",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 1,
         "rIds": [
           "R1"
         ],
         "severity": "P1",
-        "status": "not_fixed",
+        "status": "fixed",
         "suggestion": "Pass the expected session ID and validate it under the state lock before every mutation and after backoff.",
         "title": "Parser launches are not bound to `sessionId`; the property is never passed to Python"
       },
@@ -25,13 +25,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-cb799c9f971f35ece3f495e97e695121",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 2,
         "rIds": [
           "R1"
         ],
         "severity": "P1",
-        "status": "not_fixed",
+        "status": "fixed",
         "suggestion": "Treat every unexpected owned-process exit as `--restart`, distinguish singleton contention from a crash, and add tests for pre-marker failure and lock contention.",
         "title": "An unexpected exit before `parser_active` is observed relaunches the normal path, bypassing restart accounting and backoff"
       },
@@ -41,14 +41,14 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-69f5b6cb018bd6644dd47199735710b7",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 3,
         "rIds": [
           "R1",
           "R14"
         ],
         "severity": "P1",
-        "status": "not_fixed",
+        "status": "fixed",
         "suggestion": "When enabling while focused, initialize/resume a session and publish readiness after confirming notification mute is armed.",
         "title": "Mid-session enable only changes configuration"
       },
@@ -58,7 +58,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-122d6f22a37ba046a061d5a4ac1c33de",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 4,
         "rIds": [
           "R14"
@@ -74,7 +74,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-9f6dd5e87d0585006817f1de018345d1",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 5,
         "rIds": [
           "R14"
@@ -90,13 +90,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-0c04942213353bfc13dd49dfb5f6c953",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 10,
         "rIds": [
           "R1"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Pass the expected session into cleanup and validate it while holding the mutation lock.",
         "title": "After checking the expected session, the parser calls `clear_parser_running()`, which reacquires the lock and mutates whichever session is then current"
       },
@@ -106,13 +106,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-04cec60fee1278e27bc7366a9e0c4d76",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 11,
         "rIds": [
           "R1"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Suppress launches for that session after a busy exit until the existing parser or control marker changes.",
         "title": "Exit code 2 merely returns from `onExited`"
       },
@@ -122,13 +122,13 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-227b7a322495da2e68a6576686c4587c",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 12,
         "rIds": [
           "R1"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Atomically validate all start conditions and never clear a finish request during parser startup or restart.",
         "title": "`mark_parser_active()` and `apply_parser_restart()` validate only the session ID, then clear `finish_requested` without requiring ready/open/focused/enabled state"
       },
@@ -138,16 +138,64 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-c212712bbf6ee4f3fcdb90fe50a1bf0f",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 13,
         "rIds": [
           "R1",
           "R14"
         ],
         "severity": "P1",
-        "status": "open",
+        "status": "not_fixed",
         "suggestion": "Verify or reapply notification blocking and publish readiness only after success.",
         "title": "Enabling while focused directly calls `arm_summary_after_mute()` even if mute previously failed"
+      },
+      {
+        "body": "After the initial `is_focus()` check, `_apply_notification_block()` returns True without muting when focus has become off. `arm_summary_after_mute()` then republishes ready.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "id": "finding-03ca1ea8c8ba0c3f8b7445feff117108",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "ordinal": 15,
+        "rIds": [
+          "R1"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Bind ready publication to the expected session and, under the state lock, require focus still on, summaries enabled, and finish not requested unless this is an explicit resume.",
+        "title": "After the initial `is_focus()` check, `_apply_notification_block()` returns True without muting when focus has become off"
+      },
+      {
+        "body": "Finish does not clear `captureQueue`, and `capture-ping` receives no expected session. Queued session-A toasts can append to session B.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "id": "finding-7ced3016137441de2ec599a6bb013b3f",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "ordinal": 16,
+        "rIds": [
+          "R14"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Stop queued/in-flight capture when readiness is lost and pass the enqueue-time session ID to `capture-ping`.",
+        "title": "Finish does not clear `captureQueue`, and `capture-ping` receives no expected session"
+      },
+      {
+        "body": "An old-session parser exit can start the current session as `--restart`.",
+        "classification": "introduced",
+        "confidence": 100,
+        "firstSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "id": "finding-e36dd870a35e4fe72be2d59d609970ce",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+        "ordinal": 17,
+        "rIds": [
+          "R1"
+        ],
+        "severity": "P1",
+        "status": "open",
+        "suggestion": "Track the launched process session and reset ownership on session changes.",
+        "title": "An old-session parser exit can start the current session as `--restart`"
       },
       {
         "body": "Clean reset overwrites the old control object before reaping `agent_pid`; consequently the old child is never signalled.",
@@ -155,7 +203,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-c091536a034bd7c06f7e418f5bc03f96",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 6,
         "rIds": [
           "R1"
@@ -171,7 +219,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-2814d8feca16a692ee623032f0bb1ee2",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 7,
         "rIds": [
           "R2"
@@ -187,7 +235,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-f2735134ac8fae61c86cfc17c1b9ff90",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 8,
         "rIds": [
           "R14"
@@ -203,7 +251,7 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1",
         "id": "finding-1fe5000811e5145d181499ff8b5c36e4",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 9,
         "rIds": [
           "R1",
@@ -220,31 +268,31 @@
         "confidence": 100,
         "firstSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
         "id": "finding-2fd6cc6dc5db1df3144a2284e55d4654",
-        "lastSeenReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
+        "lastSeenReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
         "ordinal": 14,
         "rIds": [
           "R14"
         ],
         "severity": "P2",
-        "status": "open",
+        "status": "fixed",
         "suggestion": "Request finish only when the configuration update succeeds.",
         "title": "The Off path ignores `update_focus_config()` failure and requests finish anyway"
       }
     ],
     "reviewKind": "implementation",
-    "round": 2,
+    "round": 3,
     "schemaVersion": 1,
-    "sourceReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304",
-    "supersedesReceiptId": "review-88e6eb846be23e44e14e76be7fcf871fccca499c69c7ab889148993f721ad9e1"
+    "sourceReceiptId": "review-cbb030328bb437084d2d2cfed243408987de1cd3900b404551188ec01db50d94",
+    "supersedesReceiptId": "review-b3e6f78bbb159dbce66b6399be5cf683f16d0376529f931812694ba7bbb44304"
   },
   "id": "fn-3-focus-mode-agent-notification-summary.2",
   "mode": "host",
   "model": "gpt-5.6-sol-high",
-  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.2 (round 2)\n\nPrior finding #1: not-fixed\nPrior finding #2: not-fixed\nPrior finding #3: not-fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\nPrior finding #7: fixed\nPrior finding #8: fixed\nPrior finding #9: fixed\n\n## Findings\n\n### 1. Final parser cleanup is not session-bound\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1427`\n- **R-IDs**: `[R1]`\n- **Problem**: After checking the expected session, the parser calls `clear_parser_running()`, which reacquires the lock and mutates whichever session is then current.\n- **Suggestion**: Pass the expected session into cleanup and validate it while holding the mutation lock.\n\n### 2. Singleton contention still causes repeated launches\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:192`\n- **R-IDs**: `[R1]`\n- **Problem**: Exit code 2 merely returns from `onExited`. The 250 ms timer then calls `syncParser()` again with `parserOwned=true`, repeatedly launching `--restart`.\n- **Suggestion**: Suppress launches for that session after a busy exit until the existing parser or control marker changes.\n\n### 3. Delayed launches can undo clean finish\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:1331`\n- **R-IDs**: `[R1]`\n- **Problem**: `mark_parser_active()` and `apply_parser_restart()` validate only the session ID, then clear `finish_requested` without requiring ready/open/focused/enabled state.\n- **Suggestion**: Atomically validate all start conditions and never clear a finish request during parser startup or restart.\n\n### 4. Mid-session enable can publish an unverified ready marker\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:325`\n- **R-IDs**: `[R1, R14]`\n- **Problem**: Enabling while focused directly calls `arm_summary_after_mute()` even if mute previously failed.\n- **Suggestion**: Verify or reapply notification blocking and publish readiness only after success.\n\n### 5. Failed disable writes still terminate the session\n- **Severity**: P2\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:328`\n- **R-IDs**: `[R14]`\n- **Problem**: The Off path ignores `update_focus_config()` failure and requests finish anyway.\n- **Suggestion**: Request finish only when the configuration update succeeds.\n\nUnaddressed R-IDs: R1, R14\n<verdict>NEEDS_WORK</verdict>\n",
-  "review_reservation_id": "e4adad1dcfb04c348e66eeef9bafcfc3",
+  "review": "# Implementation review: fn-3-focus-mode-agent-notification-summary.2 (round 3)\n\nPrior finding #1: fixed\nPrior finding #2: fixed\nPrior finding #3: fixed\nPrior finding #4: fixed\nPrior finding #5: fixed\nPrior finding #6: fixed\nPrior finding #7: fixed\nPrior finding #8: fixed\nPrior finding #9: fixed\nPrior finding #10: fixed\nPrior finding #11: fixed\nPrior finding #12: fixed\nPrior finding #13: not-fixed\nPrior finding #14: fixed\n\n## Findings\n\n### 1. Ready publication can follow a no-op mute after focus-off\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `distractions:325`\n- **R-IDs**: `[R1]`\n- **Problem**: After the initial `is_focus()` check, `_apply_notification_block()` returns True without muting when focus has become off. `arm_summary_after_mute()` then republishes ready.\n- **Suggestion**: Bind ready publication to the expected session and, under the state lock, require focus still on, summaries enabled, and finish not requested unless this is an explicit resume.\n\n### 2. Capture jobs are not session-bound\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:52`\n- **R-IDs**: `[R14]`\n- **Problem**: Finish does not clear `captureQueue`, and `capture-ping` receives no expected session. Queued session-A toasts can append to session B.\n- **Suggestion**: Stop queued/in-flight capture when readiness is lost and pass the enqueue-time session ID to `capture-ping`.\n\n### 3. parserOwned is not reset on session change\n- **Severity**: P1\n- **Confidence**: 100\n- **Classification**: introduced\n- **File:Line**: `PingCapture.qml:122`\n- **R-IDs**: `[R1]`\n- **Problem**: An old-session parser exit can start the current session as `--restart`.\n- **Suggestion**: Track the launched process session and reset ownership on session changes.\n\nUnaddressed R-IDs: R1, R14\n<verdict>NEEDS_WORK</verdict>\n",
+  "review_reservation_id": "d85135fca2c74dfdb183cec6e1711508",
   "session_id": null,
   "spec": "host",
-  "timestamp": "2026-09-01T08:43:43Z",
+  "timestamp": "2026-09-01T08:48:09Z",
   "type": "impl_review",
   "verdict": "NEEDS_WORK"
 }

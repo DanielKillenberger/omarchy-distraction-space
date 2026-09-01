@@ -370,6 +370,19 @@ class ReviewFixTests(SessionHarness):
         self.assertTrue(distractions.read_summary_control()["finish_requested"])
         self.assertFalse(distractions.read_summary_control()["parser_active"])
 
+    def test_ready_requires_focus_and_capture_requires_session(self):
+        self.ready_session(session_ready=False, finish_requested=True)
+        distractions.set_focus(False)
+        control = distractions.arm_summary_after_mute(resume=True)
+        self.assertFalse(control["session_ready"])
+        distractions.set_focus(True)
+        control = distractions.arm_summary_after_mute(resume=True)
+        self.assertTrue(control["session_ready"])
+        with self.assertRaises(ValueError):
+            distractions.capture_ping({**self.record(), "session": "other"})
+        written = distractions.capture_ping({**self.record(), "session": "sess-1"})
+        self.assertEqual(written["seq"], 1)
+
     def test_clear_parser_running_ignores_foreign_session(self):
         self.ready_session(parser_active=True)
         distractions.clear_parser_running("other")
@@ -408,6 +421,8 @@ class ServiceCompositionTests(unittest.TestCase):
         self.assertIn("--session", text)
         self.assertIn("captureQueueLimit", text)
         self.assertIn("stopCaptureWork", text)
+        self.assertIn("launchedSession", text)
+        self.assertIn("session:", text)
         self.assertIn("sessionReady", text)
         self.assertNotIn("is_focus", text)
         self.assertNotIn("focus-status", text)
