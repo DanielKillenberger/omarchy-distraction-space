@@ -41,9 +41,15 @@ Add the plugin-owned list file and the expand map for the shipped distraction na
 - [ ] `python3 -m py_compile distractions` is green
 - [ ] Helper print-expand runs without Hyprland
 ## Done summary
-TBD
+The helper now copies shipped defaults into ~/.config/omarchy/app-list.json when that file is missing, expands the fifteen product names to class and host matchers, and prints the active list via print-expand without Hyprland. A present corrupt file notifies the user, stays on disk, and leaves last-good expand in place (R2, R3, R4, R7).
 
+baseline: green
+stage: impl-review - skipped(policy: host-deferred - conductor owns the gate)
+
+stage: plan-sync - skipped(config: planSync.enabled != true)
+
+stage: impl-review - SHIP (host, gpt-5.6-sol-medium)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 521974fbe459495b64031e759cb65385d7a18c2c
+- Tests: python3 -m py_compile distractions, python3 -c "import ast; ast.parse(open('distractions').read())", python3 -m unittest tests.test_app_list
 - PRs:

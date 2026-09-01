@@ -8,7 +8,9 @@
   "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-4-plugin-owned-distraction-space-app-list",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-4-plugin-owned-distraction-space-app-list.1": 0
+  },
   "next_task": 1,
   "plan_review_rounds": 0,
   "plan_review_status": "ship",
@@ -1496,15 +1498,43 @@
       "task": null,
       "timestamp": "2026-09-01T10:05:20.147043Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "2ac59f1429bd6427b741e74682127ac8971e941aa10cfb7fdc5c42775e2a557c",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "521974fbe459495b64031e759cb65385d7a18c2c",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 528,
+      "output_sha256": "f128c320bfa10b41a9e3789f748aedc96cd7acb338f22f316130882010219df0",
+      "reservation_id": "b41e8e27b9da4a919c1a643f616085ca",
+      "round_consumed": true,
+      "scope": "impl:fn-4-plugin-owned-distraction-space-app-list.1",
+      "superseded_by": null,
+      "task": "fn-4-plugin-owned-distraction-space-app-list.1",
+      "timestamp": "2026-09-01T10:39:53.171418Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
+    "impl:fn-4-plugin-owned-distraction-space-app-list.1": 1,
     "plan": 4,
     "plan#completion": 1
   },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "impl:fn-4-plugin-owned-distraction-space-app-list.1": 0,
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-4-plugin-owned-distraction-space-app-list.md",
@@ -1521,5 +1551,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T10:05:20.581414Z"
+  "updated_at": "2026-09-01T10:39:53.539276Z"
 }
