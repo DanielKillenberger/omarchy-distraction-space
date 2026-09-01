@@ -1492,12 +1492,15 @@ def process_socket2_line(line: str) -> None:
     if not text:
         return
     event, _, payload = text.partition(">>")
-    if event == "openwindow":
-        handle_openwindow(payload.split(",", 1)[0])
-    elif event in {"movewindow", "movewindowv2"}:
-        handle_movewindow(payload.split(",", 1)[0])
-    elif event in {"workspace", "workspacev2"}:
-        sync_network_to_workspace()
+    try:
+        if event == "openwindow":
+            handle_openwindow(payload.split(",", 1)[0])
+        elif event in {"movewindow", "movewindowv2"}:
+            handle_movewindow(payload.split(",", 1)[0])
+        elif event in {"workspace", "workspacev2"}:
+            sync_network_to_workspace()
+    except (subprocess.CalledProcessError, json.JSONDecodeError, OSError):
+        return
 
 
 def lookup_addresses(host: str) -> list[str]:

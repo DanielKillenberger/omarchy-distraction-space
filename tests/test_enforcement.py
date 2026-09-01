@@ -457,6 +457,72 @@ class EnforcementTests(unittest.TestCase):
             subprocess.check_call = original
             fresh.reset_runtime_state()
 
+    def test_notify_absorbs_oserror(self):
+        original_check = subprocess.check_call
+        original_call = subprocess.call
+        fresh = load_mod()
+
+        def check_boom(cmd, *args, **kwargs):
+            raise OSError("notification send failed")
+
+        def call_boom(cmd, *args, **kwargs):
+            raise OSError("notification fallback failed")
+
+        try:
+            subprocess.check_call = check_boom
+            subprocess.call = call_boom
+            fresh.notify("title", "body")
+        finally:
+            subprocess.check_call = original_check
+            subprocess.call = original_call
+            fresh.reset_runtime_state()
+
+    def test_socket2_query_or_move_failure_skips_event(self):
+        self.write_list([self.telegram_row()])
+        self.mod.bootstrap_enforcement()
+        listed = [self.client("org.telegram.desktop", "1")]
+        self.write_hypr("clients", listed)
+        errors = (
+            subprocess.CalledProcessError(1, ["hyprctl", "-j", "clients"]),
+            json.JSONDecodeError("bad", "x", 0),
+            OSError("hypr gone"),
+            FileNotFoundError("hyprctl"),
+            PermissionError("denied"),
+        )
+        original = self.mod.hyprctl_json
+        for exc in errors:
+            with self.subTest(error=type(exc).__name__):
+                self.clock[0] += self.mod.BANNER_DEBOUNCE_S + 1
+                calls = {"n": 0}
+
+                def boom(*args, _exc=exc, _calls=calls):
+                    _calls["n"] += 1
+                    if _calls["n"] == 1:
+                        raise _exc
+                    return original(*args)
+
+                self.mod.hyprctl_json = boom
+                self.notes.clear()
+                try:
+                    self.mod.process_socket2_line(
+                        "openwindow>>0xabc,99,org.telegram.desktop,Telegram"
+                    )
+                    self.assertFalse(self.notes)
+                    self.mod.process_socket2_line(
+                        "openwindow>>0xabc,99,org.telegram.desktop,Telegram"
+                    )
+                    self.assertTrue(self.notes)
+                    self.assertEqual(self.notes[0][0], self.mod.BANNER_TITLE)
+                finally:
+                    self.mod.hyprctl_json = original
+        left, right = socket.socketpair()
+        thread = threading.Thread(target=self.mod.handle_reload_conn, args=(left,))
+        thread.start()
+        right.sendall(b"reload\n")
+        self.assertTrue(right.recv(64).startswith(b"ok"))
+        thread.join(timeout=2)
+        right.close()
+
     def test_stalled_dns_does_not_block_socket2(self):
         self.write_list([self.telegram_row(), self.site_row()])
         gate = threading.Event()
