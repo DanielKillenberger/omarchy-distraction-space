@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>fn-5 Focus-mode enable network-block crash</title>
+<style>
+:root {
+  --bg: #0c0b09; --panel: #14120e; --panel-2: #1a1712;
+  --line: #2c2719; --line-soft: #211d14;
+  --ink: #e8e2d4; --dim: #9a917c; --faint: #645d4c;
+  --amber: #ffb454; --amber-deep: #cc8b33;
+  --green: #87d96c; --red: #f07178; --cyan: #5ccfe6; --violet: #c9a7f5;
+  --mono: "Berkeley Mono", "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 14px; line-height: 1.65; }
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 999;
+  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,.015) 3px);
+}
+.wrap { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+.kicker { font-size: 11px; letter-spacing: .18em; text-transform: uppercase; color: var(--faint); }
+h1 { font-size: 22px; font-weight: 500; color: var(--amber); margin: 6px 0 18px; }
+.dials { display: flex; gap: 12px; flex-wrap: wrap; margin: 16px 0 28px; }
+.dial { border: 1px solid var(--line); background: var(--panel); padding: 10px 14px; min-width: 120px; }
+.dial .kicker { display: block; margin-bottom: 4px; }
+.tldr { font-family: var(--serif); font-size: 20px; line-height: 1.6; max-width: 920px; margin: 0 0 20px; }
+.tldr strong { color: var(--amber); }
+.tldr em { color: var(--cyan); font-style: italic; }
+.thesis { border-left: 3px solid var(--amber); padding: 10px 16px; background: var(--panel); margin: 0 0 28px; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 28px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; }
+th { font-size: 11px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+.chip { display: inline-block; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; border: 1px solid var(--line); padding: 1px 6px; color: var(--dim); }
+.chip.inferred { color: var(--amber); }
+.chip.paraphrase { color: var(--cyan); }
+.isnot { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 12px 0 28px; }
+.col { background: var(--panel); border: 1px solid var(--line); padding: 14px; }
+.col.is { border-color: var(--green); }
+.col.not { border-color: var(--red); }
+.dec { background: var(--panel); border: 1px solid var(--line); padding: 14px; margin: 0 0 28px; }
+.dec em { color: var(--green); }
+footer { border-top: 1px solid var(--line); padding-top: 16px; color: var(--dim); font-size: 12px; }
+.stamp { border: 1px solid var(--line); padding: 8px 12px; margin-top: 10px; color: var(--faint); }
+@media print {
+  :root { --bg:#fff; --panel:#fafaf7; --panel-2:#f2f0ea; --line:#ccc7ba; --line-soft:#e2ded2;
+          --ink:#1a1812; --dim:#4a463c; --faint:#8a8678; --amber:#9a6a10; --amber-deep:#9a6a10;
+          --green:#2e7d32; --red:#b3261e; --cyan:#0a6e8a; --violet:#6a3fae; }
+  body::before { display: none; }
+  nav.rail, .progress { display: none; }
+  section { break-inside: avoid-page; animation: none; }
+  @page { size: A4; margin: 1.2cm; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">fn-5-focus-mode-enable-network-block-crash</div>
+  <h1>Focus-mode enable network-block crash</h1>
+  <div class="dials">
+    <div class="dial"><span class="kicker">Status</span>open / ready</div>
+    <div class="dial"><span class="kicker">R-IDs</span>4</div>
+    <div class="dial"><span class="kicker">Activation</span>manual work, no-plan</div>
+  </div>
+  <p class="tldr"><strong>Turning focus on crashed</strong> with a type error before the network block could retry privilege. <em>Focus stayed off.</em> This spec is only that crash, not the already-done network-block feature.</p>
+  <div class="thesis">New spec beside fn-1. Privilege-command failure output must decode as text so permission denied can retry pkexec/sudo instead of aborting as a type error.</div>
+  <div class="kicker">Acceptance</div>
+  <table>
+    <thead><tr><th>ID</th><th>Criterion</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td>R1</td><td>Enabling focus mode must not fail with a type error caused by treating command output as the wrong string/bytes kind.</td><td><span class="chip paraphrase">paraphrase</span></td></tr>
+      <tr><td>R2</td><td>A missing nftables table is still reported as a missing table, not as a type error.</td><td><span class="chip inferred">inferred</span></td></tr>
+      <tr><td>R3</td><td>After decoding failure output as text, an unprivileged permission failure still retries the remaining privilege methods, then reports a readable BlockError.</td><td><span class="chip inferred">inferred</span></td></tr>
+      <tr><td>R4</td><td>Automated tests cover failure output arriving as bytes (permission denied and missing table) and fail if those paths raise a type error.</td><td><span class="chip inferred">inferred</span></td></tr>
+    </tbody>
+  </table>
+  <div class="kicker">Boundaries</div>
+  <div class="isnot">
+    <div class="col is"><div class="kicker">Is</div>The privilege-helper crash when enabling focus, plus tests that lock the bytes/text decode.</div>
+    <div class="col not"><div class="kicker">Is not</div>The network-block feature itself (fn-1). Notification mute, leave-notice, app list, or live desktop plugin install.</div>
+  </div>
+  <div class="kicker">Decision</div>
+  <div class="dec">fn-1 is already done. User asked for a new spec, then work it directly and push.</div>
+  <footer>
+    Render lens, not record. Source: .flow/specs/fn-5-focus-mode-enable-network-block-crash.md
+    <div class="stamp">staleness stamp · spec updated_at 2026-09-01T12:02:24Z · repo commit 1229dc9 · rendered 2026-09-01</div>
+  </footer>
+</div>
+</body>
+</html>
