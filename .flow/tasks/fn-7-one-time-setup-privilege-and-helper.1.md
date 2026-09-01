@@ -48,9 +48,11 @@ Harden the existing `setup` / `setup_privileged_helper()` path (R1) and keep run
 - [ ] README still documents setup and uninstall; docs change only if behavior changes; `install` stays rescan
 - [ ] `python3 -m unittest discover -s tests` passes
 ## Done summary
-TBD
+Hardened `setup` so one interactive sudo runs an in-memory installer: pin a trusted path, atomically install the 0755 wrapper, visudo-validate a uid-only 0440 grant, and revalidate immediately before rename. Runtime apply/lift still uses `sudo -n` plus skip-with-notify.
 
+stage: impl-review - ran (model: gpt-5.6-sol-high)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: b198dc12b301e62b220ac7ec1ac15b6293489cc7, 22bbf1db11a291f5ab1be600d82fed9bdc739b62, 68f48a567afcdddd32de5fad58c644df02b47ac6, 99d5a026ebf3be34437cb4a90d2516d8e577fc1d, 8d0a63bfe8f23463eb9034b85a7ff915a6b06689, 538cbb6b3645c444916cbd7e3436f4b6a611d0a8, 78c9cee4ef02c2665b4d1aa00d234bae839eee2d, 6c8f4c37fe5622815bdaed5527bc4e245356a08d
+- Tests: python3 -m unittest tests.test_setup
 - PRs:
