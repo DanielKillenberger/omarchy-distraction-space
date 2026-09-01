@@ -154,6 +154,40 @@ class TimerDisableTests(TimerHarness):
         self.assertEqual(self.log_text(), "")
         self.assertIsNotNone(distractions.read_session_active())
 
+    def test_stale_handoff_does_not_disable_new_session(self):
+        self.write_active("session a", self.wall_now() - timedelta(minutes=5), "sess-a")
+        self.write_recap("session a", "sess-a")
+
+        def confirm_after_new_session():
+            distractions.disable_focus_timer()
+            distractions.set_focus(True)
+            self.write_active("session b", self.wall_now() + timedelta(minutes=25), "sess-b")
+            self.write_recap("session b", "sess-b")
+            return "x" * distractions.MIN_REASON
+
+        with mock.patch.object(distractions, "prompt_reason", confirm_after_new_session):
+            distractions.request_focus_toggle()
+        self.assertTrue(distractions.is_focus())
+        self.assertEqual(distractions.read_session_active()["session_id"], "sess-b")
+        self.assertIn("timer", self.log_text())
+        self.assertNotIn("x" * distractions.MIN_REASON, self.log_text())
+
+    def test_short_reason_timer_win_before_validate_is_noop(self):
+        self.seed_session("race")
+        real_lock = distractions._lock_focus_transition
+
+        def lock_after_timer():
+            if distractions.is_focus():
+                with mock.patch.object(distractions, "_lock_focus_transition", real_lock):
+                    distractions.disable_focus_timer()
+            return real_lock()
+
+        with mock.patch.object(distractions, "_lock_focus_transition", lock_after_timer):
+            distractions.disable_focus("too short")
+        self.assertFalse(distractions.is_focus())
+        self.assertIn("timer", self.log_text())
+        self.assertEqual(self.log_text().count("\n"), 1)
+
 
 class TimerFireTests(TimerHarness):
     def test_listener_restart_future_deadline_does_not_fire_past_does(self):

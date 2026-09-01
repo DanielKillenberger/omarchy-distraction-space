@@ -4141,18 +4141,24 @@ def _enable_focus_locked() -> None:
     notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
-def disable_focus(reason: str) -> None:
+_DISABLE_UNBOUND = object()
+
+
+def disable_focus(reason: str, *, expected=_DISABLE_UNBOUND) -> None:
     if not is_focus():
         return
     reason = " ".join(reason.split())
-    if len(reason) < MIN_REASON:
-        raise SystemExit(
-            f"reason must be at least {MIN_REASON} characters (got {len(reason)})"
-        )
     lock = _lock_focus_transition()
     try:
         if not is_focus():
             return
+        if expected is not _DISABLE_UNBOUND:
+            if _timer_off_identity(read_session_active()) != expected:
+                return
+        if len(reason) < MIN_REASON:
+            raise SystemExit(
+                f"reason must be at least {MIN_REASON} characters (got {len(reason)})"
+            )
         _disable_focus_locked(reason)
     finally:
         lock.close()
@@ -4345,11 +4351,12 @@ def request_focus_toggle() -> None:
     if not is_focus():
         request_focus_on()
         return
+    expected = _timer_off_identity(read_session_active())
     reason = prompt_reason()
     if reason is None:
         return
     try:
-        disable_focus(reason)
+        disable_focus(reason, expected=expected)
     except SystemExit as exc:
         notify("Focus mode", str(exc))
 
