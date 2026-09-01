@@ -197,6 +197,8 @@ LAST_GOOD_EXPAND_NAME = "distraction-apps.last-good.json"
 RULES_PENDING_NAME = "omarchy-ds-rules.pending.json"
 RULES_LAST_GOOD_NAME = "omarchy-ds-rules.last-good.json"
 ADDRS_LAST_GOOD_NAME = "omarchy-ds-addrs.last-good.json"
+KEEP_ADDRS_LAST_GOOD_NAME = "omarchy-ds-keep-addrs.last-good.json"
+KEEP_ADDRS_TTL_S = 600.0
 NFT_WRAPPER = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
 SUDOERS_PATH = "/etc/sudoers.d/omarchy-distraction-space"
 SUDOERS_TEMPLATE = PLUGIN_DIR / "install" / "sudoers.omarchy-distraction-space"
@@ -1250,6 +1252,10 @@ def addrs_last_good_path() -> Path:
     return state_dir() / ADDRS_LAST_GOOD_NAME
 
 
+def keep_addrs_last_good_path() -> Path:
+    return state_dir() / KEEP_ADDRS_LAST_GOOD_NAME
+
+
 def reload_sock_path() -> Path:
     return Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.reload.sock"
 
@@ -1309,6 +1315,144 @@ def load_addrs_last_good() -> dict[str, list[str]]:
 
 def save_addrs_last_good(rows: dict[str, list[str]]) -> None:
     _atomic_write(addrs_last_good_path(), json.dumps(rows, indent=2) + "\n")
+
+
+def load_keep_addrs_last_good() -> dict[str, list[str]]:
+    """Per-host last-good answers. Reads the flat pre-fn schema too."""
+    raw = _read_json_object(keep_addrs_last_good_path())
+    if raw is None:
+        return {}
+    hosts = raw.get("hosts")
+    if isinstance(hosts, dict):
+        out: dict[str, list[str]] = {}
+        for host, addrs in hosts.items():
+            if isinstance(host, str) and isinstance(addrs, list):
+                out[host] = [a for a in addrs if isinstance(a, str) and a]
+        return out
+    flat = raw.get("addrs")
+    if isinstance(flat, list):
+        # Older flat cache: keep the addresses under a sentinel so a cold
+        # start still carves out what the previous version had learned.
+        return {"": [a for a in flat if isinstance(a, str) and a]}
+    return {}
+
+
+def save_keep_addrs_last_good(hosts: dict[str, list[str]]) -> None:
+    _atomic_write(
+        keep_addrs_last_good_path(),
+        json.dumps({"hosts": {h: sorted(v) for h, v in sorted(hosts.items())}}, indent=2) + "\n",
+    )
+
+
+def flatten_keep(hosts: dict[str, list[str]]) -> set[str]:
+    addrs: set[str] = set()
+    for values in hosts.values():
+        addrs.update(values)
+    return addrs
+
+
+def keep_resolve(host: str) -> tuple[list[str], list[str]]:
+    """Bounded lookup for the carve-out, split the way focus_block wants it."""
+    try:
+        addrs = resolve_host(host)
+    except Exception:
+        return [], []
+    return [a for a in addrs if ":" not in a], [a for a in addrs if ":" in a]
+
+
+def refresh_keep_addrs() -> set[str]:
+    """Re-resolve the carve-out, deciding each host on its own.
+
+    A host that fails to answer keeps its own last-good addresses instead of
+    losing them because a sibling host resolved, so one flaky lookup cannot
+    hand a shared address back to the block.
+    """
+    global _keep_hosts, _keep_fetched_at
+    with _keep_lock:
+        cached = dict(_keep_hosts) if _keep_hosts is not None else {}
+    if not cached:
+        cached = load_keep_addrs_last_good()
+    try:
+        mapped = focus_block.keep_reachable_map(
+            load_config(), resolve=keep_resolve, fallback=cached
+        )
+    except Exception:
+        mapped = {}
+    if not any(mapped.values()):
+        # A total failure returns a populated map of EMPTY lists, so testing
+        # the dict itself would accept it and wipe the carve-out -- including
+        # the legacy flat cache, whose sentinel key matches no real host.
+        with _keep_lock:
+            _keep_hosts = cached
+            _keep_fetched_at = time.time()
+        return flatten_keep(cached)
+    with _keep_lock:
+        _keep_hosts = mapped
+        _keep_fetched_at = time.time()
+    try:
+        save_keep_addrs_last_good(mapped)
+    except OSError:
+        pass
+    return flatten_keep(mapped)
+
+
+def request_keep_reapply() -> None:
+    """A changed carve-out only reaches nftables on the next apply."""
+    try:
+        if on_distractions():
+            return
+        ensure_net_worker().request_resolve("keep")
+    except Exception:
+        pass
+
+
+def _keep_refresh_worker() -> None:
+    global _keep_refreshing
+    try:
+        with _keep_lock:
+            before = flatten_keep(_keep_hosts or {})
+        after = refresh_keep_addrs()
+        if after and after != before:
+            request_keep_reapply()
+    finally:
+        with _keep_lock:
+            _keep_refreshing = False
+
+
+def start_keep_refresh() -> None:
+    global _keep_refreshing
+    with _keep_lock:
+        if _keep_refreshing:
+            return
+        _keep_refreshing = True
+    try:
+        threading.Thread(target=_keep_refresh_worker, daemon=True).start()
+    except Exception:
+        # A spawn that never runs would otherwise wedge the flag on and stop
+        # every later refresh. Clear it and let the next apply try again.
+        with _keep_lock:
+            _keep_refreshing = False
+
+
+def keep_reachable_addrs() -> set[str]:
+    """Carve-out addresses for the off-space set. Never waits on DNS.
+
+    Entering the distraction space queues a flush behind whatever the network
+    worker is already doing, so a lookup that stalls here keeps X blocked on
+    the one space that is meant to allow it. The cached answer is returned
+    straight away and any refresh runs on its own thread. A refresh that
+    changes the set asks for a re-apply, so a cold start carves Grok out a
+    second later instead of waiting on the periodic tick.
+    """
+    global _keep_hosts
+    with _keep_lock:
+        if _keep_hosts is None:
+            _keep_hosts = load_keep_addrs_last_good()
+        cached = flatten_keep(_keep_hosts)
+        stale = (time.time() - _keep_fetched_at) >= KEEP_ADDRS_TTL_S
+    if stale or not cached:
+        start_keep_refresh()
+    return cached
 
 
 def desired_rule_map(expanded: list[dict]) -> dict[str, dict]:
@@ -1618,9 +1762,17 @@ def wrapper_present() -> bool:
 def replace_ds(addrs_by_host: dict[str, list[str]]) -> bool:
     if not wrapper_present():
         return False
+    keep = keep_reachable_addrs()
     lines: list[str] = []
     for host in sorted(addrs_by_host):
-        lines.extend(addrs_by_host[host])
+        addrs = addrs_by_host[host]
+        kept4, kept6 = focus_block.drop_keep_reachable_split(
+            [a for a in addrs if ":" not in a],
+            [a for a in addrs if ":" in a],
+            keep,
+        )
+        lines.extend(kept4)
+        lines.extend(kept6)
     text = "\n".join(lines)
     if text:
         text += "\n"
@@ -1735,6 +1887,11 @@ class NetworkWorker:
             ok = False
             try:
                 ok = self._run(kind, gen)
+            except Exception:
+                # The worker owns every later block and flush. An unexpected
+                # error must fail this job, never end the loop and leave the
+                # session with no enforcement at all.
+                ok = False
             finally:
                 self._finish(gen, ok)
 
@@ -1942,6 +2099,10 @@ _state_lock = threading.Lock()
 _active_expand: list[dict] = []
 _banner_at: dict[str, float] = {}
 _last_on_space: bool | None = None
+_keep_lock = threading.Lock()
+_keep_hosts: dict[str, list[str]] | None = None
+_keep_fetched_at = 0.0
+_keep_refreshing = False
 _network_skip_notified = False
 _net = NetworkWorker()
 
