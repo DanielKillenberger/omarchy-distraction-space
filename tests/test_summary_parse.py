@@ -916,6 +916,8 @@ class HostedXorTests(CloseWindowHarness):
         close = source[source.find("def prompt_focus_close") : source.find("def run_session_close_window")]
         self.assertIn("Gtk.ScrolledWindow", close)
         self.assertIn("set_max_content_height", close)
+        self.assertIn("_scroll_text(purpose_value", close)
+        self.assertIn("_scroll_text(summary_value", close)
 
     def test_hosted_copy_empty_vs_parse_failed(self):
         cases = (
