@@ -12,9 +12,9 @@
   "id": "fn-3-focus-mode-agent-notification-summary",
   "impl_review_rounds": {},
   "next_task": 1,
-  "plan_review_rounds": 2,
-  "plan_review_status": "needs_work",
-  "plan_reviewed_at": "2026-09-01T07:35:43.519089Z",
+  "plan_review_rounds": 0,
+  "plan_review_status": "ship",
+  "plan_reviewed_at": "2026-09-01T07:45:55.411157Z",
   "ready": true,
   "review_attempts": [
     {
@@ -949,10 +949,347 @@
       "task": null,
       "timestamp": "2026-09-01T07:35:42.945984Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "608a6af42b6e1a6a9c2f0ea7f2a18845e247a25e6cbcc51f992c7a0a8956f8ef",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-490ad17bf6133115f3b32233dccc4de9",
+            "classification": "introduced",
+            "findingId": "finding-490ad17bf6133115f3b32233dccc4de9",
+            "firstSeenThisRound": false,
+            "severity": "P0",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-ffc46c7b9bb9a8f4e14195b3bbe8f4b9",
+            "classification": "introduced",
+            "findingId": "finding-ffc46c7b9bb9a8f4e14195b3bbe8f4b9",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-a76ba9121f737a0908a3d4b1071610b9",
+            "classification": "introduced",
+            "findingId": "finding-a76ba9121f737a0908a3d4b1071610b9",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-9263c846a0cde9f6ec04e5e59df76610",
+            "classification": "introduced",
+            "findingId": "finding-9263c846a0cde9f6ec04e5e59df76610",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-73e63412007348f31bb8d0e67a4e808c",
+            "classification": "introduced",
+            "findingId": "finding-73e63412007348f31bb8d0e67a4e808c",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-d670e43c8b691ba92d33e0151512d58c",
+            "classification": "introduced",
+            "findingId": "finding-d670e43c8b691ba92d33e0151512d58c",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-f6a2264b4c256a9d36c260909e75a92a",
+            "classification": "introduced",
+            "findingId": "finding-f6a2264b4c256a9d36c260909e75a92a",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-677a959c9c28ed63bdd219288d3f95eb",
+            "classification": "introduced",
+            "findingId": "finding-677a959c9c28ed63bdd219288d3f95eb",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-c804f02413ecd36bee87e9b136fff57b",
+            "classification": "introduced",
+            "findingId": "finding-c804f02413ecd36bee87e9b136fff57b",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-b4ac2eb7ddd82019b4a101c2f584e33a",
+            "classification": "introduced",
+            "findingId": "finding-b4ac2eb7ddd82019b4a101c2f584e33a",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-009acee6b326c486df6bfe9bc10a4859",
+            "classification": "introduced",
+            "findingId": "finding-009acee6b326c486df6bfe9bc10a4859",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-e9f0f57678d5715b7e1ff7a70518bdd4",
+            "classification": "introduced",
+            "findingId": "finding-e9f0f57678d5715b7e1ff7a70518bdd4",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-289bbeeaf8d7965cccf7f3ff66e30ff2",
+            "classification": "introduced",
+            "findingId": "finding-289bbeeaf8d7965cccf7f3ff66e30ff2",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-b32935b7370f641b8bcf1c6724acd1c9",
+            "classification": "introduced",
+            "findingId": "finding-b32935b7370f641b8bcf1c6724acd1c9",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-5a4a5cfb94cbf63daa184c5c08937f5c",
+            "classification": "introduced",
+            "findingId": "finding-5a4a5cfb94cbf63daa184c5c08937f5c",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-1adb674386a32e9445fb6775eef39762",
+            "classification": "introduced",
+            "findingId": "finding-1adb674386a32e9445fb6775eef39762",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-ca074f93d5c8cb07f4f1f45f4912cffe",
+            "classification": "introduced",
+            "findingId": "finding-ca074f93d5c8cb07f4f1f45f4912cffe",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-03d872b45d1277a1201ba1d18e3db365",
+            "classification": "introduced",
+            "findingId": "finding-03d872b45d1277a1201ba1d18e3db365",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-1d1d4cf11aa8b1ab6400444e598377ec",
+            "classification": "introduced",
+            "findingId": "finding-1d1d4cf11aa8b1ab6400444e598377ec",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-e61f8b1f8235526be9ed3cb4e12bd3ce",
+            "classification": "introduced",
+            "findingId": "finding-e61f8b1f8235526be9ed3cb4e12bd3ce",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-1c6bcee4f7d39a5812cc2da7583bc2d4",
+            "classification": "introduced",
+            "findingId": "finding-1c6bcee4f7d39a5812cc2da7583bc2d4",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-0603e6631fa2a7af8d7e05a849a9fc1c",
+            "classification": "introduced",
+            "findingId": "finding-0603e6631fa2a7af8d7e05a849a9fc1c",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-2a16674c5f3a06d3a0ac0ba95a3cc262",
+            "classification": "introduced",
+            "findingId": "finding-2a16674c5f3a06d3a0ac0ba95a3cc262",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-cd1ab636423db7f062ca06b8c4dd2634",
+            "classification": "introduced",
+            "findingId": "finding-cd1ab636423db7f062ca06b8c4dd2634",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-dbc4a508f9c760a437f2397c960a70ce",
+            "classification": "introduced",
+            "findingId": "finding-dbc4a508f9c760a437f2397c960a70ce",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-174b08a7d97d519e822978f3a7991ecc",
+            "classification": "introduced",
+            "findingId": "finding-174b08a7d97d519e822978f3a7991ecc",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-0c2f92e5bd8897b00a4b8ae80bdf76d7",
+            "classification": "introduced",
+            "findingId": "finding-0c2f92e5bd8897b00a4b8ae80bdf76d7",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-61dc5a7058ec012b6818c1d9f9e9c101",
+            "classification": "introduced",
+            "findingId": "finding-61dc5a7058ec012b6818c1d9f9e9c101",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-2ce433b9f9435687fa260715cef17e2e",
+            "classification": "introduced",
+            "findingId": "finding-2ce433b9f9435687fa260715cef17e2e",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-104fc57b896b14dc5a31d51bb6a7cb5f",
+            "classification": "introduced",
+            "findingId": "finding-104fc57b896b14dc5a31d51bb6a7cb5f",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-5fe98a616b34309687052fcb4051ebae",
+            "classification": "introduced",
+            "findingId": "finding-5fe98a616b34309687052fcb4051ebae",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-9994981e310ecaeb7565598b42643dd4",
+            "classification": "introduced",
+            "findingId": "finding-9994981e310ecaeb7565598b42643dd4",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-fe55eee9b468731e5d72cdc1461e9d64",
+            "classification": "introduced",
+            "findingId": "finding-fe55eee9b468731e5d72cdc1461e9d64",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-80b5651f27a21913ae5db566f9b798b4",
+            "classification": "introduced",
+            "findingId": "finding-80b5651f27a21913ae5db566f9b798b4",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-53f6ded70d49e24f2685b666f6669e85",
+            "classification": "introduced",
+            "findingId": "finding-53f6ded70d49e24f2685b666f6669e85",
+            "firstSeenThisRound": true,
+            "severity": "P3",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-2a05a21918c7cf195532ce8e60e11194",
+            "classification": "introduced",
+            "findingId": "finding-2a05a21918c7cf195532ce8e60e11194",
+            "firstSeenThisRound": true,
+            "severity": "P3",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-a301cf60e3a32b7eea23b6e30562651d",
+            "classification": "introduced",
+            "findingId": "finding-a301cf60e3a32b7eea23b6e30562651d",
+            "firstSeenThisRound": true,
+            "severity": "P3",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-7d5e2f43298bbb1db1d95726ae64dfcd",
+            "classification": "introduced",
+            "findingId": "finding-7d5e2f43298bbb1db1d95726ae64dfcd",
+            "firstSeenThisRound": true,
+            "severity": "P3",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 2,
+      "head_sha": "3c99dae1360e93f18eb1b293008f25c7d55e73bb",
+      "head_sha_observed": false,
+      "kind": "plan",
+      "outcome": "verdict",
+      "output_bytes": 4244,
+      "output_sha256": "b9dfe66d534a72c9622d135fed3e9d0a51cc7bb410be185d40aa96b6302687bb",
+      "reservation_id": "62cb3f4c5eea43758691a19f71adc3b7",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-01T07:45:54.840437Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
-    "plan": 2,
+    "plan": 3,
     "plan#completion": 2
   },
   "review_pending_rounds": {},
@@ -974,5 +1311,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T07:37:26.970395Z"
+  "updated_at": "2026-09-01T07:45:55.412502Z"
 }
