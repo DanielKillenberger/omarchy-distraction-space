@@ -1331,7 +1331,10 @@ def refresh_keep_addrs() -> set[str]:
         )
     except Exception:
         mapped = {}
-    if not mapped:
+    if not any(mapped.values()):
+        # A total failure returns a populated map of EMPTY lists, so testing
+        # the dict itself would accept it and wipe the carve-out -- including
+        # the legacy flat cache, whose sentinel key matches no real host.
         with _keep_lock:
             _keep_hosts = cached
             _keep_fetched_at = time.time()

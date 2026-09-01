@@ -851,8 +851,22 @@ class KeepReachableTests(unittest.TestCase):
                 raise OSError("dns down")
             return (["104.18.18.80"], [])
 
-        addrs = focus_block.keep_reachable_addrs({}, resolve=resolve)
+        # fallback={} on purpose: the default reads the real on-disk cache,
+        # which would make this assertion depend on the developer's machine.
+        addrs = focus_block.keep_reachable_addrs({}, resolve=resolve, fallback={})
         self.assertEqual(addrs, {"104.18.18.80"})
+
+    def test_a_failed_lookup_falls_back_to_that_host_s_cache(self) -> None:
+        def resolve(host: str):
+            if host == "grok.com":
+                raise OSError("dns down")
+            return (["104.18.18.80"], [])
+
+        addrs = focus_block.keep_reachable_addrs(
+            {}, resolve=resolve, fallback={"grok.com": ["104.18.28.234"]}
+        )
+        self.assertIn("104.18.28.234", addrs)
+        self.assertIn("104.18.18.80", addrs)
 
     def test_an_all_shared_host_stays_blocked(self) -> None:
         # A resolver that answers the same for every name must not empty the

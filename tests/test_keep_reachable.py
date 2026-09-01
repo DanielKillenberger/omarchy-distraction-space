@@ -109,6 +109,9 @@ class KeepReachableSetTests(QuiesceMixin, unittest.TestCase):
         self.assertEqual(self.keep_cache(), sorted(SHARED))
 
     def test_an_empty_carve_out_still_applies_the_block(self) -> None:
+        # An empty carve-out triggers a refresh; stub the resolver so the test
+        # never depends on live DNS or races the temp dir on teardown.
+        self.mod.resolve_host = lambda h, timeout=None: []
         self.set_keep(set())
         self.assertTrue(self.mod.replace_ds({"x.com": X_APEX}))
         self.assertIn("172.66.0.227", self.sent[0].split())
@@ -253,6 +256,31 @@ class ReviewFindingTests(QuiesceMixin, unittest.TestCase):
         second = self.mod.refresh_keep_addrs()
         self.assertIn("104.18.28.234", second, "a sibling's success wiped grok's cache")
         self.assertIn("104.18.18.80", second)
+
+    # 2b - a total DNS failure must not wipe the carve-out
+    def test_a_total_failure_keeps_the_legacy_flat_cache(self) -> None:
+        # keep_reachable_map returns a POPULATED map of EMPTY lists when every
+        # lookup fails, so a dict-emptiness guard would accept it and wipe the
+        # carve-out. The legacy sentinel key matches no real host name.
+        path = self.state / self.mod.KEEP_ADDRS_LAST_GOOD_NAME
+        path.write_text(json.dumps({"addrs": ["104.18.28.234"]}))
+
+        def dns_down(_host, timeout=None):
+            raise OSError("dns down")
+
+        self.mod.resolve_host = dns_down
+        self.assertEqual(self.mod.refresh_keep_addrs(), {"104.18.28.234"})
+
+    def test_a_total_failure_keeps_the_per_host_cache(self) -> None:
+        answers = {"grok.com": ["104.18.28.234"]}
+        self.mod.resolve_host = lambda h, timeout=None: answers.get(h, [])
+        self.mod.refresh_keep_addrs()
+
+        def dns_down(_host, timeout=None):
+            raise OSError("dns down")
+
+        self.mod.resolve_host = dns_down
+        self.assertIn("104.18.28.234", self.mod.refresh_keep_addrs())
 
     # 2 - focus mode falls back per host through the shared cache
     def test_focus_mode_uses_the_per_host_cache_on_failure(self) -> None:
