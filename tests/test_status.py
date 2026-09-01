@@ -20,8 +20,6 @@ STUBS = (
     "enter",
     "leave",
     "toggle",
-    "next",
-    "prev",
     "lock",
     "unlock",
     "menu",

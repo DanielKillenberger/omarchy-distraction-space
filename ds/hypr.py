@@ -1,9 +1,26 @@
-"""Hyprland workspace queries now; window rules in a later task."""
+"""Hyprland queries, named window rules, silent moves, and workspace cycle."""
 
 import json
+import re
 import subprocess
+import time
+
+from ds import state
 
 SPACE = "distraction"
+BANNER_S = 30
+GLYPH = "󰈈"
+
+_entries = None
+_app_banner = True
+_banner_at = {}
+
+
+def _reset_for_tests():
+    global _entries, _app_banner
+    _entries = None
+    _app_banner = True
+    _banner_at.clear()
 
 
 def hyprctl_json(*args):
@@ -30,9 +47,271 @@ def on_space():
     return isinstance(data, dict) and data.get("name") == SPACE
 
 
-def apply_rules(expanded): raise NotImplementedError
-def handle_event(line): raise NotImplementedError
-def move_to_space(address): raise NotImplementedError
-def cycle(direction): raise NotImplementedError
-def cmd_next(args): raise NotImplementedError
-def cmd_prev(args): raise NotImplementedError
+def _log(msg):
+    path = state.state_path("log")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{state.now_iso()} {msg}\n")
+    except OSError:
+        pass
+
+
+def _run(*args):
+    try:
+        r = subprocess.run(["hyprctl", *args], capture_output=True, text=True, timeout=5)
+    except Exception as e:
+        _log(f"hyprctl {' '.join(args)}: {e}")
+        return None
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "").strip()
+        _log(f"hyprctl {' '.join(args)}: exit {r.returncode} {err}")
+        return None
+    return r
+
+
+def _slug(name):
+    s = re.sub(r"[^a-z0-9]+", "-", (name or "").lower()).strip("-")
+    return s or "entry"
+
+
+def _normalize(expanded):
+    extra = {}
+    if isinstance(expanded, dict):
+        extra = expanded
+        items = expanded.get("list") or expanded.get("entries") or []
+    elif isinstance(expanded, list):
+        items = expanded
+    else:
+        items = []
+    return [e for e in items if isinstance(e, dict)], extra
+
+
+def _rule_names(entries):
+    names, specs = [], []
+    for entry in entries:
+        slug = _slug(entry.get("name") or "entry")
+        for n, klass in enumerate(entry.get("classes") or []):
+            if not isinstance(klass, str) or not klass:
+                continue
+            name = f"omarchy-ds-{slug}-{n}"
+            names.append(name)
+            specs.append((name, klass))
+    return names, specs
+
+
+def _read_rule_names():
+    data = state.read_json(state.state_path("rules.json"), [])
+    if isinstance(data, list):
+        return [n for n in data if isinstance(n, str)]
+    if isinstance(data, dict) and isinstance(data.get("names"), list):
+        return [n for n in data["names"] if isinstance(n, str)]
+    return []
+
+
+def apply_rules(expanded):
+    global _entries, _app_banner
+    entries, extra = _normalize(expanded)
+    _entries = entries
+    nudges = extra.get("nudges")
+    if isinstance(nudges, dict) and "app_banner" in nudges:
+        _app_banner = bool(nudges["app_banner"])
+    names, specs = _rule_names(entries)
+    old = _read_rule_names()
+    for name, klass in specs:
+        _run("keyword", f"windowrule[{name}]:match:class {klass}")
+        _run("keyword", f"windowrule[{name}]:workspace name:{SPACE} silent")
+        _run("keyword", f"windowrule[{name}]:enable true")
+    desired = set(names)
+    for name in old:
+        if name not in desired:
+            _run("keyword", f"windowrule[{name}]:enable false")
+    state.write_json(state.state_path("rules.json"), names)
+
+
+def _current_entries():
+    if _entries is not None:
+        return _entries
+    entries, _extra = _normalize(state.read_expansion())
+    return entries
+
+
+def _want_banner():
+    exp = state.read_expansion()
+    if isinstance(exp, dict):
+        nudges = exp.get("nudges")
+        if isinstance(nudges, dict) and "app_banner" in nudges:
+            return bool(nudges["app_banner"])
+    try:
+        from ds.config import config_path
+        path = config_path()
+        if path.exists():
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            nudges = raw.get("nudges") if isinstance(raw, dict) else None
+            if isinstance(nudges, dict) and "app_banner" in nudges:
+                return bool(nudges["app_banner"])
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        pass
+    return _app_banner
+
+
+def _norm_addr(a):
+    s = str(a or "").lower()
+    return s[2:] if s.startswith("0x") else s
+
+
+def _client_by_address(address):
+    try:
+        clients = hyprctl_json("clients")
+    except Exception as e:
+        _log(f"hyprctl clients: {e}")
+        return None
+    if not isinstance(clients, list):
+        return None
+    want = _norm_addr(address)
+    for c in clients:
+        if isinstance(c, dict) and _norm_addr(c.get("address")) == want:
+            return c
+    return None
+
+
+def _match_entry(klass):
+    if not klass:
+        return None
+    for entry in _current_entries():
+        for pat in entry.get("classes") or []:
+            if not isinstance(pat, str) or not pat:
+                continue
+            try:
+                if re.search(pat, klass):
+                    return entry
+            except re.error:
+                if pat == klass:
+                    return entry
+    return None
+
+
+def move_to_space(address):
+    if not address:
+        return
+    _run("dispatch", "movetoworkspacesilent", f"name:{SPACE},address:{address}")
+
+
+def _maybe_banner(name):
+    now = time.monotonic()
+    last = _banner_at.get(name)
+    if last is not None and now - last < BANNER_S:
+        return
+    _banner_at[name] = now
+    try:
+        subprocess.run(
+            [
+                "omarchy-notification-send",
+                "-g",
+                GLYPH,
+                f"{name} lives in the distraction space",
+                "Super+D opens it.",
+                "--exec",
+                "distractions enter",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        pass
+
+
+def handle_event(line):
+    try:
+        _handle_event(line)
+    except Exception as e:
+        _log(f"handle_event: {e}")
+
+
+def _handle_event(line):
+    if not isinstance(line, str):
+        return
+    raw = line.strip()
+    if raw.startswith(">>"):
+        raw = raw[2:]
+    if ">>" not in raw:
+        return
+    kind, payload = raw.split(">>", 1)
+    if kind not in ("openwindow", "movewindow", "movewindowv2"):
+        return
+    address = payload.split(",", 1)[0].strip()
+    if not address:
+        return
+    client = _client_by_address(address)
+    klass = client.get("class") if isinstance(client, dict) else ""
+    if kind == "openwindow" and not klass:
+        parts = payload.split(",", 3)
+        if len(parts) >= 3:
+            klass = parts[2]
+    if isinstance(client, dict) and not klass:
+        klass = client.get("initialClass") or ""
+    match = _match_entry(klass)
+    if match is None:
+        return
+    ws_name = None
+    if isinstance(client, dict) and isinstance(client.get("workspace"), dict):
+        ws_name = client["workspace"].get("name")
+    addr = client.get("address") if isinstance(client, dict) else address
+    if ws_name != SPACE:
+        move_to_space(addr or address)
+    if _want_banner() and on_space() is not True:
+        _maybe_banner(match.get("name") or klass)
+
+
+def cycle(direction):
+    delta = -1 if direction in ("prev", "previous", -1, "<") else 1
+    try:
+        spaces = hyprctl_json("workspaces")
+        active = hyprctl_json("activeworkspace")
+    except Exception as e:
+        _log(f"hyprctl workspaces: {e}")
+        return False
+    if not isinstance(spaces, list) or not isinstance(active, dict):
+        return False
+    occupied = [
+        w
+        for w in spaces
+        if isinstance(w, dict)
+        and w.get("name") != SPACE
+        and int(w.get("windows") or 0) > 0
+    ]
+    occupied.sort(key=lambda w: w.get("id") or 0)
+    if not occupied:
+        return True
+    ids = [w.get("id") for w in occupied]
+    names = {w.get("id"): w.get("name") for w in occupied}
+    cur = active.get("id")
+    if cur in ids:
+        dest = ids[(ids.index(cur) + delta) % len(ids)]
+    elif cur is None:
+        dest = ids[0] if delta > 0 else ids[-1]
+    elif delta > 0:
+        dest = next((i for i in ids if i > cur), ids[0])
+    else:
+        dest = next((i for i in reversed(ids) if i < cur), ids[-1])
+    name = names.get(dest)
+    if not name:
+        return True
+    return _run("dispatch", "workspace", f"name:{name}") is not None
+
+
+def cmd_next(args):
+    try:
+        return 0 if cycle("next") else 1
+    except Exception as e:
+        _log(f"next: {e}")
+        return 1
+
+
+def cmd_prev(args):
+    try:
+        return 0 if cycle("prev") else 1
+    except Exception as e:
+        _log(f"prev: {e}")
+        return 1
