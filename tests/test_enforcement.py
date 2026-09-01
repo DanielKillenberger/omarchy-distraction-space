@@ -553,6 +553,31 @@ class EnforcementTests(unittest.TestCase):
         self.assertEqual(last["argv"], ["replace", "ds"])
         self.assertIn("198.51.100.20", last["stdin"])
 
+    def test_resolve_unions_last_good_on_success(self):
+        self.mod.resolve_host = lambda host, timeout=2.0: ["203.0.113.2"]
+        merged = self.mod.resolve_hosts(
+            ["blocked.example"],
+            {"blocked.example": ["198.51.100.2"]},
+        )
+        self.assertEqual(set(merged["blocked.example"]), {"203.0.113.2", "198.51.100.2"})
+
+    def test_resolve_empty_keeps_last_good(self):
+        self.mod.resolve_host = lambda host, timeout=2.0: []
+        merged = self.mod.resolve_hosts(
+            ["blocked.example"],
+            {"blocked.example": ["198.51.100.4"]},
+        )
+        self.assertEqual(merged["blocked.example"], ["198.51.100.4"])
+
+    def test_resolve_omits_removed_host(self):
+        self.mod.resolve_host = lambda host, timeout=2.0: ["203.0.113.3"]
+        merged = self.mod.resolve_hosts(
+            ["kept.example"],
+            {"kept.example": ["203.0.113.3"], "gone.example": ["198.51.100.9"]},
+        )
+        self.assertEqual(list(merged), ["kept.example"])
+        self.assertNotIn("gone.example", merged)
+
     def test_helper_never_invokes_nft(self):
         self.write_list([self.telegram_row(), self.site_row()])
         self.mod.resolve_host = lambda host, timeout=2.0: ["198.51.100.2"]

@@ -210,7 +210,27 @@ EXPAND_MAP: dict[str, dict] = {
     },
     "X": {
         "class": r"^chrome-x\.com__.*$",
-        "hosts": ["x.com", "www.x.com", "twitter.com", "www.twitter.com"],
+        # Off-space block is IP-only (no suffix DNS). X serves the site
+        # from API and twimg hosts on other addresses than the apex.
+        "hosts": [
+            "x.com",
+            "www.x.com",
+            "twitter.com",
+            "www.twitter.com",
+            "mobile.twitter.com",
+            "m.twitter.com",
+            "api.x.com",
+            "api.twitter.com",
+            "t.co",
+            "www.t.co",
+            "abs.twimg.com",
+            "pbs.twimg.com",
+            "video.twimg.com",
+            "cf.twimg.com",
+            "abs-0.twimg.com",
+            "ton.twimg.com",
+            "platform.twitter.com",
+        ],
     },
     "Signal": {
         "class": r"^signal$",
@@ -1499,11 +1519,17 @@ def resolve_host(host: str, timeout: float = DNS_TIMEOUT_S) -> list[str]:
 def resolve_hosts(hosts: list[str], last_good: dict[str, list[str]]) -> dict[str, list[str]]:
     merged: dict[str, list[str]] = {}
     for host in hosts:
+        addrs: list[str] = []
         try:
-            merged[host] = resolve_host(host)
+            addrs = resolve_host(host)
         except Exception:
-            if host in last_good:
-                merged[host] = list(last_good[host])
+            addrs = []
+        previous = list(last_good.get(host) or [])
+        if not addrs:
+            if previous:
+                merged[host] = previous
+            continue
+        merged[host] = sorted(set(addrs) | set(previous))
     return merged
 
 
