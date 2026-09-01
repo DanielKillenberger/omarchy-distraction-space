@@ -46,9 +46,10 @@ Run the open one-shot under R15 bounds and choose one catch-up surface after a s
 - [ ] `python3 -m unittest discover -s tests -p 'test_*.py'` covers bounds for both Claude and Grok, Grok config-cap rejection, pre-spawn atomic reservation, crash/restart budget persistence and no replay, timeout/kill, stdout cap, stale-session reject, XOR fallback, lift-fail retain, notify primary-fail/fallback-ok, and total display failure.
 
 ## Done summary
-TBD
+# fn-3.3 done
 
+Bounded one-shot parse, XOR catch-up, and lift-fail retain. Focus-off waits before reap, holds the session singleton through the optional final parse, and serializes enable/disable. Host impl-review SHIP.
 ## Evidence
-- Commits:
-- Tests:
-- PRs:
+- Commits: 195930b42d33e29a35475c93a85e43644fb2647e
+- Tests: python3 -m py_compile distractions, python3 -m unittest tests.test_summary_parse, python3 -m unittest discover -s tests -p 'test_*.py'
+- PRs: https://github.com/DanielKillenberger/omarchy-distraction-space/pull/3

@@ -1,12 +1,21 @@
 {
+  "findings": {
+    "backend": "host",
+    "headSha": "195930b42d33e29a35475c93a85e43644fb2647e",
+    "items": [],
+    "reviewKind": "implementation",
+    "round": 1,
+    "schemaVersion": 1,
+    "sourceReceiptId": "review-3428f522e0b179b8197f24c8e2513708ed9329c77ad6ab24ee0890e02562758a"
+  },
   "id": "fn-3-focus-mode-agent-notification-summary.3",
   "mode": "host",
   "model": "gpt-5.6-sol-high",
-  "review": "Prior finding #1: fixed\nPrior finding #2: not-fixed\nPrior finding #3: fixed\n\n- **Severity**: P1\n- **Classification**: introduced\n- **File:Line**: `distractions:2762`\n- **R-IDs**: `[R1, R3]`\n- **Problem**: Session/focus validation occurs before lift_notification_block(). A new focus session can start after that check.\n- **Suggestion**: Serialize complete focus transitions.\n\n<verdict>NEEDS_WORK</verdict>\n",
-  "review_reservation_id": "6d01eaf10717452294586c426c622819",
+  "review": "Prior findings: all fixed\n\nNo surviving findings. The transition lock serializes complete focus enable/disable paths.\n\nVerification passed:\n- `python3 -m py_compile distractions`\n- `python3 -m unittest tests.test_summary_parse` \u2014 34 tests\n\n<verdict>SHIP</verdict>\n",
+  "review_reservation_id": "31d05c897d37410cba95d2e815ccc8c7",
   "session_id": null,
   "spec": "host",
-  "timestamp": "2026-09-01T09:49:58Z",
+  "timestamp": "2026-09-01T09:52:55Z",
   "type": "impl_review",
-  "verdict": "NEEDS_WORK"
+  "verdict": "SHIP"
 }
