@@ -4088,6 +4088,10 @@ def _pin_or_create_ancestors(
         _rmdir_created(pinned)
         pinned.close()
         raise _SetupClosed(f"could not pin trusted path: {exc}") from exc
+    except BaseException:
+        _rmdir_created(pinned)
+        pinned.close()
+        raise
 
 
 def _inspect_dest(pinned: _PinnedAncestors, dest_name: str, trusted_uid: int) -> os.stat_result | None:
@@ -4420,8 +4424,8 @@ def _privileged_install(
         if not dest_existed or not dest_ok:
             if _grant_exists(sudoers_path) and not dest_existed:
                 _disable_grant(sudoers_path, trusted_uid, fs_root)
-            _stage_replace_wrapper(pinned, wrapper_dest.name, data, trusted_uid)
             created_dest = not dest_existed
+            _stage_replace_wrapper(pinned, wrapper_dest.name, data, trusted_uid)
         wrapper_fd = os.open(
             wrapper_dest.name,
             os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC,
@@ -4437,6 +4441,12 @@ def _privileged_install(
                 pinned, wrapper_dest, data, trusted_uid, fs_root, wrapper_fd
             ),
         )
+    except OSError as exc:
+        if not grant_committed and not _grant_body_matches(
+            sudoers_path, body, trusted_uid, fs_root
+        ):
+            _cleanup_this_run(wrapper_dest, pinned, created_dest)
+        raise _SetupClosed(f"could not complete setup: {exc}") from exc
     except _SetupClosed:
         if not grant_committed and not _grant_body_matches(
             sudoers_path, body, trusted_uid, fs_root
