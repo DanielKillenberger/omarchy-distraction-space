@@ -62,9 +62,12 @@ Enforce the loaded list. Matching windows land only on the named distraction wor
 - [ ] `hypr/windows.lua` no longer contains the six membership `o.window` lines
 - [ ] `python3 -m py_compile distractions` is green
 ## Done summary
-TBD
+Listed classed apps now get helper-owned omarchy-ds-* named rules and silent moves, listed hosts are resolved off the listen path into the ds nft wrapper (flushed on the space), and a live intercept off the space shows the conscious-choice banner without following the user.
 
+baseline: green
+stage: impl-review - SHIP (host, gpt-5.6-sol-medium)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 1af7662a9afda720a07432a6eed50f2e16a90ef8, e02a7ade2891cdd2ff729497755bff80f52ef88a, 4c84017940c2239389d52b4139f4925c443a4117, 102ee779efae5e464f854f82835dd8438ebdfb66, 15278327fe71dfec798cba0fe38f2c1af445c215, 0f4033ed70666898bf4110821c893390fc2c65b3, 4980d5d7e1444ef65809333a9ea692de39e6722f, 968f37aea16d0148e2f9caef8085e99f92bfc110, 44c972427f81af78e842c8b0f2f4315d81aad19a
+- Tests: python3 -m py_compile distractions, python3 -c "import ast; ast.parse(open('distractions').read())", python3 -m unittest tests.test_app_list tests.test_enforcement tests.test_distractions_nft
 - PRs:
