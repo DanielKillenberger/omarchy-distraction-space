@@ -10,7 +10,7 @@
   "id": "fn-2-focus-mode-distraction-notification",
   "impl_review_rounds": {
     "fn-2-focus-mode-distraction-notification.1": 0,
-    "fn-2-focus-mode-distraction-notification.2": 1
+    "fn-2-focus-mode-distraction-notification.2": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -774,10 +774,69 @@
       "task": "fn-2-focus-mode-distraction-notification.2",
       "timestamp": "2026-09-01T01:26:31.275172Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "6ab3d217aecc5eee56face846d7a686249e60ace78ee60ff118bfe9695e35528",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "014eca06840b52c8fa5088fcc87fb5401f3acc70",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1792,
+      "output_sha256": "f8b9ba91fb6931fa3c2318b1e368b740d7de6221fd02aa784b823347b679f364",
+      "reservation_id": "798fb4363d3c40baa63953a412cf3e2f",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.2",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.2",
+      "timestamp": "2026-09-01T01:30:43.888572Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "632780a398063160dba74ed2b01b91a6b9cd8e87b7e642794632ef09cfea31c4",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "host",
+        "digest_truncated": false,
+        "items": [],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "5190615152015a2773d92b5f51aa2b58d3d29d84",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 1111,
+      "output_sha256": "bc9ec29b9339ec536a79187d7d3d82f4645bd0547f402b8d74b561679971bf6a",
+      "reservation_id": "922fb2df02db40c6be4898f702003f39",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.2",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.2",
+      "timestamp": "2026-09-01T01:34:58.889306Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-2-focus-mode-distraction-notification.1": 2,
+    "impl:fn-2-focus-mode-distraction-notification.2": 1,
     "plan": 2,
     "plan#completion": 1
   },
@@ -802,5 +861,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T01:26:31.812310Z"
+  "updated_at": "2026-09-01T01:34:59.434235Z"
 }

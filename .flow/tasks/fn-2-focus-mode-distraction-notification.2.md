@@ -42,9 +42,18 @@ Count blocked pings with no mid-focus reader, send one grouped notice after a su
 - [ ] README and manifest describe mute, restore, grouped count, apply-fail / lift-fail, and the Quickshell service load
 - [ ] `python3 -m unittest discover -s tests -p 'test_*.py'` passes
 ## Done summary
-TBD
+# fn-2-focus-mode-distraction-notification.2
 
+Grouped catch-up count and docs.
+
+After exact-row suppression, QML serializes `count-increment` through one helper queue. Each helper takes a dedicated count-file flock, merges, fsyncs a temp file, and atomically renames. Failed increments retry and keep the label plus pendingOps until a write succeeds; drain reports error until then so lift cannot look drained.
+
+Successful lift waits for disarmed-and-drained, then one grouped `notify()` lists per-app counts and may play one sound. Clear only after a successful notice. Zero counts skip it. Notify has a bounded subprocess timeout. The existing Focus mode off toast stays.
+
+README and manifest cover mute, restore, grouped count, apply-fail / lift-fail, and the dual service kind loaded through the existing bar-layout enablement.
+
+Host impl-review (gpt-5.6-sol-high): SHIP after two NEEDS_WORK rounds (notify timeout + increment retain).
 ## Evidence
-- Commits:
-- Tests:
-- PRs:
+- Commits: 1ed262d83598c3520db2439eb043b6a0d4a26cbd, 014eca06840b52c8fa5088fcc87fb5401f3acc70, 5190615152015a2773d92b5f51aa2b58d3d29d84
+- Tests: python3 -m unittest tests.test_notification_count, python3 -m unittest discover -s tests -p 'test_*.py'
+- PRs: https://github.com/DanielKillenberger/omarchy-distraction-space/pull/2
