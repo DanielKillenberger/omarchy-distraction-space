@@ -34,6 +34,9 @@ class ConfigOptInTests(unittest.TestCase):
         cfg = distractions.load_config()
         self.assertIs(cfg["agent_summaries"], False)
         self.assertIsNone(cfg["summary_agent"])
+        for key in distractions.SESSION_UI_KEYS:
+            self.assertIs(shipped[key], True)
+            self.assertIs(cfg[key], True)
         self.assertFalse(distractions.agent_summaries_enabled())
         with mock.patch.object(distractions, "omarchy_default_agent", return_value="claude"):
             self.assertFalse(distractions.agent_summaries_enabled())
@@ -95,6 +98,15 @@ class ConfigWriteTests(unittest.TestCase):
         data = json.loads(self.cfg.read_text())
         self.assertEqual(data["summary_agent"], "grok")
         self.assertEqual(data["log"], "keep-me")
+
+    def test_session_ui_non_bool_write_keeps_previous(self):
+        before = self.cfg.read_text()
+        for value in (0, 1, "true", None):
+            with self.subTest(value=value):
+                self.assertFalse(distractions.update_focus_config(session_start_ui=value))
+                self.assertEqual(self.cfg.read_text(), before)
+        self.assertTrue(distractions.update_focus_config(session_start_ui=False))
+        self.assertIs(json.loads(self.cfg.read_text())["session_start_ui"], False)
 
     def test_config_write_is_atomic_fsync_then_replace(self):
         calls: list[str] = []
@@ -179,8 +191,13 @@ class PickerTests(unittest.TestCase):
             return_value=subprocess.CompletedProcess(["omarchy-menu-select"], 1, stdout="", stderr=""),
         ):
             distractions.cmd_summary_agent()
+            distractions.cmd_session_ui()
         self.assertEqual(json.loads(self.cfg.read_text())["summary_agent"], "claude")
         self.assertTrue(self.notices)
+        after_cancel = self.cfg.read_text()
+        with mock.patch.object(distractions, "menu_select", return_value=None):
+            distractions.cmd_session_ui()
+        self.assertEqual(self.cfg.read_text(), after_cancel)
 
 
 class ClaudeVectorTests(unittest.TestCase):

@@ -42,6 +42,13 @@ class ParseHarness(unittest.TestCase):
             mock.patch.object(distractions, "PARSE_DEBOUNCE_S", 0.0),
             mock.patch.object(distractions, "PARSER_POLL_S", 0.02),
             mock.patch.object(distractions, "FINISH_WAIT_S", 0.4),
+            mock.patch.object(
+                distractions,
+                "prompt_focus_close",
+                return_value={"action": "dismiss", "eval": "", "note": ""},
+            ),
+            mock.patch.object(distractions, "collect_summary_feedback"),
+            mock.patch.object(distractions, "menu_select", return_value=""),
         ]
         for patch in self.patches:
             patch.start()
@@ -582,6 +589,22 @@ class XorAndLiftTests(ParseHarness):
         self.assertEqual(notices[0], "Focus mode")
         self.assertIn("While you were focused", notices)
 
+    def test_parse_failed_stale_text_does_not_publish_summary(self):
+        self.ready_session(parse_failed=True)
+        self.seed_result("stale from an earlier parse")
+        self.seed_counts({"Telegram": 1})
+        notices: list[tuple[str, str]] = []
+
+        def fake_notify(title, body="", timeout_ms=4000):
+            notices.append((title, body))
+            return True
+
+        with mock.patch.object(distractions, "notify", fake_notify):
+            self.assertEqual(distractions.apply_summary_xor(), "grouped")
+        self.assertTrue(any("Could not summarize" in body for _, body in notices))
+        self.assertFalse(any(title == "Focus summary" for title, _ in notices))
+        self.assertIn("While you were focused", [title for title, _ in notices])
+
     def test_summaries_off_after_lift_fail_uses_xor_cleanup(self):
         self.cfg.write_text(json.dumps({"agent_summaries": False}) + "\n")
         self.ready_session(lift_fail_pending=True, session_ready=False)
@@ -790,6 +813,350 @@ class XorAndLiftTests(ParseHarness):
                     lift.assert_not_called()
         self.assertEqual(xor_calls, [])
         self.assertTrue(distractions.is_focus())
+
+
+class CloseWindowHarness(ParseHarness):
+    def setUp(self):
+        super().setUp()
+        self.log = self.state / "disable.log"
+        self.dialog_calls: list[dict] = []
+        extra = [
+            mock.patch.object(distractions, "log_path", lambda: self.log),
+            mock.patch.object(distractions, "lift_network_block"),
+            mock.patch.object(distractions, "on_distractions", return_value=False),
+            mock.patch.object(distractions, "summarize_finish", return_value={}),
+            mock.patch.object(distractions, "lift_notification_block", return_value=True),
+        ]
+        for patch in extra:
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def seed_recap(self, purpose: str = "write docs", session_id: str = "sess-1") -> None:
+        distractions.write_private_atomic(
+            distractions.session_recap_path(),
+            json.dumps({"purpose": purpose, "session_id": session_id}) + "\n",
+        )
+
+    def inject_close(self, result):
+        def fake(*, purpose="", summary="", ask_eval=True, ask_feedback=True):
+            self.dialog_calls.append(
+                {
+                    "purpose": purpose,
+                    "summary": summary,
+                    "ask_eval": ask_eval,
+                    "ask_feedback": ask_feedback,
+                }
+            )
+            return result
+
+        return mock.patch.object(distractions, "prompt_focus_close", fake)
+
+    def disable(self) -> None:
+        distractions.disable_focus("x" * 50)
+
+
+class HostedXorTests(CloseWindowHarness):
+    def test_hosted_nonempty_skips_notify_feedback_and_grouped(self):
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("important ping")
+        self.seed_counts({"Telegram": 1})
+        notices: list[str] = []
+        grouped: list[str] = []
+        feedback: list[str] = []
+
+        def fake_notify(title, body="", timeout_ms=4000):
+            notices.append(title)
+            return True
+
+        with self.inject_close({"action": "helpful", "eval": "", "note": "ok"}):
+            with mock.patch.object(distractions, "notify", fake_notify):
+                with mock.patch.object(
+                    distractions, "show_grouped_notice", lambda: grouped.append("g") or True
+                ):
+                    with mock.patch.object(
+                        distractions, "collect_summary_feedback", lambda: feedback.append("f")
+                    ):
+                        self.disable()
+        self.assertEqual(self.dialog_calls[0]["summary"], "Here's what you missed\nimportant ping")
+        self.assertEqual(self.dialog_calls[0]["purpose"], "write docs")
+        self.assertTrue(self.dialog_calls[0]["ask_eval"])
+        self.assertTrue(self.dialog_calls[0]["ask_feedback"])
+        self.assertNotIn("Focus summary", notices)
+        self.assertEqual(grouped, [])
+        self.assertEqual(feedback, [])
+        self.assertFalse(distractions.is_focus())
+        row = json.loads(distractions.summary_ledger_path().read_text().splitlines()[-1])
+        self.assertEqual(row["helpful"], True)
+        self.assertEqual(row["note"], "ok")
+
+    def test_hosted_copy_survives_post_xor_state_change(self):
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("stable")
+        original = distractions.apply_summary_xor
+
+        def xor_then_corrupt():
+            arm = original()
+            control = distractions.read_summary_control()
+            control["parse_failed"] = True
+            distractions.write_summary_control(control)
+            self.cfg.write_text(
+                json.dumps(
+                    {
+                        "agent_summaries": True,
+                        "summary_agent": "claude",
+                        "session_close_ui": False,
+                    }
+                )
+                + "\n"
+            )
+            return arm
+
+        with self.inject_close({"action": "dismiss", "eval": "", "note": ""}):
+            with mock.patch.object(distractions, "apply_summary_xor", xor_then_corrupt):
+                self.disable()
+        self.assertEqual(self.dialog_calls[0]["summary"], "Here's what you missed\nstable")
+
+    def test_close_dialog_scrolls_long_summary(self):
+        source = Path(ROOT / "distractions").read_text()
+        close = source[source.find("def prompt_focus_close") : source.find("def run_session_close_window")]
+        self.assertIn("Gtk.ScrolledWindow", close)
+        self.assertIn("set_max_content_height", close)
+        self.assertIn("_scroll_text(purpose_value", close)
+        self.assertIn("_scroll_text(summary_value", close)
+
+    def test_hosted_copy_empty_vs_parse_failed(self):
+        cases = (
+            ("note", False, "Here's what you missed\nnote"),
+            ("", False, "You didn't miss anything"),
+            ("", True, None),
+        )
+        for text, parse_failed, expected in cases:
+            with self.subTest(text=text, parse_failed=parse_failed):
+                self.dialog_calls.clear()
+                self.ready_session(parse_failed=parse_failed)
+                self.seed_recap()
+                self.seed_result(text)
+                notices: list[tuple[str, str]] = []
+
+                def fake_notify(title, body="", timeout_ms=4000):
+                    notices.append((title, body))
+                    return True
+
+                with self.inject_close({"action": "dismiss", "eval": "", "note": ""}):
+                    with mock.patch.object(distractions, "notify", fake_notify):
+                        self.assertEqual(
+                            distractions.apply_summary_xor(),
+                            "hosted" if expected else "grouped",
+                        )
+                        if expected:
+                            distractions.run_session_close_window(
+                                hosted_copy=expected, xor_skipped=False
+                            )
+                if expected:
+                    self.assertEqual(self.dialog_calls[0]["summary"], expected)
+                    self.assertFalse(any(title == "Focus summary" for title, _ in notices))
+                    self.assertFalse(
+                        any("Could not summarize" in body for _, body in notices)
+                    )
+                else:
+                    self.assertEqual(self.dialog_calls, [])
+                    self.assertTrue(
+                        any("Could not summarize" in body for _, body in notices)
+                    )
+                    self.assertNotEqual(
+                        distractions.hosted_summary_copy(
+                            distractions.read_summary_control(),
+                            distractions.read_summary_result(),
+                            distractions.read_session_recap(),
+                        ),
+                        "You didn't miss anything",
+                    )
+
+    def test_hosted_dismiss_clears_counts_and_result_once(self):
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("shown")
+        self.seed_counts({"Telegram": 2})
+        with self.inject_close({"action": "dismiss", "eval": "", "note": ""}):
+            self.disable()
+        self.assertEqual(distractions.read_counts(), {})
+        self.assertFalse(distractions.summary_result_path().exists())
+        self.assertIsNone(distractions.read_session_recap())
+        self.dialog_calls.clear()
+        with self.inject_close({"action": "dismiss", "eval": "", "note": ""}):
+            distractions.run_session_close_window(
+                hosted_copy="Here's what you missed\nshown", xor_skipped=False
+            )
+        self.assertEqual(self.dialog_calls, [])
+        self.assertEqual(distractions.read_counts(), {})
+
+    def test_close_ui_off_uses_today_notify_and_feedback(self):
+        self.cfg.write_text(
+            json.dumps(
+                {
+                    "agent_summaries": True,
+                    "summary_agent": "claude",
+                    "session_close_ui": False,
+                }
+            )
+            + "\n"
+        )
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("shown")
+        asked: list[str] = []
+        notices: list[str] = []
+        with self.inject_close({"action": "helpful", "eval": "", "note": ""}):
+            with mock.patch.object(
+                distractions, "notify", lambda title, body="", **k: notices.append(title) or True
+            ):
+                with mock.patch.object(
+                    distractions, "collect_summary_feedback", lambda: asked.append("ask")
+                ):
+                    self.assertEqual(distractions.apply_summary_xor(), "summary")
+        self.assertEqual(notices, ["Focus summary"])
+        self.assertEqual(asked, ["ask"])
+        self.assertEqual(self.dialog_calls, [])
+
+    def test_purpose_eval_off_still_hosts_summary(self):
+        self.cfg.write_text(
+            json.dumps(
+                {
+                    "agent_summaries": True,
+                    "summary_agent": "claude",
+                    "session_close_purpose": False,
+                    "session_close_eval": False,
+                }
+            )
+            + "\n"
+        )
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("kept")
+        with self.inject_close({"action": "dismiss", "eval": "", "note": ""}):
+            self.disable()
+        self.assertEqual(self.dialog_calls[0]["purpose"], "")
+        self.assertFalse(self.dialog_calls[0]["ask_eval"])
+        self.assertEqual(self.dialog_calls[0]["summary"], "Here's what you missed\nkept")
+
+    def test_result_and_ledger_schema_have_no_importance_field(self):
+        payload = distractions.publish_summary_result("x", "sess-1")
+        self.assertEqual(set(payload), {"session_id", "text"})
+        self.assertTrue(distractions.append_ledger_entry(True, "n"))
+        row = json.loads(distractions.summary_ledger_path().read_text().splitlines()[-1])
+        self.assertEqual(set(row), {"at", "helpful", "note"})
+
+    def test_summaries_off_still_grouped(self):
+        self.cfg.write_text("{}\n")
+        self.seed_recap()
+        lifts: list[bool] = []
+
+        def track_lift(*, catchup=True):
+            lifts.append(catchup)
+            return True
+
+        with self.inject_close({"action": "dismiss", "eval": "", "note": ""}):
+            with mock.patch.object(distractions, "lift_notification_block", track_lift):
+                self.disable()
+        self.assertEqual(lifts, [True])
+        self.assertEqual(self.dialog_calls[0]["purpose"], "write docs")
+        self.assertEqual(self.dialog_calls[0]["summary"], "")
+
+
+class LiftFailCloseTests(CloseWindowHarness):
+    def test_lift_fail_purpose_eval_keeps_counts_and_result(self):
+        self.ready_session()
+        self.seed_recap("deep work")
+        self.seed_result("keep-me")
+        self.seed_counts({"Telegram": 3})
+        with self.inject_close({"action": "dismiss", "eval": "ok-ish", "note": ""}):
+            with mock.patch.object(distractions, "lift_notification_block", return_value=False):
+                self.disable()
+        self.assertEqual(self.dialog_calls[0]["summary"], "")
+        self.assertEqual(self.dialog_calls[0]["purpose"], "deep work")
+        self.assertTrue(self.dialog_calls[0]["ask_eval"])
+        self.assertFalse(self.dialog_calls[0]["ask_feedback"])
+        self.assertEqual(distractions.read_counts(), {"Telegram": 3})
+        self.assertEqual(distractions.read_summary_result()["text"], "keep-me")
+        self.assertIsNone(distractions.read_session_recap())
+        self.assertFalse(distractions.is_focus())
+        self.assertNotIn("ok-ish", self.log.read_text())
+
+    def test_consumed_recap_blocks_second_window_retry_uses_notify(self):
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("later")
+        self.seed_counts({"X": 1})
+        with self.inject_close({"action": "dismiss", "eval": "", "note": ""}):
+            with mock.patch.object(distractions, "lift_notification_block", return_value=False):
+                self.disable()
+        self.assertIsNone(distractions.read_session_recap())
+        self.dialog_calls.clear()
+        notices: list[str] = []
+        with mock.patch.object(
+            distractions, "notify", lambda title, body="", **k: notices.append(title) or True
+        ):
+            with mock.patch.object(distractions, "collect_summary_feedback", return_value=None):
+                self.assertEqual(distractions.apply_summary_xor(), "summary")
+        self.assertEqual(notices, ["Focus summary"])
+        self.assertEqual(self.dialog_calls, [])
+
+    def test_self_eval_skip_and_dismiss_leave_focus_off(self):
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("shown")
+        with self.inject_close({"action": "dismiss", "eval": "   ", "note": "ignored"}):
+            self.disable()
+        self.assertFalse(distractions.is_focus())
+        self.assertNotIn("ignored", self.log.read_text())
+        self.assertIsNone(distractions.read_session_recap())
+
+    def test_dismiss_skips_nonempty_eval_and_helpful(self):
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("shown")
+        with self.inject_close({"action": "dismiss", "eval": "typed eval", "note": "typed note"}):
+            self.disable()
+        self.assertFalse(distractions.is_focus())
+        self.assertNotIn("typed eval", self.log.read_text())
+        self.assertNotIn("typed note", self.log.read_text())
+        self.assertFalse(distractions.summary_ledger_path().exists())
+
+    def test_helpful_persists_self_eval(self):
+        self.ready_session()
+        self.seed_recap()
+        self.seed_result("shown")
+        with self.inject_close({"action": "helpful", "eval": "hit the purpose", "note": "good"}):
+            self.disable()
+        self.assertIn("hit the purpose", self.log.read_text())
+        row = json.loads(distractions.summary_ledger_path().read_text().splitlines()[-1])
+        self.assertEqual(row["helpful"], True)
+        self.assertEqual(row["note"], "good")
+
+    def test_eval_only_done_persists_self_eval(self):
+        self.ready_session()
+        self.seed_recap("deep work")
+        self.seed_result("keep-me")
+        self.seed_counts({"Telegram": 3})
+        with self.inject_close({"action": "done", "eval": "ok-ish", "note": ""}):
+            with mock.patch.object(distractions, "lift_notification_block", return_value=False):
+                self.disable()
+        self.assertEqual(self.dialog_calls[0]["summary"], "")
+        self.assertTrue(self.dialog_calls[0]["ask_eval"])
+        self.assertFalse(self.dialog_calls[0]["ask_feedback"])
+        self.assertIn("ok-ish", self.log.read_text())
+        self.assertFalse(distractions.summary_ledger_path().exists())
+        self.assertEqual(distractions.read_counts(), {"Telegram": 3})
+        self.assertEqual(distractions.read_summary_result()["text"], "keep-me")
+        self.assertFalse(distractions.is_focus())
+
+    def test_eval_only_dialog_has_done_button(self):
+        source = Path(ROOT / "distractions").read_text()
+        close = source[source.find("def prompt_focus_close") : source.find("def run_session_close_window")]
+        self.assertIn('dialog.add_button("Done", Gtk.ResponseType.OK)', close)
+        self.assertIn('action = "done"', close)
 
 
 if __name__ == "__main__":

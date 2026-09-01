@@ -5,7 +5,7 @@
   "version": "1.3.0",
   "author": "Daniel Killenberger",
   "license": "MIT",
-  "description": "Plugin-owned distraction list with exclusive windows, always-on off-space site block, and a conscious-choice intercept banner. Focus mode locks the space, mutes those apps while focused, and shows one grouped count after you leave.",
+  "description": "Plugin-owned distraction list with exclusive windows, always-on off-space site block, and a conscious-choice intercept banner. Focus mode start popup, session timer, and a closing window; mutes those apps while focused and shows one grouped count after you leave.",
   "homepage": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "repository": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "kinds": [
@@ -18,7 +18,7 @@
   },
   "barWidget": {
     "displayName": "Focus mode",
-    "description": "Owned distraction list, always-on off-space site block, and intercept banner. Focus mode locks the space, mutes its notifications, and shows a grouped count after you leave.",
+    "description": "Owned distraction list, always-on off-space site block, and intercept banner. Focus mode start popup, session timer, and a closing window after you leave. Mutes its notifications and shows a grouped count.",
     "category": "Status",
     "allowMultiple": false,
     "defaultSection": "center"
