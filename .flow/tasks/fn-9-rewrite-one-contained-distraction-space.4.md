@@ -22,5 +22,6 @@ stage: impl-review - ran [round 1 NEEDS_WORK (2 findings fixed in 245c38c), roun
 stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
 - Commits: f4dd6eca991042640448d58a7f741f85cafca5bb, 245c38cec5824c6f3427481defa1dd135d50d0a5
+  - 82192e1 (verification fix: feedback ports overridable, tests use free ports)
 - Tests: python3 -m unittest discover tests
 - PRs:
