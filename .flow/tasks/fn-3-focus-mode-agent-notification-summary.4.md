@@ -41,9 +41,10 @@ After a shown summary, record helpful / not-helpful plus an optional note with a
 - [ ] `python3 -m unittest discover -s tests -p 'test_*.py'` covers helpful, not-helpful, and cancel (no append).
 
 ## Done summary
-TBD
+# fn-3.4 done
 
+After a shown summary, Helpful / Not helpful is distinct from cancel. Optional notes are bounded. Ledger write failures notify and keep the summary. README documents opt-in, the closed picker, one summary, the ledger, and grouped-count fallback. Host impl-review SHIP.
 ## Evidence
-- Commits:
-- Tests:
-- PRs:
+- Commits: e398cb158c869b9fc8dced16f4eafad12928874a
+- Tests: python3 -m py_compile distractions, python3 -m unittest tests.test_summary_ledger, python3 -m unittest discover -s tests -p 'test_*.py'
+- PRs: https://github.com/DanielKillenberger/omarchy-distraction-space/pull/3
