@@ -832,20 +832,17 @@ class NetworkWorker:
             time.sleep(0.01)
         raise TimeoutError("network worker did not go idle")
 
-    def wait_current_apply(self, gen: int, timeout: float = 8.0) -> bool:
-        """Wait for this generation's nft apply, or skip if a stale job is in flight."""
+    def wait_current_apply(self, gen: int, timeout: float = 60.0) -> bool:
         deadline = time.time() + timeout
         with self._done:
             while True:
                 if gen in self._results:
                     return self._results[gen]
-                if self._inflight_gen is not None and self._inflight_gen != gen:
-                    return True
                 if self._inflight_gen is None and self._pending == 0:
-                    return True
+                    return False
                 remaining = deadline - time.time()
                 if remaining <= 0:
-                    return True
+                    return False
                 self._done.wait(timeout=min(0.05, remaining))
 
     def _finish(self, gen: int, ok: bool) -> None:

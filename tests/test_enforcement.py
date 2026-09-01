@@ -669,7 +669,7 @@ class EnforcementTests(unittest.TestCase):
         thread.start()
         right.sendall(b"reload\n")
         self.assertTrue(right.recv(64).startswith(b"ok"))
-        thread.join(timeout=2)
+        thread.join(timeout=8)
         right.close()
         gate.set()
         self.wait_net()
