@@ -207,6 +207,15 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(order[0][:2], ["sudo", "-k"])
         self.assertEqual(order[1][:2], ["sudo", "-n"])
 
+        def fail_reset(cmd, **kwargs):
+            argv = [str(part) for part in cmd]
+            if argv[:2] == ["sudo", "-k"]:
+                return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="")
+            raise AssertionError(argv)
+
+        with mock.patch.object(self.mod.subprocess, "run", fail_reset):
+            self.assertFalse(self.mod._wrapper_grant_ok())
+
     def test_clean_install_creates_dirs_and_0440_grant(self):
         args = self._install()
         dest = args["wrapper_dest"]
@@ -315,6 +324,25 @@ class SetupTests(unittest.TestCase):
         self.assertIn("untrusted", str(ctx.exception))
         self.assertFalse(dest.exists())
         self.assertFalse(sudoers.exists())
+
+    def test_wrong_mode_wrapper_is_repaired(self):
+        root, src, dest, sudoers, lock = self._tree()
+        dest.parent.mkdir(parents=True)
+        for path in [root / "usr", root / "usr/local", root / "usr/local/libexec", dest.parent]:
+            os.chmod(path, 0o755)
+        dest.write_bytes(src.read_bytes())
+        os.chmod(dest, 0o644)
+        self.mod._privileged_install(
+            wrapper_src=src,
+            wrapper_dest=dest,
+            sudoers_path=sudoers,
+            principal=self.principal,
+            trusted_uid=self.uid,
+            lock_path=lock,
+            fs_root=root,
+        )
+        self.assertEqual(stat.S_IMODE(dest.stat().st_mode), 0o755)
+        self.assertEqual(stat.S_IMODE(sudoers.stat().st_mode), 0o440)
 
     def test_interrupt_after_grant_keeps_wrapper(self):
         real = self.mod._commit_grant

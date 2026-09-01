@@ -4118,6 +4118,8 @@ def _wrapper_bytes_match(
         st = _inspect_dest(pinned, dest.name, trusted_uid)
         if st is None:
             return False
+        if stat.S_IMODE(st.st_mode) != 0o755:
+            return False
         return _read_nofollow(pinned.parent_fd, dest.name) == source.read_bytes()
     except (_SetupClosed, OSError):
         return False
@@ -4142,7 +4144,9 @@ def _path_is_trusted(dest: Path, trusted_uid: int, fs_root: Path = Path("/")) ->
 def _wrapper_grant_ok() -> bool:
     if not Path(NFT_WRAPPER).is_file():
         return False
-    subprocess.run(["sudo", "-k"], capture_output=True, check=False)
+    reset = subprocess.run(["sudo", "-k"], capture_output=True, check=False)
+    if reset.returncode != 0:
+        return False
     probe = subprocess.run(
         ["sudo", "-n", NFT_WRAPPER],
         capture_output=True,
@@ -4160,6 +4164,23 @@ def _setup_already_installed() -> bool:
     if not _path_is_trusted(dest, 0):
         return False
     return _wrapper_grant_ok()
+
+
+def _grant_body_matches(
+    sudoers_path: Path, body: str, trusted_uid: int, fs_root: Path
+) -> bool:
+    pinned = None
+    try:
+        pinned = _pin_dir(sudoers_path.parent, trusted_uid, fs_root)
+        st = os.lstat(sudoers_path.name, dir_fd=pinned.parent_fd)
+        if not _trusted_file(st, trusted_uid):
+            return False
+        return _read_nofollow(pinned.parent_fd, sudoers_path.name) == body.encode("utf-8")
+    except (FileNotFoundError, _SetupClosed, OSError):
+        return False
+    finally:
+        if pinned is not None:
+            pinned.close()
 
 
 def _grant_exists(sudoers_path: Path) -> bool:
@@ -4246,6 +4267,8 @@ def _revalidate_chain(
             raise _SetupClosed("dest bytes changed before grant commit")
         if not _trusted_file(st, trusted_uid):
             raise _SetupClosed("dest is not trusted before grant commit")
+        if stat.S_IMODE(st.st_mode) != 0o755:
+            raise _SetupClosed("dest mode is not 0755 before grant commit")
     finally:
         if walk is not None:
             walk.close()
@@ -4267,10 +4290,18 @@ def _commit_grant(
         fd = os.open(tmp_name, flags, 0o440, dir_fd=pinned.parent_fd)
         try:
             os.fchmod(fd, 0o440)
-            os.write(fd, body.encode("utf-8"))
+            raw = body.encode("utf-8")
+            wrote = os.write(fd, raw)
+            if wrote != len(raw):
+                raise _SetupClosed("staged sudoers write was short")
             os.fsync(fd)
         finally:
             os.close(fd)
+        if _read_nofollow(pinned.parent_fd, tmp_name) != body.encode("utf-8"):
+            raise _SetupClosed("staged sudoers bytes did not match")
+        staged_st = os.lstat(tmp_name, dir_fd=pinned.parent_fd)
+        if not _trusted_file(staged_st, trusted_uid) or stat.S_IMODE(staged_st.st_mode) != 0o440:
+            raise _SetupClosed("staged sudoers is not a trusted 0440 file")
         check = subprocess.run(
             ["visudo", "-c", "-f", str(staged)],
             capture_output=True,
@@ -4355,7 +4386,12 @@ def _privileged_install(
             )
             dest_st = _inspect_dest(pinned, wrapper_dest.name, trusted_uid)
             dest_existed = dest_st is not None
-            dest_ok = dest_existed and _read_nofollow(pinned.parent_fd, wrapper_dest.name) == data
+            dest_ok = (
+                dest_existed
+                and dest_st is not None
+                and stat.S_IMODE(dest_st.st_mode) == 0o755
+                and _read_nofollow(pinned.parent_fd, wrapper_dest.name) == data
+            )
         except _SetupClosed as exc:
             extra = ""
             if _grant_exists(sudoers_path):
@@ -4375,11 +4411,15 @@ def _privileged_install(
         _revalidate_chain(pinned, wrapper_dest, data, trusted_uid, fs_root, wrapper_fd)
         _commit_grant(sudoers_path, body, trusted_uid, fs_root, grant_committed)
     except _SetupClosed:
-        if not grant_committed:
+        if not grant_committed and not _grant_body_matches(
+            sudoers_path, body, trusted_uid, fs_root
+        ):
             _cleanup_this_run(wrapper_dest, pinned, created_dest)
         raise
     except KeyboardInterrupt:
-        if grant_committed:
+        if grant_committed or _grant_body_matches(
+            sudoers_path, body, trusted_uid, fs_root
+        ):
             return
         _cleanup_this_run(wrapper_dest, pinned, created_dest)
         raise _SetupClosed("setup was interrupted; removed only this-run artifacts")
@@ -4432,6 +4472,7 @@ _ROOT_INSTALL_NAMES = (
     "_pin_or_create_ancestors",
     "_inspect_dest",
     "_read_nofollow",
+    "_grant_body_matches",
     "_grant_exists",
     "_pin_dir",
     "_disable_grant",
