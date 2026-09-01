@@ -473,6 +473,33 @@ def write_watcher_status(payload: dict) -> None:
     write_json_atomic(WATCHER_STATUS, payload)
 
 
+def persist_then_ack_status(generation: int, armed: bool, last_error: str, muted: list[int]) -> tuple[bool, str]:
+    try:
+        save_muted_ids(muted)
+    except OSError as exc:
+        error = str(exc) or "failed to persist muted sink-inputs"
+        write_watcher_status(
+            {
+                "pid": os.getpid(),
+                "generation": generation,
+                "armed": False,
+                "last_error": error,
+                "muted": muted,
+            }
+        )
+        return False, error
+    write_watcher_status(
+        {
+            "pid": os.getpid(),
+            "generation": generation,
+            "armed": armed,
+            "last_error": last_error,
+            "muted": muted,
+        }
+    )
+    return armed, last_error
+
+
 def watcher_pid_live(status: dict) -> bool:
     try:
         pid = int(status.get("pid") or 0)
@@ -632,10 +659,13 @@ def _rollback_apply(
         plugin_call("arm")
         write_watcher_request(rollback_gen, True)
         wait_watcher_ack(rollback_gen, True, timeout=3.0)
-    else:
-        plugin_call("disarm")
-        write_watcher_request(rollback_gen, False, keep_muted=snapshot_muted)
-        wait_watcher_ack(rollback_gen, False, timeout=3.0)
+        status = read_watcher_status()
+        owned = status.get("muted")
+        save_muted_ids([int(item) for item in owned] if isinstance(owned, list) else muted_ids())
+        return
+    plugin_call("disarm")
+    write_watcher_request(rollback_gen, False, keep_muted=snapshot_muted)
+    wait_watcher_ack(rollback_gen, False, timeout=3.0)
     current = muted_ids()
     extras = [item for item in current if item not in snapshot_muted]
     leftover = unmute_owned(extras)
@@ -826,16 +856,8 @@ def _watcher_main() -> None:
         return
 
     def publish() -> None:
-        write_watcher_status(
-            {
-                "pid": os.getpid(),
-                "generation": generation,
-                "armed": armed,
-                "last_error": last_error,
-                "muted": muted,
-            }
-        )
-        save_muted_ids(muted)
+        nonlocal armed, last_error
+        armed, last_error = persist_then_ack_status(generation, armed, last_error, muted)
 
     publish()
     assert proc.stdout is not None
@@ -905,7 +927,13 @@ def install_notification_service() -> bool:
     if code != 0:
         notify("Focus mode", out or "Could not reload the notification filter plugin.")
         return False
-    return wait_plugin_ready()
+    if wait_plugin_ready():
+        return True
+    notify(
+        "Focus mode",
+        "Notification filter did not become ready after install; reload the plugin.",
+    )
+    return False
 
 
 def enable_focus() -> None:

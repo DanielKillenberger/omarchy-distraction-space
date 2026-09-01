@@ -318,6 +318,41 @@ class ApplyLiftTests(unittest.TestCase):
         self.assertTrue(distractions.install_notification_service())
         self.assertIn(("shell", "rescanPlugins"), self.calls)
 
+    def test_install_notifies_when_ping_times_out(self):
+        self.ping = ""
+        with mock.patch.object(distractions, "notify") as notify:
+            self.assertFalse(distractions.install_notification_service())
+            notify.assert_called()
+            self.assertIn("did not become ready", notify.call_args[0][1])
+
+    def test_armed_rollback_keeps_newly_muted_streams(self):
+        distractions.save_muted_ids([10, 11])
+        status = {
+            "pid": os.getpid(),
+            "generation": 9,
+            "armed": True,
+            "last_error": "",
+            "muted": [10, 11],
+        }
+
+        def ack(generation, want_armed, timeout=8.0):
+            distractions.write_watcher_status({**status, "generation": generation, "armed": want_armed})
+            return True, ""
+
+        with mock.patch.object(distractions, "wait_watcher_ack", ack):
+            with mock.patch.object(distractions, "plugin_call", return_value=(0, "ok")):
+                with mock.patch.object(distractions, "pactl_mute") as mute:
+                    distractions._rollback_apply([10], 8, True)
+                    mute.assert_not_called()
+        self.assertEqual(distractions.muted_ids(), [10, 11])
+
+    def test_persist_failure_does_not_ack_armed(self):
+        with mock.patch.object(distractions, "save_muted_ids", side_effect=OSError("disk full")):
+            armed, error = distractions.persist_then_ack_status(3, True, "", [4])
+        self.assertFalse(armed)
+        self.assertIn("disk full", error)
+        self.assertFalse(distractions.read_watcher_status().get("armed"))
+
     def test_evaluate_sink_mute_failure_is_fatal(self):
         members = distractions.load_members()
         entry = {

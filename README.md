@@ -32,7 +32,10 @@ Then:
 chmod +x ~/.config/omarchy/plugins/distraction-space/distractions
 cp ~/.config/omarchy/plugins/distraction-space/focus.json ~/.config/omarchy/focus.json
 hyprctl reload
+~/.config/omarchy/plugins/distraction-space/distractions install
 ```
+
+`install` is required once after add or update. It runs one `omarchy-shell shell rescanPlugins` and waits for the notification filter to ping ready. Do not run it while focus is already muting banners: rescan unloads live shell services.
 
 Start the listener once if you do not want to log out:
 
@@ -80,6 +83,7 @@ Edit the list without rebuilding the plugin. Product names from the catalog and 
 ~/.config/omarchy/plugins/distraction-space/distractions destinations
 ~/.config/omarchy/plugins/distraction-space/distractions destinations-add <name-or-host>
 ~/.config/omarchy/plugins/distraction-space/distractions destinations-remove <name-or-host>
+~/.config/omarchy/plugins/distraction-space/distractions install
 ```
 
 ## License
