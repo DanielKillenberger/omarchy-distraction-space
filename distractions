@@ -2357,6 +2357,13 @@ def session_recap_path() -> Path:
     return STATE_DIR / "focus-session-recap.json"
 
 
+def _read_session_json(path: Path):
+    try:
+        return read_json(path, None)
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 def _session_record(data, required: tuple[str, ...]) -> dict | None:
     if not isinstance(data, dict):
         return None
@@ -2365,19 +2372,30 @@ def _session_record(data, required: tuple[str, ...]) -> dict | None:
     session_id = data.get("session_id")
     if not isinstance(session_id, str) or not session_id:
         return None
+    purpose = data.get("purpose")
+    if not isinstance(purpose, str):
+        return None
+    if "deadline" in required:
+        deadline = data.get("deadline")
+        if not isinstance(deadline, str) or not deadline:
+            return None
+        try:
+            datetime.fromisoformat(deadline)
+        except ValueError:
+            return None
     return data
 
 
 def read_session_active() -> dict | None:
     return _session_record(
-        read_json(session_active_path(), None),
+        _read_session_json(session_active_path()),
         ("purpose", "deadline", "session_id"),
     )
 
 
 def read_session_recap() -> dict | None:
     return _session_record(
-        read_json(session_recap_path(), None),
+        _read_session_json(session_recap_path()),
         ("purpose", "session_id"),
     )
 
@@ -4023,19 +4041,23 @@ def refresh_focus_notification_block() -> bool:
 def enable_focus() -> None:
     lock = _lock_focus_transition()
     try:
-        prepare_summary_session()
-        with focus_block.network_lock():
-            try:
-                apply_network_block()
-            except focus_block.BlockError:
-                return
-            set_focus(True)
-            if on_distractions():
-                hide()
-        refresh_focus_notification_block()
-        notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
+        _enable_focus_locked()
     finally:
         lock.close()
+
+
+def _enable_focus_locked() -> None:
+    prepare_summary_session()
+    with focus_block.network_lock():
+        try:
+            apply_network_block()
+        except focus_block.BlockError:
+            return
+        set_focus(True)
+        if on_distractions():
+            hide()
+    refresh_focus_notification_block()
+    notify("Focus mode on", "The distraction space is locked. Super+D will not open it.")
 
 
 def disable_focus(reason: str) -> None:
@@ -4194,9 +4216,15 @@ def request_focus_on() -> None:
     if collected is None:
         return
     purpose, minutes = collected
-    enable_focus()
-    if is_focus():
-        persist_session_start(purpose, minutes)
+    lock = _lock_focus_transition()
+    try:
+        if is_focus():
+            return
+        _enable_focus_locked()
+        if is_focus():
+            persist_session_start(purpose, minutes)
+    finally:
+        lock.close()
 
 
 def request_focus_toggle() -> None:

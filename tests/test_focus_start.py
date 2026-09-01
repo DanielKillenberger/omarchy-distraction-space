@@ -178,3 +178,52 @@ class StartFlagTests(StartHarness):
         path.write_text('{"purpose": "x", "deadline":')
         os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
         self.assertIsNone(distractions.read_session_active())
+
+    def test_malformed_session_records_are_absent(self):
+        active = distractions.session_active_path()
+        recap = distractions.session_recap_path()
+        active.parent.mkdir(parents=True, exist_ok=True)
+        cases = (
+            (active, {"purpose": 1, "deadline": "2026-09-01T12:00:00+00:00", "session_id": "s1"}),
+            (active, {"purpose": "ok", "deadline": ["not", "iso"], "session_id": "s1"}),
+            (active, {"purpose": "ok", "deadline": "not-iso", "session_id": "s1"}),
+            (recap, {"purpose": 12, "session_id": "s1"}),
+        )
+        for path, payload in cases:
+            with self.subTest(payload=payload):
+                path.write_text(json.dumps(payload))
+                os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+                if path == active:
+                    self.assertIsNone(distractions.read_session_active())
+                else:
+                    self.assertIsNone(distractions.read_session_recap())
+
+    def test_invalid_utf8_active_is_absent(self):
+        path = distractions.session_active_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b'{"purpose": "\xff", "deadline": "2026-09-01T12:00:00+00:00", "session_id": "s1"}')
+        os.chmod(path, stat.S_IRUSR | stat.S_IWUSR)
+        self.assertIsNone(distractions.read_session_active())
+
+
+class StaleStartTests(StartHarness):
+    def test_stale_dialog_confirm_does_not_replace_active(self):
+        with self.inject_dialog(("first purpose", 25)):
+            distractions.request_focus_on()
+        first = dict(distractions.read_session_active())
+        first_recap = dict(distractions.read_session_recap())
+        real_is_focus = distractions.is_focus
+        checks = {"n": 0}
+
+        def already_on_after_collect():
+            checks["n"] += 1
+            if checks["n"] == 1:
+                return False
+            return real_is_focus()
+
+        with mock.patch.object(distractions, "is_focus", side_effect=already_on_after_collect):
+            with self.inject_dialog(("stale purpose", 40)):
+                distractions.request_focus_on()
+        self.assertEqual(distractions.read_session_active(), first)
+        self.assertEqual(distractions.read_session_recap(), first_recap)
+        self.assertEqual(len(self.dialog_calls), 2)
