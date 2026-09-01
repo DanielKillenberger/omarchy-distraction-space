@@ -510,9 +510,8 @@ def client_on_space(client: dict) -> bool:
 def norm_addr(address: str) -> str:
     value = address.strip().lower()
     if value.startswith("0x"):
-        hex_part = value[2:].lstrip("0") or "0"
-        return "0x" + hex_part
-    return value
+        value = value[2:]
+    return value.lstrip("0") or "0"
 
 
 def client_by_address(address: str) -> dict | None:

@@ -301,6 +301,15 @@ class EnforcementTests(unittest.TestCase):
         thread.join(timeout=2)
         right.close()
 
+    def test_socket2_unprefixed_address_matches_hyprctl_client(self):
+        self.write_list([self.telegram_row()])
+        self.mod.bootstrap_enforcement()
+        self.write_hypr("clients", [self.client("org.telegram.desktop", "distraction", address="0x0abc")])
+        self.notes.clear()
+        self.mod.process_socket2_line("openwindow>>abc,99,org.telegram.desktop,Telegram")
+        self.assertTrue(self.notes)
+        self.assertEqual(self.notes[0][0], self.mod.BANNER_TITLE)
+
     def test_openwindow_banner_off_space_already_on_distraction(self):
         self.write_list([self.telegram_row()])
         self.mod.bootstrap_enforcement()
