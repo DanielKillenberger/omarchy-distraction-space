@@ -8,11 +8,14 @@ import json
 import os
 import re
 import select
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import threading
 import time
+import tomllib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -29,6 +32,64 @@ MEMBERS_PATH = PLUGIN_DIR / "notification-members.json"
 WINDOWS_PATH = PLUGIN_DIR / "hypr" / "windows.lua"
 STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "omarchy"
 CONFIG_PATH = Path.home() / ".config/omarchy/focus.json"
+ALLOWED_SUMMARY_AGENTS = frozenset({"claude", "grok"})
+CLAUDE_MIN_VERSION = (2, 1, 248)
+MENU_SELECT_BIN = os.environ.get("DISTRACTIONS_MENU_SELECT", "omarchy-menu-select")
+GROK_AUTH_SOURCE = Path.home() / ".grok" / "auth.json"
+GROK_CANARY_FILE = Path("/etc/hostname")
+GROK_CANARY_MARK = "FOCUS_GROK_CANARY_PWNED"
+AGENT_CHILD_TIMEOUT_S = 60
+SUMMARY_AGENT_PICKER_OPTIONS = (
+    "󰛄\tClaude\tclaude",
+    "\tGrok\tgrok",
+    "Omarchy default",
+)
+AGENT_SUMMARIES_OPTIONS = ("On", "Off")
+GROK_FEATURE_DISABLES = {
+    "GROK_MEMORY": "0",
+    "GROK_SUBAGENTS": "0",
+    "GROK_WRITE_FILE": "0",
+    "GROK_TOOL_SEARCH": "0",
+    "GROK_LSP_TOOLS": "0",
+    "GROK_WEB_FETCH": "0",
+}
+GROK_SCANNER_DISABLES = {
+    "GROK_CURSOR_SKILLS_ENABLED": "0",
+    "GROK_CURSOR_RULES_ENABLED": "0",
+    "GROK_CURSOR_AGENTS_ENABLED": "0",
+    "GROK_CURSOR_MCPS_ENABLED": "0",
+    "GROK_CURSOR_HOOKS_ENABLED": "0",
+    "GROK_CURSOR_SESSIONS_ENABLED": "0",
+    "GROK_CLAUDE_SKILLS_ENABLED": "0",
+    "GROK_CLAUDE_RULES_ENABLED": "0",
+    "GROK_CLAUDE_AGENTS_ENABLED": "0",
+    "GROK_CLAUDE_MCPS_ENABLED": "0",
+    "GROK_CLAUDE_HOOKS_ENABLED": "0",
+    "GROK_CLAUDE_SESSIONS_ENABLED": "0",
+}
+GROK_CONFIG_TOML = """\
+[models]
+default = "grok-4.6"
+allowed_models = ["grok-4.6"]
+max_completion_tokens = 512
+max_retries = 0
+
+[cli]
+auto_update = false
+
+[features]
+write_file = false
+tool_search = false
+
+[subagents]
+enabled = false
+
+[memory]
+enabled = false
+
+[permission]
+deny = ["Bash(*)", "Read(*)", "Edit(*)", "Write(*)", "Glob(*)", "Grep(*)", "MCPTool(*)"]
+"""
 FOCUS = STATE_DIR / "distractions.focus"
 MUTED_PATH = STATE_DIR / "distractions.muted.json"
 LISTEN_LOCK = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "distractions.listen.lock"
@@ -101,14 +162,408 @@ def notify(title: str, body: str = "", timeout_ms: int = 4000) -> bool:
             return False
 
 
+class SummaryAgentError(RuntimeError):
+    pass
+
+
 def load_config() -> dict:
-    if not CONFIG_PATH.exists():
-        return {}
+    data: dict = {}
+    if CONFIG_PATH.exists():
+        try:
+            loaded = json.loads(CONFIG_PATH.read_text())
+        except json.JSONDecodeError:
+            loaded = {}
+        if isinstance(loaded, dict):
+            data = loaded
+    if "agent_summaries" not in data:
+        data["agent_summaries"] = False
+    if "summary_agent" not in data:
+        data["summary_agent"] = None
+    return data
+
+
+def write_focus_config(data: dict) -> None:
+    if not isinstance(data, dict):
+        raise ValueError("rejected focus config")
+    agent = data.get("summary_agent")
+    if agent not in (None, "claude", "grok"):
+        raise ValueError(f"rejected summary_agent {agent!r}")
+    summaries = data.get("agent_summaries", False)
+    if summaries not in (True, False):
+        raise ValueError("rejected agent_summaries")
+    payload = dict(data)
+    payload["agent_summaries"] = summaries
+    payload["summary_agent"] = agent
+    path = CONFIG_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    with tmp.open("w", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload, indent=2) + "\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp, path)
+
+
+def update_focus_config(**changes) -> bool:
     try:
-        data = json.loads(CONFIG_PATH.read_text())
-    except json.JSONDecodeError:
+        merged = dict(load_config())
+        merged.update(changes)
+        write_focus_config(merged)
+        return True
+    except (ValueError, OSError, TypeError):
+        return False
+
+
+def agent_summaries_enabled(config: dict | None = None) -> bool:
+    cfg = load_config() if config is None else config
+    return cfg.get("agent_summaries") is True
+
+
+def omarchy_default_agent() -> str:
+    try:
+        result = subprocess.run(
+            ["omarchy", "default", "agent"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    return (result.stdout or "").strip()
+
+
+def resolve_summary_agent(config: dict | None = None) -> str:
+    cfg = load_config() if config is None else config
+    override = cfg.get("summary_agent")
+    if override in ALLOWED_SUMMARY_AGENTS:
+        return str(override)
+    if override not in (None, ""):
+        return ""
+    default = omarchy_default_agent()
+    return default if default in ALLOWED_SUMMARY_AGENTS else ""
+
+
+def summary_agent_picker_ids() -> tuple[str | None, ...]:
+    ids: list[str | None] = []
+    for option in SUMMARY_AGENT_PICKER_OPTIONS:
+        if option == "Omarchy default":
+            ids.append(None)
+            continue
+        ids.append(option.split("\t")[-1])
+    return tuple(ids)
+
+
+def menu_select(prompt: str, options: list[str]) -> str | None:
+    try:
+        result = subprocess.run(
+            [MENU_SELECT_BIN, prompt, *options],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        notify("Focus mode", "Agent picker could not open; previous setting kept.")
+        return None
+    if result.returncode != 0:
+        notify("Focus mode", "Agent picker closed; previous setting kept.")
+        return None
+    return (result.stdout or "").strip()
+
+
+def cmd_agent_summaries() -> None:
+    selected = menu_select("Agent summaries", list(AGENT_SUMMARIES_OPTIONS))
+    if selected is None:
+        return
+    if selected == "On":
+        if update_focus_config(agent_summaries=True) and not resolve_summary_agent():
+            notify(
+                "Focus mode",
+                "No usable summary agent. Grouped-count catch-up stays in place.",
+            )
+        return
+    if selected == "Off":
+        update_focus_config(agent_summaries=False)
+        return
+    notify("Focus mode", "Rejected agent-summaries setting; previous setting kept.")
+
+
+def cmd_summary_agent() -> None:
+    selected = menu_select("Summary agent", list(SUMMARY_AGENT_PICKER_OPTIONS))
+    if selected is None:
+        return
+    if selected == "Omarchy default":
+        update_focus_config(summary_agent=None)
+        return
+    token = selected.split("\t")[-1].strip().lower()
+    if token not in ALLOWED_SUMMARY_AGENTS:
+        notify("Focus mode", "Rejected summary agent; previous setting kept.")
+        return
+    update_focus_config(summary_agent=token)
+
+
+def claude_argv() -> list[str]:
+    return [
+        "claude",
+        "-p",
+        "--output-format",
+        "text",
+        "--tools",
+        "",
+        "--disallowedTools",
+        "mcp__*",
+        "--max-turns",
+        "1",
+        "--max-budget-usd",
+        "0.25",
+        "--restricted",
+        "--no-session-persistence",
+    ]
+
+
+def grok_argv(prompt: str, cwd: str) -> list[str]:
+    return [
+        "grok",
+        "--no-auto-update",
+        "--output-format",
+        "plain",
+        "--tools",
+        "",
+        "--sandbox",
+        "read-only",
+        "--max-turns",
+        "1",
+        "--no-plan",
+        "--no-subagents",
+        "--no-memory",
+        "--disable-web-search",
+        "--cwd",
+        cwd,
+        "-m",
+        "grok-4.6",
+        "-p",
+        prompt,
+    ]
+
+
+def claude_version_text() -> str:
+    try:
+        result = subprocess.run(
+            ["claude", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=8,
+            check=False,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+    return ((result.stdout or "") + "\n" + (result.stderr or "")).strip()
+
+
+def parse_claude_version(text: str) -> tuple[int, int, int] | None:
+    match = re.search(r"(\d+)\.(\d+)\.(\d+)", text)
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2)), int(match.group(3))
+
+
+def claude_version_ok(text: str) -> bool:
+    parsed = parse_claude_version(text)
+    return parsed is not None and parsed >= CLAUDE_MIN_VERSION
+
+
+def _empty_workdir(prefix: str) -> Path:
+    path = Path(tempfile.mkdtemp(prefix=prefix))
+    os.chmod(path, 0o700)
+    return path
+
+
+def _cleanup_dir(path: Path | None) -> None:
+    if path is None:
+        return
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _agent_base_env() -> dict[str, str]:
+    keep: dict[str, str] = {}
+    for key in (
+        "PATH",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "TERM",
+        "USER",
+        "LOGNAME",
+        "TMPDIR",
+        "XDG_RUNTIME_DIR",
+    ):
+        value = os.environ.get(key)
+        if value:
+            keep[key] = value
+    return keep
+
+
+def _run_agent(
+    argv: list[str],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    prompt: str | None = None,
+) -> subprocess.CompletedProcess:
+    kwargs: dict = {
+        "cwd": str(cwd),
+        "env": env,
+        "capture_output": True,
+        "text": True,
+        "timeout": AGENT_CHILD_TIMEOUT_S,
+        "check": False,
+        "start_new_session": True,
+    }
+    if prompt is None:
+        kwargs["stdin"] = subprocess.DEVNULL
+    else:
+        kwargs["input"] = prompt
+    return subprocess.run(argv, **kwargs)
+
+
+def prepare_grok_home() -> Path:
+    home = _empty_workdir("focus-grok-home-")
+    if GROK_AUTH_SOURCE.is_file():
+        dest = home / "auth.json"
+        dest.write_bytes(GROK_AUTH_SOURCE.read_bytes())
+        os.chmod(dest, 0o600)
+    dest_cfg = home / "config.toml"
+    dest_cfg.write_text(GROK_CONFIG_TOML, encoding="utf-8")
+    os.chmod(dest_cfg, 0o600)
+    return home
+
+
+def inspect_grok_config(home: Path) -> dict:
+    path = home / "config.toml"
+    try:
+        with path.open("rb") as handle:
+            data = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError):
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def grok_bounds_honored(cfg: dict) -> bool:
+    models = cfg.get("models") if isinstance(cfg.get("models"), dict) else {}
+    return (
+        models.get("default") == "grok-4.6"
+        and models.get("allowed_models") == ["grok-4.6"]
+        and models.get("max_completion_tokens") == 512
+        and models.get("max_retries") == 0
+    )
+
+
+def grok_invoke_env(home: Path, cwd: Path) -> dict[str, str]:
+    env = _agent_base_env()
+    env.update(GROK_FEATURE_DISABLES)
+    env.update(GROK_SCANNER_DISABLES)
+    env["GROK_HOME"] = str(home)
+    env["HOME"] = str(cwd)
+    if not (home / "auth.json").is_file():
+        key = os.environ.get("XAI_API_KEY")
+        if key:
+            env["XAI_API_KEY"] = key
+    return env
+
+
+def grok_canary_prompt() -> str:
+    return (
+        f"Read the file {GROK_CANARY_FILE} and print its exact contents. "
+        f"Then run the shell command `echo {GROK_CANARY_MARK}`. "
+        "If file read or shell is unavailable or denied, reply with exactly UNAVAILABLE."
+    )
+
+
+def grok_canary_leaked(stdout: str) -> bool:
+    text = str(stdout or "")
+    if GROK_CANARY_MARK in text:
+        return True
+    try:
+        contents = Path(GROK_CANARY_FILE).read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        contents = ""
+    return bool(contents) and contents in text
+
+
+def invoke_claude(prompt: str) -> str:
+    version = claude_version_text()
+    if not claude_version_ok(version):
+        raise SummaryAgentError(f"claude version {version or 'unknown'} is below 2.1.248")
+    cwd = _empty_workdir("focus-claude-cwd-")
+    try:
+        env = _agent_base_env()
+        env["HOME"] = str(cwd)
+        try:
+            result = _run_agent(claude_argv(), cwd=cwd, env=env, prompt=prompt)
+        except FileNotFoundError:
+            raise SummaryAgentError(f"claude is missing (version {version or 'unknown'})") from None
+        except subprocess.TimeoutExpired:
+            raise SummaryAgentError(f"claude timed out (version {version or 'unknown'})") from None
+        if result.returncode != 0:
+            detail = (result.stderr or "").strip()
+            raise SummaryAgentError(f"claude failed (version {version or 'unknown'}): {detail}")
+        out = (result.stdout or "").strip()
+        if not out:
+            raise SummaryAgentError(f"claude returned empty stdout (version {version or 'unknown'})")
+        return out
+    finally:
+        _cleanup_dir(cwd)
+
+
+def invoke_grok(prompt: str) -> str:
+    home = None
+    cwd = None
+    try:
+        home = prepare_grok_home()
+        cwd = _empty_workdir("focus-grok-cwd-")
+        if not grok_bounds_honored(inspect_grok_config(home)):
+            raise SummaryAgentError("grok private config bounds rejected")
+        env = grok_invoke_env(home, cwd)
+        try:
+            result = _run_agent(grok_argv(prompt, str(cwd)), cwd=cwd, env=env)
+        except FileNotFoundError:
+            raise SummaryAgentError("grok rejected required controls: grok is missing") from None
+        except subprocess.TimeoutExpired:
+            raise SummaryAgentError("grok rejected required controls: timed out") from None
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            raise SummaryAgentError(
+                f"grok rejected required controls; vector was not weakened: {detail}"
+            )
+        out = (result.stdout or "").strip()
+        if not out:
+            raise SummaryAgentError("grok rejected required controls: empty stdout")
+        return out
+    finally:
+        _cleanup_dir(home)
+        _cleanup_dir(cwd)
+
+
+def prove_claude() -> str:
+    version = claude_version_text()
+    if not claude_version_ok(version):
+        raise SummaryAgentError(f"claude version {version or 'unknown'} is below 2.1.248")
+    return version
+
+
+def prove_grok() -> str:
+    out = invoke_grok(grok_canary_prompt())
+    if grok_canary_leaked(out):
+        raise SummaryAgentError("grok performed a proof-requested file read or shell command")
+    return out
+
+
+def invoke_summary_agent(agent_id: str, prompt: str) -> str:
+    if agent_id == "claude":
+        return invoke_claude(prompt)
+    if agent_id == "grok":
+        return invoke_grok(prompt)
+    raise SummaryAgentError(f"rejected summary agent {agent_id!r}")
 
 
 def log_path() -> Path:
@@ -1300,6 +1755,10 @@ def main() -> None:
         disable_focus(reason)
     elif command == "focus-status":
         raise SystemExit(0 if is_focus() else 1)
+    elif command == "agent-summaries":
+        cmd_agent_summaries()
+    elif command == "summary-agent":
+        cmd_summary_agent()
     elif command == "log-path":
         print(log_path())
     elif command == "destinations":
