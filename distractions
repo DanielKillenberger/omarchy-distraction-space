@@ -756,6 +756,33 @@ def unmute_owned(ids: list[int]) -> list[int]:
     return leftover
 
 
+def restore_owned_after_failed_arm(
+    current_muted: list[int],
+    previously_owned: list[int],
+) -> list[int]:
+    owned = set(previously_owned)
+    extras = [item for item in current_muted if item not in owned]
+    leftover = unmute_owned(extras)
+    restored = list(previously_owned)
+    for item in leftover:
+        if item not in restored:
+            restored.append(item)
+    return restored
+
+
+def arm_sink_transition(
+    members: list[dict],
+    muted: list[int],
+    was_armed: bool,
+) -> tuple[set[int], list[int], str, bool]:
+    previously_owned = list(muted)
+    seen, muted, last_error = evaluate_sink_inputs(True, members, set(), muted)
+    if last_error:
+        muted = restore_owned_after_failed_arm(muted, previously_owned)
+        return seen, muted, last_error, was_armed
+    return seen, muted, "", True
+
+
 def _apply_notification_block() -> bool:
     if not is_focus():
         return True
@@ -847,9 +874,7 @@ def _rollback_apply(
             current = muted_ids()
         except RuntimeError:
             current = list(snapshot_muted)
-        extras = [item for item in current if item not in snapshot_muted]
-        leftover = unmute_owned(extras)
-        save_muted_ids(list(snapshot_muted) + leftover)
+        save_muted_ids(restore_owned_after_failed_arm(current, snapshot_muted))
     except Exception:
         try:
             write_watcher_request(parse_int(failed_generation, 0) + 1, False, keep_muted=snapshot_muted)
@@ -1085,14 +1110,7 @@ def _watcher_main() -> None:
                 generation = want_gen
             last_error = ""
             if want_armed:
-                seen, muted, last_error = evaluate_sink_inputs(True, members, set(), muted)
-                armed = last_error == ""
-                if not armed:
-                    leftovers = []
-                    for index in list(muted):
-                        if not pactl_mute(index, False):
-                            leftovers.append(index)
-                    muted = leftovers
+                seen, muted, last_error, armed = arm_sink_transition(members, muted, armed)
             else:
                 release = [item for item in muted if item not in keep_muted]
                 leftovers = unmute_owned(release)

@@ -526,6 +526,141 @@ class ApplyLiftTests(unittest.TestCase):
         self.assertNotIn((9, True), mute_calls)
         self.assertNotIn((9, False), mute_calls)
 
+    def test_failed_reapply_keeps_previously_owned_mutes(self):
+        members = distractions.load_members()
+        owned = {
+            "index": 10,
+            "mute": True,
+            "properties": {
+                "application.name": "Telegram Desktop",
+                "application.process.binary": "telegram-desktop",
+            },
+        }
+        fresh = {
+            "index": 11,
+            "mute": False,
+            "properties": {
+                "application.name": "Signal",
+                "application.process.binary": "signal-desktop",
+            },
+        }
+        mute_calls: list[tuple[int, bool]] = []
+
+        def record_mute(index, muted):
+            mute_calls.append((index, muted))
+            return index != 11
+
+        with mock.patch.object(distractions, "list_sink_inputs", return_value=[owned, fresh]):
+            with mock.patch.object(distractions, "pactl_mute", record_mute):
+                _seen, muted, error, armed = distractions.arm_sink_transition(
+                    members, [10], True
+                )
+        self.assertIn("failed to mute", error)
+        self.assertEqual(muted, [10])
+        self.assertTrue(armed)
+        self.assertNotIn((10, False), mute_calls)
+        self.assertNotIn((11, False), mute_calls)
+
+    def test_failed_reapply_unmutes_only_new_partial_mutes(self):
+        members = distractions.load_members()
+        owned = {
+            "index": 10,
+            "mute": True,
+            "properties": {
+                "application.name": "Telegram Desktop",
+                "application.process.binary": "telegram-desktop",
+            },
+        }
+        added = {
+            "index": 11,
+            "mute": False,
+            "properties": {
+                "application.name": "Signal",
+                "application.process.binary": "signal-desktop",
+            },
+        }
+        failing = {
+            "index": 12,
+            "mute": False,
+            "properties": {
+                "application.name": "Telegram Desktop",
+                "application.process.binary": "telegram-desktop",
+            },
+        }
+        mute_calls: list[tuple[int, bool]] = []
+
+        def record_mute(index, muted):
+            mute_calls.append((index, muted))
+            return not (index == 12 and muted)
+
+        with mock.patch.object(
+            distractions, "list_sink_inputs", return_value=[owned, added, failing]
+        ):
+            with mock.patch.object(distractions, "pactl_mute", record_mute):
+                _seen, muted, error, armed = distractions.arm_sink_transition(
+                    members, [10], True
+                )
+        self.assertIn("failed to mute", error)
+        self.assertEqual(muted, [10])
+        self.assertTrue(armed)
+        self.assertIn((11, True), mute_calls)
+        self.assertIn((11, False), mute_calls)
+        self.assertNotIn((10, False), mute_calls)
+
+    def test_failed_first_apply_unmutes_partial_mutes(self):
+        members = distractions.load_members()
+        first = {
+            "index": 10,
+            "mute": False,
+            "properties": {
+                "application.name": "Telegram Desktop",
+                "application.process.binary": "telegram-desktop",
+            },
+        }
+        second = {
+            "index": 11,
+            "mute": False,
+            "properties": {
+                "application.name": "Signal",
+                "application.process.binary": "signal-desktop",
+            },
+        }
+        mute_calls: list[tuple[int, bool]] = []
+
+        def record_mute(index, muted):
+            mute_calls.append((index, muted))
+            return not (index == 11 and muted)
+
+        with mock.patch.object(distractions, "list_sink_inputs", return_value=[first, second]):
+            with mock.patch.object(distractions, "pactl_mute", record_mute):
+                _seen, muted, error, armed = distractions.arm_sink_transition(
+                    members, [], False
+                )
+        self.assertIn("failed to mute", error)
+        self.assertEqual(muted, [])
+        self.assertFalse(armed)
+        self.assertIn((10, True), mute_calls)
+        self.assertIn((10, False), mute_calls)
+        self.assertNotIn((11, False), mute_calls)
+
+    def test_failed_reapply_rollback_does_not_unmute_owned(self):
+        distractions.save_muted_ids([10, 11])
+        mute_calls: list[tuple[int, bool]] = []
+
+        def record_mute(index, muted):
+            mute_calls.append((index, muted))
+            return True
+
+        with mock.patch.object(distractions, "pactl_mute", record_mute):
+            with mock.patch.object(distractions, "plugin_call", return_value=(0, "ok")):
+                with mock.patch.object(
+                    distractions, "wait_watcher_ack", return_value=(True, "")
+                ):
+                    distractions._rollback_apply([10], 3, False)
+        self.assertNotIn((10, False), mute_calls)
+        self.assertIn((11, False), mute_calls)
+        self.assertEqual(distractions.muted_ids(), [10])
+
     def test_sink_is_muted_reads_pulse_fields(self):
         self.assertTrue(distractions.sink_is_muted({"mute": True}))
         self.assertTrue(distractions.sink_is_muted({"muted": "yes"}))
