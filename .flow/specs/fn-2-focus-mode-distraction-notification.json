@@ -910,10 +910,36 @@
       "task": null,
       "timestamp": "2026-09-01T02:02:56.660382Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "5d5e755a2f2d34e19b3e1192afff5076ae3a5194dcb6e7aadae875752405e139",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 3,
+      "head_sha": "301c3c82928714e5c1f7f60fb7b1a3f19ab09d20",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 443,
+      "output_sha256": "20d90ea7cea18fa0cd395bb66b583dd9ef6b38ea2da22216bda18d0b53fa96ba",
+      "reservation_id": "0f674cfac42d4e1dadc4e37aa6cce2b2",
+      "round_consumed": true,
+      "scope": "impl:fn-2-focus-mode-distraction-notification.1",
+      "superseded_by": null,
+      "task": "fn-2-focus-mode-distraction-notification.1",
+      "timestamp": "2026-09-01T02:12:08.249965Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
-    "impl:fn-2-focus-mode-distraction-notification.1": 3,
+    "impl:fn-2-focus-mode-distraction-notification.1": 4,
     "impl:fn-2-focus-mode-distraction-notification.2": 1,
     "plan": 2,
     "plan#completion": 1
@@ -940,5 +966,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T02:02:57.181472Z"
+  "updated_at": "2026-09-01T02:12:08.782990Z"
 }

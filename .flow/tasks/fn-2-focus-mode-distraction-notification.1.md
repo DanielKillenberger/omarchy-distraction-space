@@ -69,9 +69,11 @@ Apply/lift for the Quickshell notification filter and the session stream watcher
 Completion-review NEEDS_WORK fixes:
 - Change events re-evaluate unmatched sink inputs so a late member identity is muted (R1/R6).
 - Ownership is recorded only when this spec transitions a sink from unmuted to muted; lift/rollback leave pre-muted foreign streams alone (R3/R8).
+- Failed re-apply / arm-transition failure restores the last successful owned mute set and does not unmute previously owned streams (R1/R8).
 
-Host impl-review (gpt-5.6-sol-high) on `26eb648`: SHIP. Focused suite green.
+Host impl-review (gpt-5.6-sol-high) on `301c3c8`: SHIP. Focused suite green.
 ## Evidence
-- Commits: 26eb64819e738c8ea219695a6946f3218c38465a
+- Commits: 301c3c82928714e5c1f7f60fb7b1a3f19ab09d20
 - Tests: python3 -m py_compile distractions, python3 -m unittest tests.test_notification_block, python3 -m unittest discover -s tests -p 'test_*.py'
 - PRs: https://github.com/DanielKillenberger/omarchy-distraction-space/pull/2
+
