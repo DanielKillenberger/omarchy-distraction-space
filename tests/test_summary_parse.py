@@ -194,6 +194,38 @@ class ReservationAndBoundsTests(ParseHarness):
         self.assertEqual(distractions.PARSE_RLIMIT_NPROC, 16)
         self.assertEqual(resource.RLIMIT_AS, resource.RLIMIT_AS)
 
+    def test_agent_spawn_fails_closed_when_pid_cannot_be_published(self):
+        self.ready_session()
+        proc = mock.Mock()
+        proc.pid = 99
+        proc.wait.return_value = 0
+        distractions._agent_invocation.session_id = "sess-1"
+        try:
+            with mock.patch.object(subprocess, "Popen", return_value=proc):
+                with mock.patch.object(distractions, "_record_agent_pid", return_value=False):
+                    with mock.patch.object(distractions, "_kill_process_group") as kill:
+                        with self.assertRaises(distractions.SummaryAgentError):
+                            distractions._run_agent(["true"], cwd=Path(self.tmp.name), env={})
+            kill.assert_called_with(proc)
+        finally:
+            delattr(distractions._agent_invocation, "session_id")
+
+    def test_pid_publication_and_clear_are_session_and_pid_bound(self):
+        self.ready_session(session_id="new", mute_applied_session="new")
+        with mock.patch.object(distractions, "_pid_starttime", return_value="10"):
+            self.assertFalse(distractions._record_agent_pid(99, "old"))
+            self.assertTrue(distractions._record_agent_pid(99, "new"))
+        self.assertEqual(distractions.read_summary_control()["agent_pid"], 99)
+
+        control = distractions.read_summary_control()
+        control["agent_pid"] = 100
+        control["agent_starttime"] = "11"
+        distractions.write_summary_control(control)
+        self.assertFalse(
+            distractions._record_agent_pid(None, "new", expected_pid=99)
+        )
+        self.assertEqual(distractions.read_summary_control()["agent_pid"], 100)
+
     def test_grok_config_cap_rejection_is_parse_failure(self):
         self.ready_session()
         rows = self.write_records("cap")

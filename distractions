@@ -172,6 +172,7 @@ SINK_EVENT_RE = re.compile(r"Event '(new|change|remove)' on sink-input(?: #(\d+)
 
 _watcher_stop = threading.Event()
 _watcher_thread: threading.Thread | None = None
+_agent_invocation = threading.local()
 
 
 def hyprctl(*args: str) -> str:
@@ -545,7 +546,18 @@ def _run_agent(
         start_new_session=True,
         preexec_fn=_apply_parse_rlimits,
     )
-    _record_agent_pid(proc.pid)
+    expected_session = str(getattr(_agent_invocation, "session_id", "") or "")
+    pid_published = False
+    if expected_session:
+        pid_published = _record_agent_pid(proc.pid, expected_session)
+        if not pid_published:
+            _kill_process_group(proc)
+            try:
+                proc.wait(timeout=1)
+            except (subprocess.TimeoutExpired, ProcessLookupError, OSError):
+                _kill_process_group(proc)
+            _record_agent_pid(None, expected_session, expected_pid=proc.pid)
+            raise SummaryAgentError("could not bind agent child to summary session")
     overflow = False
     try:
         stdout_pipe = getattr(proc, "stdout", None)
@@ -604,7 +616,8 @@ def _run_agent(
             proc.communicate()
         raise
     finally:
-        _record_agent_pid(None)
+        if pid_published:
+            _record_agent_pid(None, expected_session, expected_pid=proc.pid)
     if overflow:
         _kill_process_group(proc)
         raise SummaryAgentError("agent stdout exceeds bound")
@@ -1328,24 +1341,39 @@ def _kill_pid(pid: int | None, starttime: str | None = None) -> None:
         pass
 
 
-def _record_agent_pid(pid: int | None) -> None:
+def _record_agent_pid(
+    pid: int | None,
+    expected_session: str,
+    *,
+    expected_pid: int | None = None,
+) -> bool:
     try:
         lock = _lock_summary_state()
     except (TimeoutError, OSError):
-        return
+        return False
     try:
         control = read_summary_control()
-        if not control.get("session_id"):
-            return
+        if not expected_session or control.get("session_id") != expected_session:
+            return False
         if pid:
+            starttime = _pid_starttime(pid)
+            if not starttime:
+                return False
+            current_pid = control.get("agent_pid")
+            current_starttime = control.get("agent_starttime")
+            if current_pid and int(current_pid) != int(pid) and _pid_matches(current_pid, current_starttime):
+                return False
             control["agent_pid"] = int(pid)
-            control["agent_starttime"] = _pid_starttime(pid)
+            control["agent_starttime"] = starttime
         else:
+            if expected_pid is not None and int(control.get("agent_pid") or 0) != int(expected_pid):
+                return False
             control["agent_pid"] = None
             control["agent_starttime"] = ""
         write_summary_control(control)
+        return True
     except Exception:
-        return
+        return False
     finally:
         lock.close()
 
@@ -1889,10 +1917,18 @@ def run_one_parse(
     session_id = reserved.get("session_id") or ""
     prompt_records = reserved.get("_prompt_records") or records
     prompt = build_summary_prompt(prompt_records)
+    previous_session = getattr(_agent_invocation, "session_id", None)
+    _agent_invocation.session_id = session_id
     try:
-        raw = invoke_summary_agent(agent, prompt)
-    except (SummaryAgentError, OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
-        raw = ""
+        try:
+            raw = invoke_summary_agent(agent, prompt)
+        except (SummaryAgentError, OSError, subprocess.TimeoutExpired, subprocess.SubprocessError):
+            raw = ""
+    finally:
+        if previous_session is None:
+            delattr(_agent_invocation, "session_id")
+        else:
+            _agent_invocation.session_id = previous_session
     if not raw:
         _mark_parse_failed(session_id)
         return ""
