@@ -5,7 +5,7 @@
   "version": "1.2.0",
   "author": "Daniel Killenberger",
   "license": "MIT",
-  "description": "Lock a named distraction space until you leave focus mode with a written reason.",
+  "description": "Plugin-owned distraction list with exclusive windows, always-on off-space site block, and a conscious-choice intercept banner. Focus mode still locks the space.",
   "homepage": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "repository": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "kinds": [
@@ -16,7 +16,7 @@
   },
   "barWidget": {
     "displayName": "Focus mode",
-    "description": "Lock the distraction space until you leave focus mode with a written reason.",
+    "description": "Owned distraction list, always-on off-space site block, and intercept banner. Focus mode still locks the space.",
     "category": "Status",
     "allowMultiple": false,
     "defaultSection": "center"

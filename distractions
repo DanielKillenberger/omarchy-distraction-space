@@ -35,6 +35,10 @@ ADDRS_LAST_GOOD_NAME = "omarchy-ds-addrs.last-good.json"
 NFT_WRAPPER = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
 BANNER_TITLE = "Consciously choose to view this in your distraction space"
 BANNER_DEBOUNCE_S = 30
+LIST_EDITOR_HEADER = (
+    "# name | class | hosts (space-separated)\n"
+    "# Shipped names need only the name. Custom names need class and/or hosts.\n"
+)
 DNS_TIMEOUT_S = 2.0
 DNS_INTERVAL_S = 30.0
 WORKSPACE_EFFECT = f"{REF} silent"
@@ -284,6 +288,87 @@ def print_expand(
     expanded = expand_entries(raw)
     save_last_good_expand(expanded, last_good_path)
     print(json.dumps(expanded, indent=2))
+
+
+def format_list_text(rows: list) -> str:
+    lines = [LIST_EDITOR_HEADER.rstrip()]
+    for entry in rows:
+        if not isinstance(entry, dict):
+            continue
+        name = _entry_name(entry)
+        if name is None:
+            continue
+        raw_class = entry.get("class")
+        klass = raw_class.strip() if isinstance(raw_class, str) else ""
+        hosts: list[str] = []
+        raw_hosts = entry.get("hosts")
+        if isinstance(raw_hosts, list):
+            hosts = [host.strip() for host in raw_hosts if isinstance(host, str) and host.strip()]
+        if klass or hosts:
+            line = f"{name} | {klass}"
+            if hosts:
+                line += f" | {' '.join(hosts)}"
+            lines.append(line)
+        else:
+            lines.append(name)
+    return "\n".join(lines) + "\n"
+
+
+def parse_list_text(text: str) -> list[dict]:
+    rows: list[dict] = []
+    for raw in text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = [part.strip() for part in line.split("|")]
+        name = parts[0] if parts else ""
+        klass = parts[1] if len(parts) > 1 else ""
+        hosts_field = parts[2] if len(parts) > 2 else ""
+        entry: dict = {"name": name}
+        if klass:
+            entry["class"] = klass
+        hosts = [host for host in hosts_field.split() if host]
+        if hosts:
+            entry["hosts"] = hosts
+        rows.append(entry)
+    return rows
+
+
+def accept_editor_rows(rows: list) -> list[dict]:
+    pending: list[dict] = []
+    seen: set[str] = set()
+    for entry in rows:
+        if not isinstance(entry, dict):
+            continue
+        name = _entry_name(entry)
+        if name is None or name in seen:
+            continue
+        seen.add(name)
+        mapped = EXPAND_MAP.get(name)
+        raw_class = entry.get("class")
+        klass = raw_class.strip() if isinstance(raw_class, str) and raw_class.strip() else None
+        hosts: list[str] = []
+        raw_hosts = entry.get("hosts")
+        if isinstance(raw_hosts, list):
+            hosts = [host.strip() for host in raw_hosts if isinstance(host, str) and host.strip()]
+        if mapped is None and not klass and not hosts:
+            continue
+        out: dict = {"name": name}
+        if klass:
+            out["class"] = klass
+        if hosts:
+            out["hosts"] = hosts
+        pending.append(out)
+    slugs: dict[str, list[str]] = {}
+    for row in pending:
+        slugs.setdefault(sanitize_product(row["name"]), []).append(row["name"])
+    colliding = {
+        name
+        for names in slugs.values()
+        if len(names) > 1
+        for name in names
+    }
+    return [row for row in pending if row["name"] not in colliding]
 
 
 def state_dir() -> Path:
@@ -865,7 +950,13 @@ def request_reload() -> bool:
         sock.connect(str(path))
         sock.sendall(b"reload\n")
         reply = sock.recv(64)
-        return reply.startswith(b"ok")
+        if reply.startswith(b"ok"):
+            return True
+        notify(
+            "Distraction list",
+            "The listener could not reload the list. Enforcement was left unchanged.",
+        )
+        return False
     except OSError:
         notify(
             "Distraction list",
@@ -874,6 +965,48 @@ def request_reload() -> bool:
         return False
     finally:
         sock.close()
+
+
+def prompt_list_editor(initial: str) -> str | None:
+    try:
+        result = subprocess.run(
+            [
+                "zenity",
+                "--text-info",
+                "--editable",
+                "--title=Distraction list",
+                "--width=640",
+                "--height=520",
+                "--ok-label=Save",
+                "--cancel-label=Cancel",
+            ],
+            input=initial,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
+        notify("Distraction list", "zenity is missing; cannot edit the list.")
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout
+
+
+def edit_list(
+    user_path: Path | None = None,
+    defaults_path: Path | None = None,
+) -> None:
+    user = user_path or app_list_path()
+    raw = prepare_app_list(user_path=user, defaults_path=defaults_path)
+    if raw is None:
+        return
+    text = prompt_list_editor(format_list_text(raw))
+    if text is None:
+        return
+    accepted = accept_editor_rows(parse_list_text(text))
+    _atomic_write(user, json.dumps(accepted, indent=2) + "\n")
+    request_reload()
 
 
 def reset_runtime_state() -> None:
@@ -1159,6 +1292,8 @@ def main() -> None:
         print(log_path())
     elif command == "print-expand":
         print_expand()
+    elif command == "edit-list":
+        edit_list()
     elif command == "reload":
         raise SystemExit(0 if request_reload() else 1)
     else:
