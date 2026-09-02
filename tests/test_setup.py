@@ -184,6 +184,9 @@ class SetupTests(unittest.TestCase):
         os.environ["DS_SETUP_SUDO_LOG"] = str(self.sudo_log)
         os.environ["DS_RESCAN_LOG"] = str(self.rescan_log)
         os.environ["DS_LOCK_PREFIX"] = str(self.prefix)
+        # No notification plugin source in the sandbox: the clone step reports
+        # the hold unavailable and never reaches the live omarchy-plugin-clone.
+        os.environ["DS_NOTIFICATIONS_SOURCE"] = str(self.box.runtime / "no-notifications")
         os.environ.pop("DS_SUDO_DENY", None)
         os.environ.pop("DS_FLUSH_RC", None)
         os.environ.pop("DS_FLUSH_ERR", None)

@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from ds import catalog, config, feedback, hypr, lock, net, state, ui
+from ds import catalog, config, feedback, hypr, lock, net, setup, state, ui
 
 TICK, PERIOD, _APPLY = 1.0, 30.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
 CLIENT_CAP = 256
@@ -95,6 +95,7 @@ def _listen():
     rs = sock2 = None
     try:
         ctx.boot("start")
+        _clone_check()
         rs = _bind_reload()
         sock2 = _connect_socket2()
         ctx.last_period = time.monotonic()
@@ -362,6 +363,12 @@ class _Ctx:
             return
         self.last_state = key
         state.write_state(obj)
+def _clone_check():
+    """Notice only: a stale notification-service clone is re-cloned by `setup`, never here."""
+    why = setup.clone_drift()
+    if why:
+        ui.notify("Notification hold needs setup", f"{why[0].upper()}{why[1:]}. Run: distractions setup")
+
 def _read_cfg():
     if not config.config_path().exists():
         return None

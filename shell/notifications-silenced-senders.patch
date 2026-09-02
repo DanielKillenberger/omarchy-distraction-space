@@ -1,0 +1,210 @@
+diff --git a/NotificationLogic.js b/NotificationLogic.js
+index b5a6f3e..1d8d1f3 100644
+--- a/NotificationLogic.js
++++ b/NotificationLogic.js
+@@ -126,6 +126,50 @@ function isEphemeralApp(appName) {
+   return name === "notify-send" || name === "omarchy-action"
+ }
+ 
++// The host a Chromium-derived sender prepends to its body. Chromium reports
++// every web app's notification under the browser's own app_name and
++// desktop-entry, so that origin line is the only thing saying which site sent
++// it. Same two shapes sanitizeBody strips for display: a bare host or a linked
++// one, with an optional scheme, www., port and path.
++var LINKED_ORIGIN = /^\s*<a\b[^>]*>\s*((?:https?:\/\/|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/[^<\s]*)?)\s*<\/a>/i
++var BARE_ORIGIN = /^\s*((?:https?:\/\/|www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?::\d+)?(?:\/\S*)?)(?:\s+|$)/i
++
++function senderOrigin(app, appIcon, body) {
++  if (!isChromiumDerived(app, appIcon)) return ""
++  var text = String(body || "")
++  var match = LINKED_ORIGIN.exec(text) || BARE_ORIGIN.exec(text)
++  if (!match) return ""
++  return match[1].replace(/^https?:\/\//i, "").split("/")[0].split(":")[0].toLowerCase()
++}
++
++function normalizeSender(value) {
++  return String(value || "").trim().toLowerCase().replace(/^www\./, "")
++}
++
++// The silenced-sender list holds app_name for native apps and the site host
++// for Chromium web apps ("Telegram Desktop", "discord.com"). An entry that is
++// not a non-empty string is dropped rather than failing the whole list.
++function normalizeSilenced(list) {
++  var out = []
++  var items = Array.isArray(list) ? list : []
++  for (var i = 0; i < items.length; i++) {
++    if (typeof items[i] !== "string") continue
++    var key = normalizeSender(items[i])
++    if (key && out.indexOf(key) === -1) out.push(key)
++  }
++  return out
++}
++
++function isSilencedSender(notification, silenced) {
++  var keys = normalizeSilenced(silenced)
++  if (keys.length === 0) return false
++  var n = notification || {}
++  var app = normalizeSender(n.appName)
++  if (app && keys.indexOf(app) !== -1) return true
++  var origin = normalizeSender(senderOrigin(n.appName, n.appIcon, n.body))
++  return !!origin && keys.indexOf(origin) !== -1
++}
++
+ function stringHint(hints, name) {
+   try {
+     if (hints) {
+@@ -258,17 +302,18 @@ function historyEntry(value, normalUrgency) {
+ // so the service can rewrite the file without the dead payload.
+ function parseSettings(raw) {
+   var text = String(raw || "").trim()
+-  if (!text) return { error: false, dnd: null, legacy: false }
++  if (!text) return { error: false, dnd: null, silenced: null, legacy: false }
+ 
+   try {
+     var parsed = JSON.parse(text)
+     return {
+       error: false,
+       dnd: parsed && typeof parsed.dnd === "boolean" ? parsed.dnd : null,
++      silenced: parsed && Array.isArray(parsed.silenced) ? normalizeSilenced(parsed.silenced) : null,
+       legacy: !!(parsed && (parsed.pending || parsed.past || parsed.entries))
+     }
+   } catch (e) {
+-    return { error: true, errorMessage: String(e), dnd: null, legacy: false }
++    return { error: true, errorMessage: String(e), dnd: null, silenced: null, legacy: false }
+   }
+ }
+ 
+@@ -454,6 +499,9 @@ if (typeof module !== "undefined") {
+     summaryStartsWithGlyph: summaryStartsWithGlyph,
+     shouldBypassDnd: shouldBypassDnd,
+     isEphemeralApp: isEphemeralApp,
++    senderOrigin: senderOrigin,
++    normalizeSilenced: normalizeSilenced,
++    isSilencedSender: isSilencedSender,
+     stringHint: stringHint,
+     glyphFromHints: glyphFromHints,
+     execArgvFromHints: execArgvFromHints,
+diff --git a/Service.qml b/Service.qml
+index 0122310..20f047f 100644
+--- a/Service.qml
++++ b/Service.qml
+@@ -71,10 +71,18 @@ Item {
+       if (service._hydrating) return
+       service.scheduleSettingsSave()
+     }
++    // Senders silenced on their own while everything else keeps showing:
++    // app_name for native apps, site host for Chromium web apps. Persisted
++    // as the `silenced` key next to `dnd`.
++    property var silencedSenders: []
++    onSilencedSendersChanged: {
++      if (service._hydrating) return
++      service.scheduleSettingsSave()
++    }
+   }
+ 
+-  // Guards onDoNotDisturbChanged while we're hydrating from disk so the
+-  // hydration assignment doesn't immediately schedule a write-back.
++  // Guards the persisted change handlers while we're hydrating from disk so
++  // the hydration assignments don't immediately schedule a write-back.
+   property bool _hydrating: false
+ 
+   readonly property alias doNotDisturb: persisted.doNotDisturb
+@@ -83,6 +91,16 @@ Item {
+     persisted.doNotDisturb = !!value
+   }
+ 
++  readonly property alias silencedSenders: persisted.silencedSenders
++
++  function setSilencedSenders(list) {
++    persisted.silencedSenders = NotificationLogic.normalizeSilenced(list)
++  }
++
++  function isSilencedSender(notification) {
++    return NotificationLogic.isSilencedSender(notification, persisted.silencedSenders)
++  }
++
+   // popupModel feeds the on-screen toast stack — the only model the service
+   // keeps. Everything a toast leaves behind lives on disk under historyDir.
+   //
+@@ -169,8 +187,10 @@ Item {
+ 
+     // DND bypass rules: chat apps abuse urgency=critical to force
+     // visibility, so critical alone isn't enough — we also require the
+-    // sender to be CLI-style. See shouldBypassDnd().
+-    if (service.doNotDisturb && !shouldBypassDnd(notification)) {
++    // sender to be CLI-style. See shouldBypassDnd(). A silenced sender takes
++    // the same path as DND, so its pings land in history like any other
++    // silenced notification instead of vanishing.
++    if ((service.doNotDisturb || isSilencedSender(notification)) && !shouldBypassDnd(notification)) {
+       // The toast never shows, so the only record a silenced notification
+       // can leave is a history entry. Write it straight into history —
+       // "what did I miss while silenced" is exactly what history is for.
+@@ -815,11 +835,10 @@ Item {
+     var parsed = NotificationLogic.parseSettings(raw)
+     if (parsed.error) console.warn("notifications: settings parse failed:", parsed.errorMessage || "")
+ 
+-    if (parsed.dnd !== null) {
+-      service._hydrating = true
+-      persisted.doNotDisturb = parsed.dnd
+-      service._hydrating = false
+-    }
++    service._hydrating = true
++    if (parsed.dnd !== null) persisted.doNotDisturb = parsed.dnd
++    if (parsed.silenced !== null) persisted.silencedSenders = parsed.silenced
++    service._hydrating = false
+ 
+     service.settingsLoaded = true
+     // Versions before the history moved into its own directory kept every
+@@ -829,7 +848,11 @@ Item {
+   }
+ 
+   function flushSettings() {
+-    settingsFile.setText(JSON.stringify({ version: 3, dnd: persisted.doNotDisturb }, null, 2) + "\n")
++    settingsFile.setText(JSON.stringify({
++      version: 3,
++      dnd: persisted.doNotDisturb,
++      silenced: persisted.silencedSenders
++    }, null, 2) + "\n")
+   }
+ 
+   Component.onCompleted: {
+@@ -877,6 +900,39 @@ Item {
+       return dndState()
+     }
+ 
++    // Per-sender silence, independent of DND. A sender is an app_name
++    // ("Telegram Desktop") or, for Chromium web apps, the site host
++    // ("discord.com"). Silenced senders skip the popup and go to history.
++    function silencedSenders(): string {
++      return JSON.stringify(service.silencedSenders)
++    }
++
++    // Replace the whole list; takes a JSON array of strings.
++    function setSilencedSenders(json: string): string {
++      var list = null
++      try {
++        list = JSON.parse(String(json || "[]"))
++      } catch (e) {
++        return "error"
++      }
++      if (!Array.isArray(list)) return "error"
++      service.setSilencedSenders(list)
++      return silencedSenders()
++    }
++
++    function silence(sender: string): string {
++      var list = service.silencedSenders.slice()
++      list.push(String(sender || ""))
++      service.setSilencedSenders(list)
++      return silencedSenders()
++    }
++
++    function unsilence(sender: string): string {
++      var key = NotificationLogic.normalizeSilenced([sender])[0] || ""
++      service.setSilencedSenders(service.silencedSenders.filter(function(item) { return item !== key }))
++      return silencedSenders()
++    }
++
+     // Replay the notifications that have been moved into the history dir.
+     function showHistory(): string {
+       return service.showRecentHistory()
