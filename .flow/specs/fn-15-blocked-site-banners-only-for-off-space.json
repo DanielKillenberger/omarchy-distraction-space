@@ -109,7 +109,7 @@
     "impl:fn-15-blocked-site-banners-only-for-off-space.2": 0
   },
   "spec_path": ".flow/specs/fn-15-blocked-site-banners-only-for-off-space.md",
-  "status": "open",
+  "status": "done",
   "title": "Blocked-site banners only for off-space origins; hold push robustness",
   "tracker": {
     "baseHashFlow": null,
@@ -122,5 +122,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T13:43:06.416214Z"
+  "updated_at": "2026-09-02T13:45:42.168320Z"
 }

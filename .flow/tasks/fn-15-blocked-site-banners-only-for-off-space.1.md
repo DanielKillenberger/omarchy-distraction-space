@@ -23,6 +23,9 @@ Gates: baseline green (226 tests at ba656c0); after: 237 tests, rc=0 via `PATH=/
 stage: impl-review - ran (model: claude-opus-5 via host backend, read-only subagent; SHIP, 5 non-blocking findings: two P2 performance notes recorded as follow-ups in the spec)
 stage: plan-sync - skipped(config: planSync.enabled != true)
 stage: wave-join - ran (fn-15.1 on the spec branch, fn-15.2 merged at c108692, no collision; integrated suite 239 tests OK)
+
+Live check (conductor, 2026-09-02, after PR #16 installed): listener restarted with `nudges.block_page` back on; status read `notification_hold: on` straight from start (task 2's retry). `curl https://x.com` from the terminal running this session on workspace 1 was refused (rc 35) and, per the design, should raise the X banner; the X web app polling from the distraction space should raise none. User observation recorded below by the conductor when reported.
+
 ## Evidence
 - Commits: 6915e28d26559812c6ed5b68fe1d00f0a09b66cb
 - Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests > .flow/tmp/suite2.log 2>&1, PATH=/usr/bin:$PATH python3 -m unittest tests.test_feedback tests.test_hypr > .flow/tmp/focused3.log 2>&1, baseline: green (226 tests at ba656c0); after: 237 tests, rc=0, python3 -m unittest discover -s tests
