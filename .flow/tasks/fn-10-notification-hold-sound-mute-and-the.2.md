@@ -21,6 +21,9 @@ Added `ds/hold.py`: sender keys from the expansion (catalog `senders` plus the P
 Follow-ups outside this task's files: `state.status()` (`distractions status --json`) does not yet expose the three new keys because `tests/test_status.py` pins the exact key set (task 4 territory). `tests/test_listener.py` ships no fake `omarchy-shell` or `busctl`, so its listener runs reach the real shell IPC (read-only today: the live shell answers "Function not found.") and monitor the real session bus; adding the two fakes from `tests/test_hold.py` to its setUp closes that. A hand-added key identical to a plugin key is removed when hold ends (indistinguishable by design).
 
 stage: impl-review - ran [NEEDS_WORK -> SHIP, 2 rounds, cursor:gpt-5.6-sol-high]
+
+stage: plan-sync - skipped(config: planSync.enabled != true)
+
 ## Evidence
 - Commits: a1d3851d849e31c2eb0a5e052d37b243328da4c3, 9788bdcc7e50684b9c5309f938193c117e26afb6
 - Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (204 tests OK; baseline: green via handoff, verified at 50a5b0aa by fn-10.1, 193 tests), PATH=/usr/bin:$PATH python3 -m unittest tests.test_hold (11 tests OK)
