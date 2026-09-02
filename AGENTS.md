@@ -25,11 +25,17 @@ This project uses Flow-Next for ALL task tracking. `flowctl` comes from the flow
      harness for its list, then invoke one; ids change and vary per account. -->
 
 reviewer: gpt-5.6-sol-high
-<!-- implementer / scout lines stay commented. reviewer is the host pin for
-     review.backend host (bare only; model is not in the backend string). -->
-<!-- implementer: <model> at <effort>   - work handed to another harness (plan
-     here, implement cheaper or faster there). Absent = the session model
-     implements. -->
+implementer: grok-4.6 at high
+<!-- reviewer is the host pin for review.backend host (bare only; model is not
+     in the backend string); this harness reaches it through the cursor backend.
+     implementer is reached through the grok CLI bridge (see CLAUDE.md,
+     "Implementation routing"): the conductor writes a self-contained prompt,
+     runs `grok --always-approve --no-plan -m grok-4.6 --reasoning-effort high
+     -p "<prompt>" </dev/null` inside the task's worktree, then reviews the
+     diff, runs the suite, and commits. Grok never commits, never decides
+     scope, and never issues a verdict. Judgment work stays on the session
+     model: planning, specs, interviews, README prose, API or UX shape,
+     anything where taste decides. -->
 <!-- fast scout: <model>                - mechanical inventory scanning, where
      the cheapest tier is the correct one. -->
 <!-- thinking scout: <model>            - analysis that degrades badly on a

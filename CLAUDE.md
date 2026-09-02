@@ -11,3 +11,7 @@ This project uses Flow-Next for ALL task tracking. `flowctl` comes from the flow
 - Substantial replies (reports, reviews, multi-section answers): invoke `/flow-next:prose` BEFORE drafting — the artifact prose contract applies to chat replies too. Short conversational turns skip it.
 - If `flowctl` is not found: your shell lacks the plugin's `scripts/` dir on PATH (only Claude Code injects it). Resolve it the way the skills do - the plugin install's `scripts/flowctl` (Claude/Droid: plugin-root env var; Codex: `${CODEX_HOME:-$HOME/.codex}/scripts/flowctl`; Cursor/Grok: two levels above any flow-next SKILL.md) - or update/reinstall the flow-next plugin. A repo with no `.flow/` yet: run `/flow-next:setup`.
 <!-- END FLOW-NEXT -->
+
+## Implementation routing
+
+Technical tasks that need no taste run on grok, per the user's standing instruction (2026-09-02): mechanical renames, config plumbing, test scaffolds, wrapper or parser changes with a precise brief, docs that mirror code. The worker bridges them with `grok --always-approve --no-plan -m grok-4.6 --reasoning-effort high -p "<self-contained prompt>" </dev/null` from inside its isolated worktree (a trusted git dir), reviews the resulting diff, runs `PATH=/usr/bin:$PATH python3 -m unittest discover -s tests`, and commits. Tasks where judgment decides the outcome stay on the session model: spec and plan prose, README voice, UX or API shape, security boundaries, anything a reviewer would argue about. The reviewer tier is unchanged (gpt-5.6-sol-high via cursor).
