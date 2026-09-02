@@ -1,3 +1,6 @@
+---
+satisfies: [R4, R5]
+---
 # fn-17-marketplace-readiness-and-submission.2 Prepare docs/marketplace-submission.md with the baseline capability mapping
 
 ## Description

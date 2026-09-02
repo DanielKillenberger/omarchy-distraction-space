@@ -1,3 +1,6 @@
+---
+satisfies: [R1, R2, R3, R4]
+---
 # fn-17-marketplace-readiness-and-submission.1 Rename the id to io.github.danielkillenberger.distraction-space, bump to 2.1.0, fix the qmllint command
 
 ## Description
