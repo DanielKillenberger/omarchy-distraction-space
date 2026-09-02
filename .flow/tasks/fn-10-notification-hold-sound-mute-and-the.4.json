@@ -10,6 +10,7 @@
   ],
   "id": "fn-10-notification-hold-sound-mute-and-the.4",
   "priority": null,
+  "review": "cursor:gpt-5.6-sol-high",
   "spec": "fn-10-notification-hold-sound-mute-and-the",
   "spec_path": ".flow/tasks/fn-10-notification-hold-sound-mute-and-the.4.md",
   "status": "todo",
