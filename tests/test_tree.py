@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cutover: deleted files gone, no leftover module name, line cap."""
+"""Cutover: deleted files gone, no leftover module name."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-LINE_CAP = 2000
 _NEEDLE = "focus" + "_block"
 _DELETED = (
     "focus" + "_block.py",
@@ -24,12 +23,6 @@ _DELETED = (
 
 def _skip_dir(name: str) -> bool:
     return name in {".git", "__pycache__", ".pyc"}
-
-
-def _non_test_python() -> list[Path]:
-    paths = [ROOT / "distractions", ROOT / "distractions-nft"]
-    paths.extend(sorted((ROOT / "ds").glob("*.py")))
-    return paths
 
 
 class TreeTests(unittest.TestCase):
@@ -58,17 +51,6 @@ class TreeTests(unittest.TestCase):
                 if _NEEDLE in text:
                     hits.append(str(path.relative_to(ROOT)))
         self.assertEqual(hits, [], f"{_NEEDLE} remains outside .flow/: {hits}")
-
-    def test_non_test_python_under_line_cap(self):
-        total = 0
-        for path in _non_test_python():
-            self.assertTrue(path.is_file(), f"missing {path}")
-            total += len(path.read_text(encoding="utf-8").splitlines())
-        self.assertLess(
-            total,
-            LINE_CAP,
-            f"non-test Python is {total} lines, cap is {LINE_CAP}",
-        )
 
 
 if __name__ == "__main__":

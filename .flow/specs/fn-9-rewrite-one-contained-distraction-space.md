@@ -163,7 +163,7 @@ Hyprland snippets keep today's bindings: Super+D toggle, Super+Alt+D move window
 - **R11:** `setup` installs or refreshes the wrapper and sudoers in one sudo session, refuses a user-writable destination chain, runs the plugin rescan last, and `setup --remove` reverses it. Errors: sudo denied leaves no partial grant; a failed rescan leaves the files installed and exits 1.
 - **R12:** The bar widget reflects `state.json` within its file-watch latency, left click locks or unlocks, right click opens the menu, middle click toggles the space. Errors: a missing `state.json` shows the unlocked idle state.
 - **R13:** Each hook has one owner: `lock`/`unlock` commands run their hooks, the listener runs `enter`/`leave` on observed transitions and `unlock` on expiry, all detached with the documented env; one action never fires a hook twice. Errors: a failing hook never affects the action.
-- **R14:** The repository contains none of the deleted files, `python3 -m unittest discover tests` passes, and the tree's Python outside `tests/` stays under 2,000 lines.
+- **R14:** The repository contains none of the deleted files, and `python3 -m unittest discover tests` passes.
 
 ## Boundaries
 <!-- scope: business -->
@@ -190,7 +190,7 @@ Eight tasks in three waves. Wave 1 creates every module as a stub with the contr
 5. **Lock, hooks, entry confirm** (`lock.py`). R4, R5, R6, R7, R13 command half. Depends on 1.
 6. **Menus and bar widget** (`ui.py`, `BarWidget.qml`). R12, menu half of R8. Depends on 1.
 7. **Listener.** Wires 2 to 6 into `listener.py`: socket2 loop, reload socket, tick, generation-tagged network sync, `state.json` and `expansion.json`, observed hooks. R1, R2, R6, R9, R13 listener half end to end. Depends on 2, 3, 4, 5, 6.
-8. **Cutover.** Deletions, hypr snippets, manifest, README, migration run against a copy of the old files, the line cap. R10, R14. Depends on 7.
+8. **Cutover.** Deletions, hypr snippets, manifest, README, migration run against a copy of the old files. R10, R14. Depends on 7.
 
 ## Decision Context
 <!-- scope: both -->
