@@ -99,3 +99,20 @@ class CatalogTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_moved_versus_blocked_table(self):
+        moved_only = ["Telegram", "Discord", "WhatsApp", "Signal", "Google Messages"]
+        blocked_only = ["Facebook", "Instagram", "Threads", "Reddit", "TikTok",
+                        "Snapchat", "YouTube", "Twitch", "Netflix"]
+        for name in moved_only:
+            item = expand_entry(name)
+            self.assertTrue(item["classes"], f"{name} must still move windows")
+            self.assertEqual(item["hosts"], [], f"{name} must not be network-blocked")
+        x = expand_entry("X")
+        self.assertTrue(x["classes"])
+        self.assertTrue(x["hosts"])
+        for name in blocked_only:
+            item = expand_entry(name)
+            self.assertTrue(item["hosts"], f"{name} must be network-blocked")
+        self.assertEqual(sorted(moved_only + ["X"] + blocked_only), sorted(DEFAULT_LIST))
+

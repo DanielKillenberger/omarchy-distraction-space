@@ -1,27 +1,29 @@
 {
   "Telegram": {
     "class": "org.telegram.desktop",
-    "hosts": ["web.telegram.org", "telegram.org", "www.telegram.org", "t.me"],
+    "pwa": "web.telegram.org",
+    "hosts": [],
     "senders": ["Telegram Desktop", "org.telegram.desktop"],
     "audio": {"name": ["Telegram Desktop"], "binary": ["telegram-desktop", "Telegram"]}
   },
   "Discord": {
     "pwa": "discord.com",
-    "hosts": ["discord.com", "www.discord.com", "discordapp.com", "discord.gg", "discord.media", "discordapp.net"]
+    "hosts": []
   },
   "WhatsApp": {
     "pwa": "web.whatsapp.com",
-    "hosts": ["web.whatsapp.com", "whatsapp.com", "www.whatsapp.com"]
+    "hosts": []
   },
   "Signal": {
     "class": "^signal$",
-    "hosts": ["signal.org", "www.signal.org"],
+    "pwa": "signal.org",
+    "hosts": [],
     "senders": ["Signal", "signal"],
     "audio": {"name": ["Signal", "signal"], "binary": ["signal-desktop", "signal"]}
   },
   "Google Messages": {
     "pwa": "messages.google.com",
-    "hosts": ["messages.google.com"]
+    "hosts": []
   },
   "Facebook": {
     "hosts": ["facebook.com", "www.facebook.com", "messenger.com", "www.messenger.com"]

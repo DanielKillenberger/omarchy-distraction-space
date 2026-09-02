@@ -124,6 +124,19 @@ On first load with no `distraction-space.json`, `list` is seeded from names in `
 
 ## Catalog
 
+### What gets moved, and what gets blocked
+
+Two independent things happen to a listed app: its windows move to the distraction space, and its hosts are dropped from the network off-space. Messaging apps get only the first, so a chat still connects while you work and only its window is kept out of sight.
+
+| | Windows moved | Network blocked off-space |
+|---|---|---|
+| Telegram, Discord, WhatsApp, Signal, Google Messages | yes | **no** |
+| X | yes | yes |
+| Facebook, Instagram, Threads, Reddit, TikTok, Snapchat, YouTube, Twitch, Netflix | no | yes |
+
+A custom entry with `hosts` is always blocked; a custom entry with only `class` is only moved.
+
+
 Shipped `catalog.json` maps product name to identity. Two shapes exist, native and PWA. Expansion produces `classes`, a list: the native `class` when present, plus for every host-bearing entry the automatic PWA class `^chrome-<host>__.*$` for its first host (the `pwa` host when given), so any listed site's installed web app is contained alongside the native app.
 
 Native (class plus hosts; `senders` and `audio` are carried through for fn-10):
