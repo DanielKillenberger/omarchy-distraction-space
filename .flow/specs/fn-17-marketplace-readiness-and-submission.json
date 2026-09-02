@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-17-marketplace-readiness-and-submission",
-  "completion_review_status": "needs_work",
-  "completion_reviewed_at": "2026-09-02T18:59:16.776283Z",
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-02T19:00:15.778082Z",
   "created_at": "2026-09-02T13:58:22.044107Z",
   "default_impl": null,
   "default_review": null,
@@ -15,7 +15,7 @@
     "fn-17-marketplace-readiness-and-submission.2": 0
   },
   "next_task": 1,
-  "plan_review_rounds": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "review_attempts": [
@@ -306,11 +306,55 @@
       "task": null,
       "timestamp": "2026-09-02T18:59:16.773894Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "a32d6752075858056094fccfa196bc814d11fae8253377b85669079731e80be1",
+      "backend": "cursor",
+      "base_sha": "240d5c8713c72361ca313d2cf4f08cd3812f9b9d",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-bd1b4b3dafc458b8dcfbbdab39d1ebb2",
+            "classification": "introduced",
+            "findingId": "finding-bd1b4b3dafc458b8dcfbbdab39d1ebb2",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "d781e76a0a55d7ddbe0f1a2c2fa12b0bb69ec169",
+      "head_sha_observed": true,
+      "kind": "completion",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 2365,
+      "output_sha256": "3d3eb3740252d2b15d8dca048ae31249291a8834d6562deda7c4add6cc215a38",
+      "reservation_id": "d8a012a9f32c4d84b75ce1bff552a7c8",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-02T19:00:15.775301Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-17-marketplace-readiness-and-submission.1": 1,
-    "impl:fn-17-marketplace-readiness-and-submission.2": 1
+    "impl:fn-17-marketplace-readiness-and-submission.2": 1,
+    "plan#completion": 1
   },
   "review_pending_rounds": {},
   "review_reservations": {},
@@ -333,5 +377,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T18:59:16.776848Z"
+  "updated_at": "2026-09-02T19:00:15.778579Z"
 }
