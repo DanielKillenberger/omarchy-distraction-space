@@ -9,7 +9,7 @@
   "depends_on_epics": [],
   "id": "fn-13-messaging-apps-are-moved-never-network",
   "impl_review_rounds": {
-    "fn-13-messaging-apps-are-moved-never-network.1": 1
+    "fn-13-messaging-apps-are-moved-never-network.1": 0
   },
   "next_task": 1,
   "no_plan": true,
@@ -75,9 +75,70 @@
       "task": "fn-13-messaging-apps-are-moved-never-network.1",
       "timestamp": "2026-09-02T10:05:46.644484Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "c6a8d73f69d517cf0d66e54350e12fa1d609a601b037e3d2b6cb06ac84d1c4d0",
+      "backend": "cursor",
+      "base_sha": "d1b67f9969c384ae2057e9e244c86ed2f9b698bb",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-df082fde0f4460fc35552dc8c850c2ed",
+            "classification": "introduced",
+            "findingId": "finding-df082fde0f4460fc35552dc8c850c2ed",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-581700ea02e68d1249ed1440978a6ea9",
+            "classification": "introduced",
+            "findingId": "finding-581700ea02e68d1249ed1440978a6ea9",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-62b71716a20689f08420832da6c3bb4f",
+            "classification": "introduced",
+            "findingId": "finding-62b71716a20689f08420832da6c3bb4f",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "ef0d8eaacb46bf3c162460fe0c33f79369d9761a",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 561,
+      "output_sha256": "12d4823db6110d18ad03ba1659df5d9246f921b08920b95caaf88193a63c7b26",
+      "reservation_id": "89dabcd839604f599a9065073aecab88",
+      "round_consumed": true,
+      "scope": "impl:fn-13-messaging-apps-are-moved-never-network.1",
+      "superseded_by": null,
+      "task": "fn-13-messaging-apps-are-moved-never-network.1",
+      "timestamp": "2026-09-02T10:08:29.503554Z",
+      "verdict": "SHIP"
     }
   ],
-  "review_hash_epoch": {},
+  "review_hash_epoch": {
+    "impl:fn-13-messaging-apps-are-moved-never-network.1": 1
+  },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
@@ -97,5 +158,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T10:05:46.646798Z"
+  "updated_at": "2026-09-02T10:08:29.505803Z"
 }

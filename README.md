@@ -150,11 +150,10 @@ Native (class plus the `pwa` host; messaging apps ship `hosts: []` so they are n
 }
 ```
 
-PWA only (`pwa` host; `hosts` filled for blocked products, empty for messaging):
+PWA only (`pwa` host, empty `hosts`, so the web app is moved and nothing is blocked):
 
 ```json
 "Discord": {"pwa": "discord.com", "hosts": []}
-"YouTube": {"pwa": "youtube.com", "hosts": ["youtube.com", "www.youtube.com", "youtu.be", "googlevideo.com"]}
 ```
 
 Hosts only:
