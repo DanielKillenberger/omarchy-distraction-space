@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-16-readme-pass-for-the-github-page",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-02T14:33:46.380093Z",
   "created_at": "2026-09-02T13:58:21.234286Z",
   "default_impl": null,
   "default_review": null,
@@ -190,5 +190,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T14:30:38.013309Z"
+  "updated_at": "2026-09-02T14:33:46.380104Z"
 }
