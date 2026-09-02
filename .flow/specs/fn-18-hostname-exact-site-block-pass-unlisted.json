@@ -9,8 +9,8 @@
   "depends_on_epics": [],
   "id": "fn-18-hostname-exact-site-block-pass-unlisted",
   "impl_review_rounds": {
-    "fn-18-hostname-exact-site-block-pass-unlisted.1": 1,
-    "fn-18-hostname-exact-site-block-pass-unlisted.2": 1
+    "fn-18-hostname-exact-site-block-pass-unlisted.1": 0,
+    "fn-18-hostname-exact-site-block-pass-unlisted.2": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -168,9 +168,138 @@
       "task": "fn-18-hostname-exact-site-block-pass-unlisted.1",
       "timestamp": "2026-09-02T15:04:45.981885Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "fe3e3ef12e18db572e379c6e9ea862c9129066d384ded4cfeace52b1353ce561",
+      "backend": "cursor",
+      "base_sha": "7f009b865fe7c57e222807282fefcc7b379fa5e2",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-92079ae157432eea6436dfeee7902a3e",
+            "classification": "introduced",
+            "findingId": "finding-92079ae157432eea6436dfeee7902a3e",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-495aa303be119445300e8b759271f27f",
+            "classification": "introduced",
+            "findingId": "finding-495aa303be119445300e8b759271f27f",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-7a75933829d059e25fbfd3713b88c13c",
+            "classification": "introduced",
+            "findingId": "finding-7a75933829d059e25fbfd3713b88c13c",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-430529506f0e263fd52c333c8dc79929",
+            "classification": "introduced",
+            "findingId": "finding-430529506f0e263fd52c333c8dc79929",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "99dbe55213265fe1d7b1e9f6afe2c96e8a18088e",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 907,
+      "output_sha256": "b5660cfa614e7a2933a7a06e4b7af70d99afee4104e6718e8e7d00441d178f37",
+      "reservation_id": "2e0249c15a114958a43627bc3dd07944",
+      "round_consumed": true,
+      "scope": "impl:fn-18-hostname-exact-site-block-pass-unlisted.1",
+      "superseded_by": null,
+      "task": "fn-18-hostname-exact-site-block-pass-unlisted.1",
+      "timestamp": "2026-09-02T15:12:41.396168Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "711ec656b4906845f9253c294732360b12de5c4ee794a1593cd78a35a89e78a6",
+      "backend": "cursor",
+      "base_sha": "3fdb232a19d0e188372b6a773390eae8074390b3",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-9a6b10e31747324abda55b5ed4f68144",
+            "classification": "introduced",
+            "findingId": "finding-9a6b10e31747324abda55b5ed4f68144",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-b033a1243a3b6a7adb9e9ac0e58cef8e",
+            "classification": "introduced",
+            "findingId": "finding-b033a1243a3b6a7adb9e9ac0e58cef8e",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-5d9120bb76ec75936365bd5d22099bbd",
+            "classification": "introduced",
+            "findingId": "finding-5d9120bb76ec75936365bd5d22099bbd",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "99dbe55213265fe1d7b1e9f6afe2c96e8a18088e",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 732,
+      "output_sha256": "20526d991d32f2f621fb821c410154d31907ef028c3ca1326e5fdea40103f52b",
+      "reservation_id": "0f120dfa469f446abeb081fa1f8c2a8f",
+      "round_consumed": true,
+      "scope": "impl:fn-18-hostname-exact-site-block-pass-unlisted.2",
+      "superseded_by": null,
+      "task": "fn-18-hostname-exact-site-block-pass-unlisted.2",
+      "timestamp": "2026-09-02T15:13:25.683247Z",
+      "verdict": "SHIP"
     }
   ],
-  "review_hash_epoch": {},
+  "review_hash_epoch": {
+    "impl:fn-18-hostname-exact-site-block-pass-unlisted.1": 1,
+    "impl:fn-18-hostname-exact-site-block-pass-unlisted.2": 1
+  },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
@@ -191,5 +320,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T15:04:45.984120Z"
+  "updated_at": "2026-09-02T15:13:25.692511Z"
 }
