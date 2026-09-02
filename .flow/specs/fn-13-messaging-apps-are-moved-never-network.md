@@ -13,8 +13,9 @@ Two independent things happen to a listed app: its windows move to the distracti
 | | Windows moved | Network blocked off-space |
 |---|---|---|
 | Telegram, Discord, WhatsApp, Signal, Google Messages | yes | no |
-| X | yes | yes |
-| Facebook, Instagram, Threads, Reddit, TikTok, Snapchat, YouTube, Twitch, Netflix | no | yes |
+| X, Facebook, Instagram, Threads, Reddit, TikTok, Snapchat, YouTube, Twitch, Netflix | yes | yes |
+
+Correction 2026-09-02: PR #8's table said the nine blocked-only products do not move windows. In the rewrite every host-bearing entry gets a PWA class, so their installed web apps do move. The table documents runtime behavior.
 
 ## Architecture & Data Models
 

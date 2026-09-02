@@ -97,9 +97,6 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual(r.stdout.splitlines(), names())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
     def test_moved_versus_blocked_table(self):
         moved_only = ["Telegram", "Discord", "WhatsApp", "Signal", "Google Messages"]
         blocked_only = ["Facebook", "Instagram", "Threads", "Reddit", "TikTok",
@@ -114,5 +111,9 @@ if __name__ == "__main__":
         for name in blocked_only:
             item = expand_entry(name)
             self.assertTrue(item["hosts"], f"{name} must be network-blocked")
+            self.assertTrue(item["classes"], f"{name}'s installed web app still moves")
         self.assertEqual(sorted(moved_only + ["X"] + blocked_only), sorted(DEFAULT_LIST))
 
+
+if __name__ == "__main__":
+    unittest.main()
