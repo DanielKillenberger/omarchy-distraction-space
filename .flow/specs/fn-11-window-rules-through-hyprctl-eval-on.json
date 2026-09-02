@@ -9,7 +9,8 @@
   "depends_on_epics": [],
   "id": "fn-11-window-rules-through-hyprctl-eval-on",
   "impl_review_rounds": {
-    "fn-11-window-rules-through-hyprctl-eval-on.1": 0
+    "fn-11-window-rules-through-hyprctl-eval-on.1": 0,
+    "fn-11-window-rules-through-hyprctl-eval-on.2": 1
   },
   "next_task": 1,
   "no_plan": true,
@@ -44,6 +45,49 @@
       "task": "fn-11-window-rules-through-hyprctl-eval-on.1",
       "timestamp": "2026-09-02T08:36:12.056235Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "ec2c3122265395aa3b3789edc8d92652e9009db0b0f43b78f4421a038ab3a525",
+      "backend": "cursor",
+      "base_sha": "09d97578f7cc0305eb9424bd9c142a7fbc145d72",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "classification": "introduced",
+            "findingId": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "7c874760f540cfe5e285da0eded13b1353da58d0",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1430,
+      "output_sha256": "39fb5f7db1670e805311258f61aab75ca60c777f8cb7ba72d4d245fd390431ee",
+      "reservation_id": "9017657acb4c4266b0a708ac38d0420e",
+      "round_consumed": true,
+      "scope": "impl:fn-11-window-rules-through-hyprctl-eval-on.2",
+      "superseded_by": null,
+      "task": "fn-11-window-rules-through-hyprctl-eval-on.2",
+      "timestamp": "2026-09-02T08:58:43.657058Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -52,7 +96,8 @@
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
-    "impl:fn-11-window-rules-through-hyprctl-eval-on.1": 0
+    "impl:fn-11-window-rules-through-hyprctl-eval-on.1": 0,
+    "impl:fn-11-window-rules-through-hyprctl-eval-on.2": 0
   },
   "spec_path": ".flow/specs/fn-11-window-rules-through-hyprctl-eval-on.md",
   "status": "open",
@@ -68,5 +113,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T08:49:29.200834Z"
+  "updated_at": "2026-09-02T08:58:43.658849Z"
 }

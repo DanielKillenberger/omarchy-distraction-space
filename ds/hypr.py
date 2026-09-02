@@ -194,10 +194,15 @@ def apply_rules(expanded):
     names, specs = _rule_names(entries)
     if len(names) != len(set(names)):
         _log("apply_rules: generated windowrule names collide; skipped")
-        return
+        return False
     old = _read_rule_names()
+    created = []
     for name, klass in specs:
-        _run("eval", set_rule_lua(name, klass, WORKSPACE_EFFECT))
+        if _run("eval", set_rule_lua(name, klass, WORKSPACE_EFFECT)) is None:
+            _rollback_created(created, old)
+            _notify("Distraction list", "Window rules could not be updated. Keeping the previous set.")
+            return False
+        created.append(name)
     desired = set(names)
     recorded = list(names)
     seen = set(names)
@@ -208,6 +213,31 @@ def apply_rules(expanded):
                     recorded.append(name)
                     seen.add(name)
     state.write_json(state.state_path("rules.json"), recorded)
+    return True
+
+
+def _rollback_created(created, old):
+    """Undo the rules this batch brought into being; names that already existed stay live.
+
+    A pre-existing name that was re-set keeps its new class (the registry only holds
+    names, so the old class is unknown); the registry is left untouched so the next
+    apply retries the whole set.
+    """
+    for name in created:
+        if name not in old:
+            _run("eval", disable_rule_lua(name))
+
+
+def _notify(title, body):
+    try:
+        subprocess.run(
+            ["omarchy-notification-send", "-g", GLYPH, title, body],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        pass
 
 
 def _current_entries():

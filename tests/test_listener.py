@@ -654,6 +654,27 @@ class ListenerTests(unittest.TestCase):
         self.assertIsNone(self.proc.poll(), self._err())
         self.assertEqual(self._hooks(), [])
 
+    def test_configreloaded_rule_failure_notifies_and_keeps_listener(self):
+        fail = self.box.runtime / "hypr.fail"
+        os.environ["DS_HYPR_FAIL"] = str(fail)  # the double fails while this file exists
+        self._cfg(list=["Telegram", "x.com"])
+        self._start()
+        self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: len(self._evals("omarchy-ds set")) >= 1, 4))
+        boot_sets = self._evals("omarchy-ds set")
+        fail.write_text("", encoding="utf-8")
+        self.hypr_log.write_text("", encoding="utf-8")
+        self._send("configreloaded>>")
+        self.assertTrue(
+            _wait(lambda: self.notify_log.exists() and "Window rules could not be updated" in self.notify_log.read_text(encoding="utf-8"), 4),
+            self.notify_log.read_text(encoding="utf-8") if self.notify_log.exists() else "",
+        )
+        self.assertIsNone(self.proc.poll(), self._err())
+        fail.unlink()
+        self._send("configreloaded>>")
+        self.assertTrue(_wait(lambda: self._evals("omarchy-ds set") == boot_sets, 4), self._evals("omarchy-ds set"))
+        self.assertIsNone(self.proc.poll(), self._err())
+
     def test_reload_preserves_transition_baseline(self):
         self._cfg()
         self._start()

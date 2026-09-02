@@ -144,7 +144,7 @@ class HyprTests(unittest.TestCase):
         }
 
     def test_two_classes_yield_two_named_rules_and_rules_json(self):
-        hypr.apply_rules([TELEGRAM])
+        self.assertTrue(hypr.apply_rules([TELEGRAM]))
         expected, _ = hypr._rule_names([TELEGRAM])
         joined = "\n".join(self._joined())
         self.assertEqual(len(expected), 2)
@@ -252,14 +252,43 @@ class HyprTests(unittest.TestCase):
 
         os.environ["DS_HYPR_FAIL"] = "-- omarchy-ds "  # both the set and the disable fragments
         self.hypr_log.write_text("", encoding="utf-8")
-        hypr.apply_rules(_entries("Discord"))
+        self.assertFalse(hypr.apply_rules(_entries("Discord")))
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertIn("omarchy-ds set", log)
         names = set(state.read_json(state.state_path("rules.json"), []))
         discord_names, _ = hypr._rule_names(_entries("Discord"))
         telegram_names, _ = hypr._rule_names([TELEGRAM])
-        self.assertTrue(set(discord_names) <= names)
-        self.assertTrue(set(telegram_names) <= names)
+        self.assertFalse(set(discord_names) & names, "a failed install is not recorded")
+        self.assertEqual(names, set(telegram_names), "the previous registry is kept")
+        self.assertTrue(any("Window rules could not be updated" in " ".join(a) for a in self._notifies()))
+
+    def test_partial_install_failure_rolls_back_created_rules(self):
+        expected, _ = hypr._rule_names([TELEGRAM])
+        self.assertEqual(len(expected), 2)
+        os.environ["DS_HYPR_FAIL"] = f"omarchy-ds set {expected[1]}"
+        self.assertFalse(hypr.apply_rules([TELEGRAM]))
+        joined = self._joined()
+        self.assertTrue(any(f"omarchy-ds set {expected[0]}" in j for j in joined))
+        self.assertTrue(any(f"omarchy-ds disable {expected[0]}" in j for j in joined), "first rule rolled back")
+        self.assertFalse(any(f"omarchy-ds disable {expected[1]}" in j for j in joined))
+        self.assertEqual(state.read_json(state.state_path("rules.json"), []), [])
+        self.assertEqual(len([a for a in self._notifies() if "Window rules" in " ".join(a)]), 1)
+
+        os.environ.pop("DS_HYPR_FAIL", None)
+        self.hypr_log.write_text("", encoding="utf-8")
+        self.assertTrue(hypr.apply_rules([TELEGRAM]))
+        self.assertEqual(set(state.read_json(state.state_path("rules.json"), [])), set(expected))
+
+    def test_reset_of_existing_name_is_not_rolled_back(self):
+        self.assertTrue(hypr.apply_rules(_entries("Telegram")))
+        telegram_names, _ = hypr._rule_names(_entries("Telegram"))
+        discord_names, _ = hypr._rule_names(_entries("Discord"))
+        os.environ["DS_HYPR_FAIL"] = f"omarchy-ds set {discord_names[0]}"
+        self.hypr_log.write_text("", encoding="utf-8")
+        self.assertFalse(hypr.apply_rules(_entries("Telegram", "Discord")))
+        joined = self._joined()
+        self.assertFalse(any("omarchy-ds disable" in j for j in joined), "pre-existing names stay live")
+        self.assertEqual(set(state.read_json(state.state_path("rules.json"), [])), set(telegram_names))
 
     def test_notify_failure_ignored(self):
         hypr.apply_rules([TELEGRAM])
