@@ -187,6 +187,7 @@ class SetupTests(unittest.TestCase):
         # No notification plugin source in the sandbox: the clone step reports
         # the hold unavailable and never reaches the live omarchy-plugin-clone.
         os.environ["DS_NOTIFICATIONS_SOURCE"] = str(self.box.runtime / "no-notifications")
+        setup._service_changed = False
         os.environ.pop("DS_SUDO_DENY", None)
         os.environ.pop("DS_FLUSH_RC", None)
         os.environ.pop("DS_FLUSH_ERR", None)

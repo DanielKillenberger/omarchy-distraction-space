@@ -99,6 +99,42 @@ def _rescan() -> int:
     return 0
 
 
+# Set by sync_clone / remove_clone when the notification service changed hands
+# (clone created, re-cloned, or removed). Read once by install/remove.
+_service_changed = False
+
+
+def _settle_service() -> None:
+    """Make the running shell match the clone step.
+
+    Verified 2026-09-02: `rescanPlugins` reloads the clone's files but the
+    running notification service kept the built-in until the shell restarted.
+    When the live answer disagrees with what the clone step left on disk,
+    restart the shell once. Best effort: a failed restart is reported, and the
+    listener's start-time check names `distractions setup` again.
+    """
+    global _service_changed
+    if not _service_changed:
+        return
+    _service_changed = False
+    expect = _read_record() is not None or _builtin_has_method(notifications_source())
+    rc, out, _err = _shell("notifications", "silencedSenders")
+    live = rc == 0 and out.startswith("[")
+    if live == expect:
+        return
+    print("the rescan did not swap the notification service; restarting the shell", file=sys.stderr)
+    try:
+        proc = subprocess.run(
+            ["omarchy", "restart", "shell"],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"omarchy restart shell: {e}", file=sys.stderr)
+        return
+    if proc.returncode != 0:
+        print((proc.stderr or proc.stdout or "omarchy restart shell failed").strip(), file=sys.stderr)
+
+
 def notifications_source() -> Path:
     """First-party notification plugin directory the clone is taken from."""
     return Path(os.environ.get("DS_NOTIFICATIONS_SOURCE", NOTIFICATIONS_SOURCE_DEFAULT))
@@ -218,6 +254,7 @@ def sync_clone() -> int:
         if ours:
             if not _remove_clone(path):
                 return 1
+            _mark_changed()
             print(f"removed {path.name}: the built-in now provides silencedSenders", file=sys.stderr)
         _unlink(_record_path())
         return 0
@@ -256,11 +293,17 @@ def sync_clone() -> int:
     return _finish_clone(path, source, want)
 
 
+def _mark_changed() -> None:
+    global _service_changed
+    _service_changed = True
+
+
 def _finish_clone(path: Path, source: Path, want: dict) -> int:
     """Patch the fresh clone and record it; any failure hands the target back to the built-in."""
     if _patch(path, dry_run=True) and _patch(path, dry_run=False):
         try:
             state.write_json(_record_path(), {"plugin": path.name, "path": str(path), "source": str(source), **want})
+            _mark_changed()
             return 0
         except OSError as e:
             print(f"cannot write {_record_path()}: {e}", file=sys.stderr)
@@ -275,7 +318,10 @@ def remove_clone() -> int:
     """`setup --remove`: drop the clone only when this plugin created it."""
     path, record = clone_dir(), _read_record()
     if record is not None and path.is_dir():
-        return 0 if _remove_clone(path) else 1
+        if not _remove_clone(path):
+            return 1
+        _mark_changed()
+        return 0
     if path.exists():
         print(f"leaving {path}: not created by this plugin", file=sys.stderr)
     _unlink(_record_path())
@@ -349,7 +395,10 @@ def install():
         except OSError:
             pass
     clone_rc = sync_clone()
-    return 1 if _rescan() != 0 or clone_rc != 0 else 0
+    rescan_rc = _rescan()
+    if rescan_rc == 0:
+        _settle_service()
+    return 1 if rescan_rc != 0 or clone_rc != 0 else 0
 
 
 def remove():
@@ -372,7 +421,10 @@ def remove():
         print("sudo rm failed", file=sys.stderr)
         return 1
     clone_rc = remove_clone()
-    return 1 if _rescan() != 0 or clone_rc != 0 else 0
+    rescan_rc = _rescan()
+    if rescan_rc == 0:
+        _settle_service()
+    return 1 if rescan_rc != 0 or clone_rc != 0 else 0
 
 
 def cmd_setup(args):

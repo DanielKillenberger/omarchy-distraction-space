@@ -62,7 +62,20 @@ Path(os.environ["DS_SHELL_LOG"]).open("a").write("omarchy-shell " + " ".join(sys
 if os.environ.get("DS_SHELL_DOWN"):
     sys.stderr.write("Could not connect to omarchy-shell\n")
     sys.exit(1)
+if sys.argv[1:3] == ["notifications", "silencedSenders"]:
+    # DS_SHELL_METHOD says whether the RUNNING service already answers the patched method.
+    if os.environ.get("DS_SHELL_METHOD"):
+        print("[]")
+        sys.exit(0)
+    print("Function not found.")
+    sys.exit(1)
 print("ok" if sys.argv[1:3] == ["shell", "setPluginEnabled"] else "")
+"""
+
+OMARCHY = r"""
+import os, sys
+from pathlib import Path
+Path(os.environ["DS_SHELL_LOG"]).open("a").write("omarchy " + " ".join(sys.argv[1:]) + "\n")
 """
 
 NOTIFY = r"""
@@ -139,7 +152,11 @@ class CloneTests(unittest.TestCase):
         )
         self.box.fake_bin("omarchy-plugin-clone", CLONE)
         self.box.fake_bin("omarchy-shell", SHELL)
+        self.box.fake_bin("omarchy", OMARCHY)
         self.box.fake_bin("omarchy-notification-send", NOTIFY)
+        setup._service_changed = False
+        os.environ.pop("DS_SHELL_METHOD", None)
+        self.addCleanup(os.environ.pop, "DS_SHELL_METHOD", None)
         self.clone = setup.clone_dir()
         self.record = self.box.state_dir / "clone.json"
         self.assertEqual(self.clone.name, "tester.notifications")
@@ -398,6 +415,8 @@ class CloneTests(unittest.TestCase):
                 "omarchy-plugin-clone omarchy.notifications",
                 "omarchy-shell shell rescanPlugins",
                 "omarchy-shell shell rescanPlugins",
+                "omarchy-shell notifications silencedSenders",  # running service still answers built-in
+                "omarchy restart shell",
             ],
         )
         self._break_source()
@@ -407,7 +426,7 @@ class CloneTests(unittest.TestCase):
         self.assertFalse(self.clone.exists())
         self.assertTrue(self.wrapper.is_file())
         self.assertEqual(
-            self._log()[3:],
+            self._log()[5:],
             ["omarchy-shell shell setPluginEnabled tester.notifications false", "omarchy-shell shell rescanPlugins"],
         )
 
@@ -423,7 +442,11 @@ class CloneTests(unittest.TestCase):
         self.assertFalse(self.record.exists())
         self.assertEqual(
             self._log()[calls:],
-            ["omarchy-shell shell setPluginEnabled tester.notifications false", "omarchy-shell shell rescanPlugins"],
+            [
+                "omarchy-shell shell setPluginEnabled tester.notifications false",
+                "omarchy-shell shell rescanPlugins",
+                "omarchy-shell notifications silencedSenders",  # built-in is back: no restart needed
+            ],
         )
 
     def test_missing_first_party_source_leaves_hold_unavailable(self):
@@ -432,6 +455,32 @@ class CloneTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("notification hold unavailable", err)
         self.assertEqual(self._log(), [])
+        self.assertFalse(self.clone.exists())
+
+    def test_settle_restarts_shell_only_when_live_service_disagrees(self):
+        # Fresh clone; the running shell still answers with the built-in (no method).
+        os.environ.pop("DS_SHELL_METHOD", None)
+        self.assertEqual(self._sync()[0], 0)
+        self.assertTrue(setup._service_changed)
+        setup._settle_service()
+        log = self._log()
+        self.assertEqual(log[-2:], ["omarchy-shell notifications silencedSenders", "omarchy restart shell"])
+        self.assertFalse(setup._service_changed)
+        # Nothing changed on disk: no probe, no restart.
+        setup._settle_service()
+        self.assertEqual(self._log(), log)
+        # Changed, but the running service already answers: probe only.
+        setup._mark_changed()
+        os.environ["DS_SHELL_METHOD"] = "1"
+        setup._settle_service()
+        self.assertEqual(self._log()[-1], "omarchy-shell notifications silencedSenders")
+        self.assertNotIn("omarchy restart shell", self._log()[len(log):])
+
+    def test_remove_marks_service_changed(self):
+        self.assertEqual(self._sync()[0], 0)
+        setup._service_changed = False
+        self.assertEqual(setup.remove_clone(), 0)
+        self.assertTrue(setup._service_changed)
         self.assertFalse(self.clone.exists())
 
 

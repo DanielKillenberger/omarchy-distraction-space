@@ -63,6 +63,9 @@ That flushes table `inet omarchy_ds`, removes both files, removes the notificati
 
 Removing a clone first disables it through the shell (`omarchy-shell shell setPluginEnabled <id> false`) and refuses to delete the directory when that call fails, so a shell that is down is never left without a notification server.
 
+
+When the clone step created, refreshed, or removed the clone, setup probes the running shell afterwards and restarts it with `omarchy restart shell` if the notification service did not swap on the rescan (observed on Omarchy 4: the rescan reloads the files but the running service keeps the old code).
+
 ## Keys
 
 | Action | Keys |
