@@ -8,8 +8,16 @@ BarWidget {
   id: root
   moduleName: "distraction-space"
 
-  property bool focusOn: true
   readonly property string helperPath: localPath(Qt.resolvedUrl("distractions"))
+  readonly property string statePath: {
+    var env = Quickshell.env("XDG_STATE_HOME")
+    var base = (env && env.length) ? env : (Quickshell.env("HOME") + "/.local/state")
+    return base + "/omarchy/distraction-space/state.json"
+  }
+
+  property bool locked: false
+  property string until: ""
+  property string purpose: ""
 
   function localPath(url) {
     var value = String(url)
@@ -18,57 +26,36 @@ BarWidget {
     return value
   }
 
-  function refresh() {
-    if (!statusProcess.running)
-      statusProcess.running = true
+  function applyState(text) {
+    try {
+      var data = JSON.parse(text)
+      root.locked = !!(data && data.locked)
+      root.until = (data && data.until) ? String(data.until) : ""
+      root.purpose = (data && data.purpose) ? String(data.purpose) : ""
+    } catch (e) {
+      root.locked = false
+      root.until = ""
+      root.purpose = ""
+    }
   }
 
-  function toggle() {
+  function run(args) {
     if (actionProcess.running)
       return
-    actionProcess.command = [root.helperPath, "focus"]
+    actionProcess.command = [root.helperPath].concat(args)
     actionProcess.running = true
   }
 
-  function editList() {
-    if (editProcess.running)
-      return
-    editProcess.command = [root.helperPath, "edit-list"]
-    editProcess.running = true
-  }
-
-  IpcHandler {
-    target: "distraction-space-bar"
-    function refresh(): void {
-      root.refresh()
-    }
-  }
-
-  Process {
-    id: statusProcess
-    command: [root.helperPath, "focus-status"]
-    onExited: function (exitCode) {
-      root.focusOn = exitCode === 0
-    }
+  FileView {
+    id: stateFile
+    path: root.statePath
+    watchChanges: true
+    onLoaded: root.applyState(stateFile.text())
+    onFileChanged: stateFile.reload()
   }
 
   Process {
     id: actionProcess
-    onExited: function () {
-      root.refresh()
-    }
-  }
-
-  Process {
-    id: editProcess
-  }
-
-  Timer {
-    interval: 2000
-    running: true
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: root.refresh()
   }
 
   BarIconButton {
@@ -76,19 +63,21 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     text: "󰈈"
-    active: root.focusOn
+    active: root.locked
     activeColor: Color.urgent
     useActiveColor: true
-    dimmed: !root.focusOn
+    dimmed: !root.locked
     interactive: !actionProcess.running
-    tooltipText: root.focusOn
-      ? "Focus mode on — distraction space locked. Click or Super+Ctrl+Shift+F and write a reason to leave, or wait for the session timer. Right-click to edit the distraction list."
-      : "Focus mode off — Super+D opens the distraction space. Click to turn focus on (purpose and minutes). Right-click to edit the distraction list."
+    tooltipText: root.locked
+      ? ("Locked" + (root.until ? (" until " + root.until) : "") + (root.purpose ? (" — " + root.purpose) : ""))
+      : "Distraction space unlocked"
     onPressed: function (buttonCode) {
       if (buttonCode === Qt.LeftButton)
-        root.toggle()
+        root.run([root.locked ? "unlock" : "lock"])
       else if (buttonCode === Qt.RightButton)
-        root.editList()
+        root.run(["menu"])
+      else if (buttonCode === Qt.MiddleButton)
+        root.run(["toggle"])
     }
   }
 }

@@ -1,16 +1,12 @@
 # Omarchy distraction space
 
-A named Hyprland workspace for distractions, plus a **focus mode** that keeps it locked until you write a reason to leave.
+Every listed distraction lives on one named Hyprland workspace (`name:distraction`) and stays there. Listed apps open only on that space. Listed sites do not load anywhere else. Reaching for a distraction from a normal workspace earns a nudge that names the app or site and says Super+D opens the space. Entering is a deliberate choice behind a confirm. A lock makes the space unreachable for a chosen number of minutes, with a purpose stated up front and a written reason to leave early.
 
-The plugin owns one distraction list (Telegram, Discord, WhatsApp, Signal, Google Messages, Facebook, Instagram, Threads, X, Reddit, TikTok, Snapchat, YouTube, Twitch, and Netflix). Listed apps with a window class open only on that space. While you are on any other workspace, listed sites are blocked at the network. Opening a listed app from a normal workspace shows the helper banner **Consciously choose to view this in your distraction space**. Focus mode does not gate the site block. Focus mode still locks the space.
-
-Focus mode is on by default. Super+1–0, Super+Tab, and the workspace bar never land on the distraction space. Super+D is the only way in, and only after you turn focus mode off. While focus is on, apps in that space send no banner and no sound. Other apps keep notifying. When focus turns off, one grouped notice lists a count per app that pinged.
-
-While focus mode is on, the plugin also blocks the active distraction list at the network level: it sinkholes those hostnames in `/etc/hosts` (IPv4 and IPv6), drops their resolved addresses with an `nftables` table named `omarchy_focus`, and makes suffix DNS (for example `*.googlevideo.com`) fail through the resolver that is actually answering queries. On systemd-resolved it writes a drop-in that routes those suffixes to a local sinkhole and reloads resolved; on dnsmasq it writes `address=/suffix/0.0.0.0` plus `::` and reloads dnsmasq; otherwise it points `/etc/resolv.conf` at the sinkhole and uses the nameservers captured before apply as upstream. Apply refuses an empty expansion instead of installing an empty block. Apply or lift failures are reported and leave the previous network state in place; a failed apply does not turn focus on. `nft` is required. Permanent destinations still expand if the shipped defaults file is missing.
+This plugin is a small Python package, one config file an agent can read and edit, one shipped catalog, and a menu UI built only from `omarchy-menu-select` and `omarchy-menu-input`. Notification holding, sound muting, and the agent summary are not in this release; they land in fn-10 on the listener, schema, and state file defined here. Between the two, listed apps notify normally.
 
 ## Install
 
-Omarchy 4+, Hyprland, zenity.
+Omarchy 4+, Hyprland, Python 3.11+.
 
 ```bash
 omarchy plugin add https://github.com/DanielKillenberger/omarchy-distraction-space.git --enable
@@ -22,141 +18,215 @@ The bar widget appears in the center section. Move it if you want:
 omarchy bar move distraction-space --section right
 ```
 
-Copy the Hyprland snippets into your user config (plugin add does not edit Hyprland for you):
+Copy the Hyprland snippets into your user config by hand. Plugin add does not edit Hyprland for you:
 
-- `hypr/windows.lua` → `~/.config/hypr/hyprland.lua`
+- `hypr/windows.lua` → `~/.config/hypr/hyprland.lua` (or your windows file)
 - `hypr/bindings.lua` → `~/.config/hypr/bindings.lua`
 - `hypr/autostart.lua` → `~/.config/hypr/autostart.lua`
-
-If you previously copied `o.window(...)` membership lines into `~/.config/hypr/hyprland.lua`, delete those leftover lines so the plugin list is the only assigner.
 
 Then:
 
 ```bash
 chmod +x ~/.config/omarchy/plugins/distraction-space/distractions
-cp ~/.config/omarchy/plugins/distraction-space/focus.json ~/.config/omarchy/focus.json
 hyprctl reload
-~/.config/omarchy/plugins/distraction-space/distractions install
 ```
 
-The plugin already appears in the bar layout, so Omarchy loads both the bar widget and the notification filter service from that one enablement. `install` is required once after add or update. It runs one `omarchy-shell shell rescanPlugins` and waits for the notification filter to ping ready. Do not run it while focus is already muting banners: rescan unloads live shell services.
+Autostart owns the long-running listener (`distractions listen`). There is no forking. A second `listen` takes a non-blocking flock on `$XDG_RUNTIME_DIR/distraction-space.lock` and exits 0 with no output. Start it once without logging out if autostart has not run yet:
 
-Install the privileged site-block wrapper once. This asks for sudo in the terminal, pins a root-owned non-user-writable path (symlink or user-writable ancestors are refused), then checks the grant with `sudo -n` on the wrapper. Deny, cancel, interrupt, or a non-TTY exits without writing a leftover grant and removes only artifacts this run created. It never lists `/etc/sudoers.d` (that directory is not user-readable, so `ls` looks like a failed install):
+```bash
+~/.config/omarchy/plugins/distraction-space/distractions listen
+```
+
+### One-time `distractions setup`
+
+Install the privileged nftables wrapper once (or again after an update, when the shipped file differs). This asks for sudo in the terminal, copies the wrapper to `/usr/local/libexec/omarchy-distraction-space/distractions-nft` (`install -D -m 0755`), renders the sudoers line into `/etc/sudoers.d/omarchy-distraction-space` (`install -m 0440` after `visudo -cf`), and refuses when any ancestor of either destination is writable by the invoking user. The last step is `omarchy-shell shell rescanPlugins`. A rescan that is missing from PATH or exits non-zero leaves the installed files in place, prints the failure, and exits 1.
 
 ```bash
 ~/.config/omarchy/plugins/distraction-space/distractions setup
 ```
 
-A missing wrapper skips only the site block. Window placement still runs.
+A missing wrapper skips only the site block. Window placement still runs. `site_block` in `status --json` becomes `unavailable`.
 
-To uninstall the wrapper:
-
-```bash
-sudo /usr/local/libexec/omarchy-distraction-space/distractions-nft flush ds
-sudo rm -f /usr/local/libexec/omarchy-distraction-space/distractions-nft \
-  /etc/sudoers.d/omarchy-distraction-space
-```
-
-Start the listener once if you do not want to log out:
+To reverse the grant:
 
 ```bash
-~/.config/omarchy/plugins/distraction-space/distractions listen &
+~/.config/omarchy/plugins/distraction-space/distractions setup --remove
 ```
 
-Membership lives in the plugin list (`~/.config/omarchy/app-list.json`). Edit it from the bar widget or `edit-list`. Do not add window-rule membership lines to Hyprland.
+That flushes table `inet omarchy_ds`, removes both files, and rescans the same way. fn-10 will insert its notification-service clone step before that rescan.
 
-## Use
+## Keys
 
 | Action | Keys |
 |---|---|
-| Toggle focus mode | Super+Ctrl+Shift+F, or left-click the eye icon on the bar |
-| Edit the distraction list | Right-click the eye icon, or `edit-list` |
-| Open / leave the distraction space | Super+D (blocked while focus is on) |
-| Send the focused window there | Super+Alt+D (stays for unlisted windows) |
+| Open or leave the distraction space | Super+D (`distractions toggle`) |
+| Move the focused window there | Super+Alt+D |
+| Lock or unlock | Super+Ctrl+Shift+F (unlock when locked, otherwise lock) |
+| Next occupied workspace (skips the space) | Super+Tab |
+| Previous occupied workspace (skips the space) | Super+Shift+Tab |
 
-The shipped list is exclusive: classed apps land only on the distraction space. Listed sites are blocked on every other workspace at all times. An intercept from a normal workspace shows **Consciously choose to view this in your distraction space**. Focus mode still locks the space.
+The workspace rule is `hl.workspace_rule({ workspace = "name:distraction", persistent = true })`. Super+1–0 and the bar never land here.
 
-Turning focus **on** opens a start dialog for a required purpose and minutes until auto-off (the minutes field starts at 25). Confirm mutes banners and sounds from the distraction-space apps. Dismiss leaves focus off. Other apps still notify. If mute cannot apply, a toast says so and notifications stay as they were; focus still turns on. Set `session_start_ui` false for silent on with 25 minutes.
+Bar widget (eye glyph, urgent color while locked, tooltip with deadline and purpose; watches `state.json`, never polls):
 
-Turning focus **off** by hand opens a zenity field; the reason must be at least 50 characters. When the session minutes elapse, focus turns off without that reason. After focus is off, one closing window can show the purpose, the missed-summary, an optional self-eval, and helpful / not-helpful. A successful lift restores those notifications. When summaries are off, one grouped notice lists a count per app that pinged (and may play one sound). Empty sessions skip that notice. The existing “Focus mode off” toast still appears. If restore fails, a toast says so and the mute may remain until a later successful lift; the closing window can still show purpose and self-eval. There is no mid-focus list of blocked pings.
+| Click | Command |
+|---|---|
+| Left | `distractions lock` or `unlock` |
+| Right | `distractions menu` |
+| Middle | `distractions toggle` |
 
-Reasons append to the log path in `~/.config/omarchy/focus.json` (default `~/.local/state/omarchy/focus-disable.log`).
+## Config
 
-```json
-{
-  "log": "~/.local/state/omarchy/focus-disable.log",
-  "agent_summaries": false,
-  "summary_agent": null,
-  "session_start_ui": true,
-  "session_start_purpose": true,
-  "session_close_ui": true,
-  "session_close_purpose": true,
-  "session_close_eval": true
-}
-```
-
-Until you change it, the active network-block list is the shipped default: Telegram, Discord, WhatsApp, Signal, Google Messages, Facebook, Instagram, Threads, X, Reddit, TikTok, Snapchat, YouTube, Twitch, and Netflix. Bluesky, Pinterest, and Tumblr are in the catalog but not defaults — add them yourself if you want them.
-
-Edit the list without rebuilding the plugin. Product names from the catalog and extra hostnames are accepted; a rejected entry is ignored and the rest of the list still applies:
-
-```bash
-~/.config/omarchy/plugins/distraction-space/distractions destinations
-~/.config/omarchy/plugins/distraction-space/distractions destinations-add Bluesky
-~/.config/omarchy/plugins/distraction-space/distractions destinations-remove YouTube
-```
-
-`destinations-add` / `destinations-remove` write a `destinations` array into `~/.config/omarchy/focus.json`. Until that key exists, the plugin keeps using the shipped defaults.
-
-### Keeping a host reachable
-
-The network block drops packets by address. A blocked host and a host you want
-can share one CDN address, and the block cannot tell them apart: `pbs.twimg.com`
-and `grok.com` both answer on `104.18.28.234`, so blocking X used to take Grok
-down with it.
-
-Addresses that also serve a keep-reachable host are left out of the nftables
-set. `grok.com`, `www.grok.com`, `assets.grok.com`, `api.x.ai`, and `grok.x.ai`
-ship as defaults, so the Grok summary agent keeps working while X stays blocked.
-Add your own with a `keep_reachable` array in `~/.config/omarchy/focus.json`:
+Path: `~/.config/omarchy/distraction-space.json` (`$XDG_CONFIG_HOME` honored). Missing keys take the defaults shown. Unknown keys are kept on save and ignored. There is no start-locked key: the lock never starts on its own.
 
 ```json
 {
-  "keep_reachable": ["status.example.com"]
+  "list": ["Telegram", "Discord", "x.com", {"name": "Slack", "class": "^Slack$", "hosts": ["slack.com", "app.slack.com"]}],
+  "keep_reachable": [],
+  "nudges": {"app_banner": true, "block_page": true, "entry_confirm": true},
+  "hold_notifications": "off-space",
+  "mute_sounds": true,
+  "lock": {"default_minutes": 25, "ask_purpose": true, "reason_min_chars": 50},
+  "summary": {"command": "auto", "timeout_seconds": 60},
+  "hooks": {"lock": [], "unlock": [], "enter": [], "leave": []},
+  "log": "~/.local/state/omarchy/distraction-space/log"
 }
 ```
 
-The carve-out is address-level and narrow. A blocked host keeps every address it
-does not share, and suffix DNS blocking is exact, so the site itself stays
-blocked. The last good answer is cached at
-`~/.local/state/omarchy/omarchy-ds-keep-addrs.last-good.json` so a momentary
-resolver failure cannot hand a shared address back to the block.
+Defaults for a fresh file (no migration sources):
 
-## Agent summaries
+- `list`: Telegram, Discord, WhatsApp, Signal, Google Messages, Facebook, Instagram, Threads, X, Reddit, TikTok, Snapchat, YouTube, Twitch, Netflix
+- `keep_reachable`: `[]`
+- `nudges.app_banner`, `nudges.block_page`, `nudges.entry_confirm`: `true`
+- `hold_notifications`: `"off-space"`
+- `mute_sounds`: `true`
+- `lock.default_minutes`: `25`
+- `lock.ask_purpose`: `true`
+- `lock.reason_min_chars`: `50`
+- `summary.command`: `"auto"`
+- `summary.timeout_seconds`: `60`
+- `hooks.lock` / `unlock` / `enter` / `leave`: `[]`
+- `log`: `~/.local/state/omarchy/distraction-space/log`
 
-Agent summaries stay off until you enable them in the plugin. An Omarchy default agent is not consent.
+`list` entries are a catalog name, a hostname (contains a dot, no scheme or path), a string `class=<regex>`, or an object with `name` and at least one of `class` or `hosts`. A hostname entry expands to itself plus its `www.` twin; a `class=` entry has no hosts.
 
-Use `distractions agent-summaries` to turn the path on or off. Use `distractions summary-agent` to pick Claude, Grok, or Omarchy default. The picker offers only `claude` and `grok`.
+`hold_notifications` is one of `off-space`, `locked`, `never`. `summary.command` is `auto`, `off`, or an argv array. Both are validated here and consumed in fn-10. `mute_sounds` is the same: stored now, used in fn-10.
 
-While focus is on and summaries are enabled, a usable agent can parse blocked-ping text in the background. When focus turns off you see one summary of important things, not each original ping. The closing window hosts that summary as “Here's what you missed” or “You didn't miss anything”, with helpful / not-helpful on the same window. Set `session_close_ui` false to keep today's Focus-summary notification and follow-up helpful dialog. After a shown summary you can mark it helpful or not helpful and leave an optional note. That ledger is stored at `~/.local/state/omarchy/focus-summary-ledger.jsonl` and shapes later parses.
+`hooks.*` are argv arrays run detached with env `DS_EVENT`, `DS_PURPOSE`, `DS_MINUTES`, `DS_REASON`, `DS_HELD` (JSON object of app to count; `"{}"` until fn-10 fills it). stdout and stderr go to `log`. Failures are ignored.
 
-If summaries are off, no usable agent is resolved, ping-text is empty, or the parse or display fails, the mute grouped-count catch-up still runs. There is no history screen and no per-app notification toggle.
+Every write goes through a flock on `$XDG_RUNTIME_DIR/distraction-space.config.lock` (blocking, 5 s timeout). On timeout the command exits 1 with "config busy" and the file is unchanged. `config set`, `list add`, `list remove`, and every menu save use it. Reads take no lock. A successful mutation asks the running listener to reload.
 
-## Commands
+Addresses that also serve a `keep_reachable` host are left out of the nftables set, so a shared CDN address does not take an allowed host down with a listed one.
 
-```bash
-~/.config/omarchy/plugins/distraction-space/distractions toggle
-~/.config/omarchy/plugins/distraction-space/distractions focus
-~/.config/omarchy/plugins/distraction-space/distractions focus-status
-~/.config/omarchy/plugins/distraction-space/distractions agent-summaries
-~/.config/omarchy/plugins/distraction-space/distractions summary-agent
-~/.config/omarchy/plugins/distraction-space/distractions log-path
-~/.config/omarchy/plugins/distraction-space/distractions destinations
-~/.config/omarchy/plugins/distraction-space/distractions destinations-add <name-or-host>
-~/.config/omarchy/plugins/distraction-space/distractions destinations-remove <name-or-host>
-~/.config/omarchy/plugins/distraction-space/distractions install
-~/.config/omarchy/plugins/distraction-space/distractions setup
-~/.config/omarchy/plugins/distraction-space/distractions edit-list
+### Migration
+
+On first load with no `distraction-space.json`, `list` is seeded from names in `~/.config/omarchy/app-list.json` and `destinations` in `~/.config/omarchy/focus.json` (union), else the fifteen defaults. `log` is taken from the old `focus.json` when present. Old files stay untouched. Old state files under `~/.local/state/omarchy/` are ignored. Unreadable old files fall back to defaults.
+
+## Catalog
+
+Shipped `catalog.json` maps product name to identity. Two shapes exist, native and PWA. Expansion produces `classes`, a list: the native `class` when present, plus for every host-bearing entry the automatic PWA class `^chrome-<host>__.*$` for its first host (the `pwa` host when given), so any listed site's installed web app is contained alongside the native app.
+
+Native (class plus hosts; `senders` and `audio` are carried through for fn-10):
+
+```json
+"Telegram": {
+  "class": "org.telegram.desktop",
+  "hosts": ["web.telegram.org", "telegram.org", "t.me"],
+  "senders": ["Telegram Desktop", "org.telegram.desktop"],
+  "audio": {"name": ["Telegram Desktop"], "binary": ["telegram-desktop", "Telegram"]}
+}
 ```
+
+PWA (`pwa` host plus `hosts`):
+
+```json
+"Discord": {"pwa": "discord.com", "hosts": ["discord.com", "discordapp.com", "discord.gg"]}
+```
+
+Hosts only:
+
+```json
+"YouTube": {"hosts": ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"]}
+```
+
+Telegram therefore expands to `classes: ["org.telegram.desktop", "^chrome-web\\.telegram\\.org__.*$"]`. A `class=` list entry expands to one class and no hosts.
+
+Catalog products: the fifteen defaults above, plus Bluesky, Pinterest, Tumblr, LinkedIn (add those yourself). `distractions catalog` prints every product name, one per line.
+
+## CLI
+
+`distractions <command>`. Exit 0 on success, 1 on a refused or failed action, 2 on usage. The helper path is `~/.config/omarchy/plugins/distraction-space/distractions`.
+
+| Command | What it does |
+|---|---|
+| `status [--json]` | Human summary, or the `state.json` shape computed live (lock, `on_space`, `site_block` from the last listener write, `listener_pid` null when absent or dead). Works without a listener. Missing hyprctl sets `on_space` null. |
+| `toggle` | Super+D: enter when off the space, leave when on it. |
+| `enter` | Switch to `name:distraction`. Refuses with the lock notice while locked. With `nudges.entry_confirm` (default on) shows Enter / Stay first (30 s). Stay, Escape, or timeout leave the workspace unchanged. Menu tooling missing enters with one notice. |
+| `leave` | Cycle to the next occupied workspace, skipping the space. |
+| `next` / `prev` | Cycle occupied workspaces (`windows > 0`), skipping `name:distraction`. |
+| `lock [MINUTES\|forever] [PURPOSE...]` | No args opens the duration menu (default_minutes, 50, 90, Until I unlock, Other…) then the purpose input when `ask_purpose`. Already locked is a no-op with exit 0. Escape on the duration menu locks nothing. Escape on the purpose input still locks with an empty purpose. |
+| `unlock [REASON...]` | Expired or unlocked is a no-op. Manual unlock requires `reason_min_chars` characters (default 50); shorter refuses with exit 1 and a notice. `reason_min_chars` 0 unlocks without a prompt. Appends timestamp, purpose, and reason to `log`. |
+| `list` | Print each entry's display name, one per line. |
+| `list add <entry>` | Append a catalog name, hostname, `class=<regex>`, or JSON object. Duplicate names are ignored. |
+| `list remove <name>` | Remove by display name. Missing name exits 1. |
+| `list expand` | JSON of the expansion (`name`, `classes`, `hosts`, `senders`, `audio`). |
+| `catalog` | Product names, one per line. |
+| `config path` | Print the config file path. |
+| `config get <dot.key>` | Print the value as JSON. |
+| `config set <dot.key> <json-or-string>` | Validate against the schema and write. Invalid values refuse with exit 1; the file is unchanged. |
+| `config edit` | Open `$EDITOR` or `omarchy-launch-editor` on the config file. |
+| `menu` | Select menu: Lock… / Unlock…, Open the space / Leave the space, Edit list, Settings. Edit list toggles catalog products and custom entries. Settings flips booleans, cycles enums, prompts integers; `keep_reachable`, `hooks.*`, and `log` are read-only with a notice naming `config set`. |
+| `listen` | The daemon. Autostart starts one per session. SIGTERM calls `net.shutdown()` so an in-flight `getent` cannot pin exit past about 3 s. |
+| `reload` | Connect to `$XDG_RUNTIME_DIR/distraction-space.sock`, send `reload\n`, wait for `ok\n` or `error\n`. Exit 1 with "No listener running" when none runs. An invalid config on reload answers `error` and leaves window rules and the site block unchanged. `refresh\n` is the other socket verb (same reply). |
+| `setup [--remove]` | Install or remove the wrapper and sudoers, then rescan, as above. |
+
+## State files
+
+Under `~/.local/state/omarchy/distraction-space/` (`$XDG_STATE_HOME` honored):
+
+| File | Writer | Shape |
+|---|---|---|
+| `lock.json` | `lock` / `unlock` only | `{"locked": true, "since": "<iso>", "until": "<iso>\|null", "purpose": "<text>"}` |
+| `state.json` | Listener only, on every change; the bar watches this | `{"locked": false, "until": null, "purpose": "", "on_space": false, "site_block": "on", "listener_pid": 1234, "updated": "<iso>"}`. `site_block` is `on`, `off` (on the space or empty list), or `unavailable`. Without a listener the file goes stale; `status --json` still works from `lock.json` and hyprctl. fn-10 appends its own keys. |
+| `expansion.json` | Listener after every successful config load or reload | Last validated expansion (the full `{name, classes, hosts, senders, audio}` list plus `keep_reachable` and `nudges`). Invalid-config fallback: enforce from this cache; with no cache, enforce nothing and report `site_block: off`. |
+| `addrs.json` | Network resolver | Last good resolution per host. |
+| `rules.json` | Window containment | JSON array of Hyprland rule-name strings this plugin set. |
+| `log` | Lock reasons, lock/unlock/enter/leave hook output, network batches | Text. Override with config `log`. |
+
+Runtime files in `$XDG_RUNTIME_DIR`:
+
+| File | Role |
+|---|---|
+| `distraction-space.lock` | Single listener |
+| `distraction-space.confirm` | One confirm dialog at a time |
+| `distraction-space.config.lock` | Config mutation flock |
+| `distraction-space.sock` | Reload / refresh |
+
+Lock expiry is lazy. `is_locked()` treats `until` in the past as unlocked. The listener's one-second tick notices the transition, rewrites `state.json`, notifies "Lock ended", and runs the `unlock` hook.
+
+Hook ownership: `lock` / `unlock` commands run those hooks because they write `lock.json`. The listener runs `unlock` for a lazy expiry it observes, and `enter` / `leave` on every observed workspace transition onto or off the space. `enter`, `leave`, and `toggle` never run hooks themselves. Without a listener, `enter`/`leave` hooks and the expiry `unlock` hook do not fire.
+
+## Listener
+
+Hyprland autostart starts one listener per session with the shipped line in `hypr/autostart.lua`. Production connects to `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock`. Tests may set `DS_SOCKET2` to a Unix socket.
+
+On start, on every workspace change off the space, on reload, and every 30 s while off the space, the listener resolves listed hosts (`getent ahosts`, 2 s per host, 10 s batch deadline), subtracts `keep_reachable` addresses, and pipes one address per line to `sudo -n /usr/local/libexec/omarchy-distraction-space/distractions-nft replace ds` (the installed path the sudoers grant names). Entering the space sends `flush ds`. The wrapper's filter output chain `reject`s set members (TCP reset for TCP, ICMP unreachable otherwise) and a nat output chain redirects TCP 80 to 28080 and TCP 443 to 28443 on set members.
+
+When `nudges.block_page` is true, loopback HTTP on 28080 serves a block page naming the Host header with the Super+D line (and a lock note when locked). Port 28443 reads the ClientHello (SNI) and closes; one banner per host per 30 s. Nothing is served on 28443 beyond that read.
+
+Window rules: one named rule per class in every expanded entry (`windowrule[omarchy-ds-<slug>-<n>]`), recorded in `rules.json`. socket2 `openwindow` / `movewindow` silently moves a listed client found off the space. When `nudges.app_banner` is on and the person is off the space, one banner per app per 30 s: title "`<Name>` lives in the distraction space", body "Super+D opens it.", click action `distractions enter`.
+
+Config mutations already call reload after a successful write.
+
+## What fn-10 adds later
+
+This schema already validates and round-trips three keys whose behavior is not implemented here:
+
+- **Notification hold** (`hold_notifications`: `off-space`, `locked`, or `never`). Listed apps stay quiet while hold is effective. The listener will push sender keys into Omarchy's notification service (a cloned patched service until that lands upstream). Held pings go to `held.jsonl`.
+- **Sound mute** (`mute_sounds`). Streams of listed apps are muted while hold is on and unmuted when it ends.
+- **Summary** (`summary.command` `auto` / `off` / argv, `summary.timeout_seconds`). When a lock ends or the space is entered, one notification titled "While you were away" shows the agent's one-liner, or a grouped per-app count. `DS_HELD` on the `unlock` and `enter` hooks will carry those counts.
+
+fn-10 also adds `hold`, `held`, and `notification_hold` to `state.json`, files `held.jsonl` / `muted.json` / `clone.json`, a `distractions senders` command, and a clone step inside `setup` before the plugin rescan. Until that merge, listed apps notify and play sound as usual.
 
 ## License
 

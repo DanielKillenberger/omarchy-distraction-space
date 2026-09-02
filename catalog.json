@@ -1,0 +1,69 @@
+{
+  "Telegram": {
+    "class": "org.telegram.desktop",
+    "hosts": ["web.telegram.org", "telegram.org", "www.telegram.org", "t.me"],
+    "senders": ["Telegram Desktop", "org.telegram.desktop"],
+    "audio": {"name": ["Telegram Desktop"], "binary": ["telegram-desktop", "Telegram"]}
+  },
+  "Discord": {
+    "pwa": "discord.com",
+    "hosts": ["discord.com", "www.discord.com", "discordapp.com", "discord.gg", "discord.media", "discordapp.net"]
+  },
+  "WhatsApp": {
+    "pwa": "web.whatsapp.com",
+    "hosts": ["web.whatsapp.com", "whatsapp.com", "www.whatsapp.com"]
+  },
+  "Signal": {
+    "class": "^signal$",
+    "hosts": ["signal.org", "www.signal.org"],
+    "senders": ["Signal", "signal"],
+    "audio": {"name": ["Signal", "signal"], "binary": ["signal-desktop", "signal"]}
+  },
+  "Google Messages": {
+    "pwa": "messages.google.com",
+    "hosts": ["messages.google.com"]
+  },
+  "Facebook": {
+    "hosts": ["facebook.com", "www.facebook.com", "messenger.com", "www.messenger.com"]
+  },
+  "Instagram": {
+    "hosts": ["instagram.com", "www.instagram.com"]
+  },
+  "Threads": {
+    "hosts": ["threads.net", "www.threads.net", "threads.com", "www.threads.com"]
+  },
+  "X": {
+    "pwa": "x.com",
+    "hosts": ["x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com", "m.twitter.com", "api.x.com", "api.twitter.com", "t.co", "www.t.co", "abs.twimg.com", "pbs.twimg.com", "video.twimg.com", "cf.twimg.com", "abs-0.twimg.com", "ton.twimg.com", "platform.twitter.com"]
+  },
+  "Reddit": {
+    "hosts": ["reddit.com", "www.reddit.com", "old.reddit.com"]
+  },
+  "TikTok": {
+    "hosts": ["tiktok.com", "www.tiktok.com"]
+  },
+  "Snapchat": {
+    "hosts": ["snapchat.com", "www.snapchat.com", "web.snapchat.com"]
+  },
+  "YouTube": {
+    "hosts": ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"]
+  },
+  "Twitch": {
+    "hosts": ["twitch.tv", "www.twitch.tv"]
+  },
+  "Netflix": {
+    "hosts": ["netflix.com", "www.netflix.com"]
+  },
+  "Bluesky": {
+    "hosts": ["bsky.app", "www.bsky.app", "bsky.social"]
+  },
+  "Pinterest": {
+    "hosts": ["pinterest.com", "www.pinterest.com"]
+  },
+  "Tumblr": {
+    "hosts": ["tumblr.com", "www.tumblr.com"]
+  },
+  "LinkedIn": {
+    "hosts": ["linkedin.com", "www.linkedin.com"]
+  }
+}
