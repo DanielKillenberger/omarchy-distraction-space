@@ -72,3 +72,13 @@ python3 -m unittest discover -s tests > /tmp/ds-suite.log 2>&1; tail -3 /tmp/ds-
 The user rejected collateral blocking on 2026-09-02. Rejected here: a DNS-level block (bypassed by browser secure DNS, and the legacy tree's 1,400-line stack was removed for that reason), and removing shared-address products from the list, which hides the problem in the catalog.
 
 The conductor moved the exempt source-port range from 60000-60999 to 61000-61999 on 2026-09-02 at integration: Linux's default `net.ipv4.ip_local_port_range` is 32768-60999, so the first range sat inside the ephemeral range and any program's outbound connection had about a 3.5 percent chance of drawing an exempt port and bypassing the block. 61000-61999 lies above the default ceiling. A machine whose sysctl widens the ephemeral range past 61000 keeps that exposure; reserving the range with `net.ipv4.ip_local_reserved_ports` is a possible follow-up.
+
+## Live check (R6)
+
+Recorded by the conductor on 2026-09-02 on this machine, installed plugin at 5c2e773, wrapper reinstalled by `distractions setup`, listener restarted, YouTube listed, person off the space, `site_block=on pass_through=on`:
+
+- `curl https://safebrowsing.google.com/` returned HTTP 200 from 74.125.29.136 in 0.065 s. That address is in `addrs.json` (the block set) and is one of youtube.com's own addresses, so the connection was redirected and spliced.
+- `curl https://www.google.com/` returned HTTP 200 from 142.251.150.119 in 0.084 s.
+- `curl https://youtube.com/` failed in 0.073 s with a TLS unexpected EOF (the listed close), and `curl http://youtube.com/` served the "Can't open youtube.com on this workspace" block page.
+
+The wrapper's two new accept lines parsed and loaded on the live kernel (the listener's `replace` succeeded with them), which settles the nft syntax check the sandbox could not run.
