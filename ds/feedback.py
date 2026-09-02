@@ -5,6 +5,7 @@ from __future__ import annotations
 import errno
 import html
 import os
+import queue
 import random
 import re
 import select
@@ -39,6 +40,10 @@ _ctl = threading.Lock()
 _banner_lock = threading.Lock()
 _banner_at: dict[str, float] = {}
 _prov_at: dict[str, list] = {}  # host -> [window_start, lines_in_window, dropped]
+# Provenance lines leave the connection handler through a bounded queue and one
+# daemon writer, so a stalled filesystem can never delay or hold a banner decision.
+_prov_queue: queue.Queue = queue.Queue(maxsize=256)
+_prov_thread = None
 _log_at: dict[str, float] = {}
 _socks: list[socket.socket] = []
 _threads: list[threading.Thread] = []
@@ -859,7 +864,41 @@ def _provenance(host, entry, peer_port, decision, attr=None):
     )
     if dropped > 0:
         line += f" dropped={dropped}"
-    hypr._log(line)
+    _prov_submit(line, key)
+
+
+def _prov_writer():
+    while True:
+        line = _prov_queue.get()
+        try:
+            hypr._log(line)
+        finally:
+            _prov_queue.task_done()
+
+
+def _prov_submit(line, key):
+    """Hand the line to the writer without blocking; a full queue counts the line as dropped."""
+    global _prov_thread
+    with _banner_lock:
+        if _prov_thread is None or not _prov_thread.is_alive():
+            _prov_thread = threading.Thread(target=_prov_writer, name="ds-provenance", daemon=True)
+            _prov_thread.start()
+    try:
+        _prov_queue.put_nowait(line)
+    except queue.Full:
+        with _banner_lock:
+            rec = _prov_at.get(key)
+            if rec is not None:
+                rec[2] += 1
+
+
+def _prov_flush(timeout=2.0):
+    """Wait until every queued provenance line has been written; tests and shutdown paths use it."""
+    for _ in range(int(timeout / 0.01)):
+        if _prov_queue.unfinished_tasks == 0:
+            return True
+        time.sleep(0.01)
+    return _prov_queue.unfinished_tasks == 0
 
 
 def _maybe_banner(host, peer_port=None):

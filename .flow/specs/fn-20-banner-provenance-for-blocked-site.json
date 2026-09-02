@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-20-banner-provenance-for-blocked-site",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "needs_work",
+  "completion_reviewed_at": "2026-09-02T21:05:04.639402Z",
   "created_at": "2026-09-02T20:21:28.835987Z",
   "default_impl": null,
   "default_review": null,
@@ -13,7 +13,7 @@
     "fn-20-banner-provenance-for-blocked-site.2": 0
   },
   "next_task": 1,
-  "plan_review_rounds": 0,
+  "plan_review_rounds": 1,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "ready": true,
@@ -163,6 +163,49 @@
       "task": "fn-20-banner-provenance-for-blocked-site.1",
       "timestamp": "2026-09-02T21:00:05.399096Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "5d7c93d40bef9986c6c1ca786081a4da0fa3ed33fe4c7f3d463d25b4bd990ed2",
+      "backend": "cursor",
+      "base_sha": "5b6fed5c629dc946047a711dc4f97a5cc4bf3d0a",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-261c6f3548f8d5355324ccfbfaeaad56",
+            "classification": "introduced",
+            "findingId": "finding-261c6f3548f8d5355324ccfbfaeaad56",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "bf02e9f45692aebdc1b9b43002f15a5faf3a6bc4",
+      "head_sha_observed": true,
+      "kind": "completion",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 3713,
+      "output_sha256": "ff6ea0328d1df444f5683c833c653c9f90ee05462ea64178e1fd2f77e2b39506",
+      "reservation_id": "74a2397270e9443b9d1fe2ec46c29f4c",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-02T21:05:04.637333Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -172,6 +215,7 @@
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "completion": 0,
     "impl:fn-20-banner-provenance-for-blocked-site.1": 0,
     "impl:fn-20-banner-provenance-for-blocked-site.2": 0
   },
@@ -189,5 +233,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T21:00:05.401550Z"
+  "updated_at": "2026-09-02T21:05:04.640061Z"
 }

@@ -279,6 +279,7 @@ class FeedbackTests(unittest.TestCase):
         return [n for n in self.notices if n[0] == "Blocked on this workspace"]
 
     def _prov_lines(self):
+        feedback._prov_flush()
         path = state.state_path("log")
         if not path.exists():
             return []
@@ -1202,6 +1203,27 @@ class FeedbackTests(unittest.TestCase):
             lines = [line.split(" ", 1)[1] for line in self._prov_lines()]
             self.assertEqual(len(lines), 21)
             self.assertTrue(lines[-1].endswith("decision=unattributed dropped=2"), lines[-1])
+
+    def test_r1_provenance_write_never_delays_the_banner(self):
+        self._list_hosts("x.com")
+        release = threading.Event()
+        written = []
+
+        def stalled_log(msg):
+            release.wait(5.0)
+            written.append(msg)
+
+        with patch("ds.feedback.hypr._log", stalled_log):
+            t0 = time.perf_counter()
+            feedback._maybe_banner("x.com", peer_port=None)
+            elapsed = time.perf_counter() - t0
+            self.assertLess(elapsed, 0.5)
+            self.assertEqual(len(self._banners()), 1)
+            self.assertEqual(written, [])
+            release.set()
+            self.assertTrue(feedback._prov_flush())
+        self.assertEqual(len(written), 1)
+        self.assertTrue(written[0].startswith("banner: host=x.com entry=x.com "), written[0])
 
     def test_r1_provenance_unattributed_lines(self):
         uid = os.getuid()
