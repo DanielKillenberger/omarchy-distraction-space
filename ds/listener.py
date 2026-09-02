@@ -13,14 +13,38 @@ from pathlib import Path
 from ds import catalog, config, feedback, hypr, lock, net, state, ui
 
 TICK, PERIOD, _APPLY = 1.0, 30.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
+CLIENT_CAP = 256
+RELOAD_WAIT = net.BATCH_DEADLINE + 5
+
 
 def cmd_listen(args): return run()
 
 def cmd_reload(args):
-    if not state.runtime_path("distraction-space.sock").exists():
-        ui.notify("No listener running", "Start it with: distractions listen")
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    connected = False
+    try:
+        sock.settimeout(RELOAD_WAIT)
+        sock.connect(str(state.runtime_path("distraction-space.sock")))
+        connected = True
+        sock.sendall(b"reload\n")
+        buf = b""
+        while b"\n" not in buf:
+            chunk = sock.recv(256)
+            if not chunk:
+                break
+            buf += chunk
+        if buf.split(b"\n", 1)[0] == b"ok":
+            return 0
+        ui.notify("Reload failed", "The listener rejected the request.")
         return 1
-    return 0 if state.request_reload("reload") else 1
+    except OSError:
+        if connected:
+            ui.notify("Reload failed", "The listener closed the connection.")
+        else:
+            ui.notify("No listener running", "Start it with: distractions listen")
+        return 1
+    finally:
+        sock.close()
 
 def run():
     path = state.runtime_path("distraction-space.lock")
@@ -73,10 +97,14 @@ def _listen():
         ctx.last_period = time.monotonic()
         ctx.write_state(True)
         ctx.tick()
-        last, buf = time.monotonic(), b""
+        last = time.monotonic()
+        buf = b""
         while not stop:
-            wait = max(0.0, last + TICK - time.monotonic())
-            fds = [rs, r_fd] + ([sock2] if sock2 is not None else [])
+            now = time.monotonic()
+            wait = max(0.0, last + TICK - now)
+            for c in ctx.clients:
+                wait = min(wait, max(0.0, c.deadline - now))
+            fds = [rs, r_fd] + ([sock2] if sock2 is not None else []) + [c.sock for c in ctx.clients]
             try:
                 ready, _, _ = select.select(fds, [], [], wait)
             except (InterruptedError, ValueError):
@@ -94,6 +122,7 @@ def _listen():
                     ctx.event(raw)
             if rs in ready:
                 _accept_reload(rs, ctx)
+            _service_clients(ctx, ready)
             now = time.monotonic()
             if now - last >= TICK or not ready:
                 last = now
@@ -106,6 +135,9 @@ def _listen():
         signal.signal(signal.SIGINT, prev[1])
         feedback.stop()
         net.shutdown()
+        for c in ctx.clients:
+            _close(c.sock)
+        ctx.clients = []
         _close(rs, sock2)
         for fd in (r_fd, w_fd):
             try:
@@ -117,22 +149,35 @@ def _listen():
         except OSError:
             pass
 
+class _Client:
+    __slots__ = ("sock", "buf", "deadline", "gen")
+    def __init__(self, sock):
+        self.sock, self.buf, self.gen = sock, b"", None
+        self.deadline = time.monotonic() + RELOAD_WAIT
+
 class _Ctx:
     def __init__(self):
         self.exp, self.cfg = _empty(), None
         self.gen = self.latest = 0
-        self.busy = self.rerun = self.noted = False
+        self.busy = self.rerun = self.noted = self.resolve_noted = False
         self.reason, self.prev, self.last_state = "start", None, None
         self.last_period = time.monotonic()
         self.pending, self.lock, self.wake_w = None, threading.Lock(), None
+        self.clients = []
+    def _note_invalid(self):
+        if not self.noted:
+            ui.notify("Invalid config", "Using the last saved expansion.")
+            self.noted = True
+    def _note_resolve(self):
+        if not self.resolve_noted:
+            ui.notify("Network update failed", "Keeping the current site block.")
+            self.resolve_noted = True
     def boot(self, reason):
         cfg = _read_cfg()
         if cfg is None:
             raw = state.read_expansion()
             self.exp, self.cfg = (_as_exp(raw) if raw is not None else _empty()), None
-            if not self.noted:
-                ui.notify("Invalid config", "Using the last saved expansion.")
-                self.noted = True
+            self._note_invalid()
         else:
             self.cfg, self.exp = cfg, _from_cfg(cfg)
             state.write_expansion(self.exp)
@@ -141,9 +186,19 @@ class _Ctx:
         hypr.apply_rules(self.exp)
         _scan(self.exp.get("list") or [])
         feedback.start(self.cfg or {"nudges": self.exp.get("nudges") or {}}, lock.is_locked)
-        self.prev = hypr.on_space()
-        (self.flush if self.prev is True else self.request)(reason)
+        if reason == "reload":
+            self.space("reload")
+        else:
+            here = hypr.on_space()
+            if here is not None and self.prev is None:
+                self.prev = here
+        if self.prev is True:
+            self.flush(reason)
+            self.write_state(True)
+            return True
+        self.request(reason)
         self.write_state(True)
+        return self.latest
     def request(self, reason):
         self.gen += 1
         self.latest, self.reason = self.gen, reason
@@ -155,14 +210,16 @@ class _Ctx:
         self.busy = True
         hosts, keep, wake = _hosts(self.exp), self.exp.get("keep_reachable") or [], self.wake_w
         def work():
+            failed = False
             try:
                 addrs, batch = net.resolve_batch(hosts, gen, reason, keep_reachable=keep)
             except Exception:
+                failed = True
                 addrs, batch = [], {"generation": gen, "reason": reason, "hosts": 0,
-                                    "resolved": 0, "failed": 0, "marker": "ok",
+                                    "resolved": 0, "failed": 0, "marker": "failed",
                                     "started": time.monotonic()}
             with self.lock:
-                self.pending = (addrs, batch)
+                self.pending = (addrs, batch, failed)
             if wake is not None:
                 try:
                     os.write(wake, b"n")
@@ -175,19 +232,29 @@ class _Ctx:
             item, self.pending = self.pending, None
         if item is None:
             return
-        addrs, batch = item
+        addrs, batch, failed = item
         self.busy = False
-        here = hypr.on_space()
-        if batch.get("generation") != self.latest:
-            net.finish_batch(batch, "stale")
+        gen = batch.get("generation")
+        if failed:
+            net.finish_batch(batch, "failed")
+            self._note_resolve()
+            self._reply_waiters(gen, False)
+            self.write_state()
             return self._follow()
+        if gen != self.latest:
+            net.finish_batch(batch, "stale")
+            self._reply_waiters(gen, False)
+            return self._follow()
+        here = hypr.on_space()
         if here is not False:
             net.finish_batch(batch, "dropped")
             self.rerun = False
+            self._reply_waiters(gen, False)
             self.write_state()
             return
         result = net.apply(addrs)
         net.finish_batch(batch, _APPLY.get(result, result))
+        self._reply_waiters(gen, True)
         self.write_state()
         self._follow()
     def _follow(self):
@@ -196,15 +263,28 @@ class _Ctx:
             self._launch(self.latest, self.reason)
         else:
             self.rerun = False
+    def _reply_waiters(self, gen, ok):
+        msg = b"ok\n" if ok else b"error\n"
+        for c in self.clients:
+            if c.gen == gen:
+                _send_reply(c.sock, msg)
+                c.gen = "done"
+    def _drop_waiters(self):
+        for c in self.clients:
+            if isinstance(c.gen, int):
+                _send_reply(c.sock, b"error\n")
+                c.gen = "done"
     def flush(self, _reason=None):
         self.gen += 1
         self.latest, self.rerun = self.gen, False
         net.apply([])
+        self._drop_waiters()
         self.write_state(True)
     def event(self, line):
         hypr.handle_event(line)
-        if _workspace_name(line) is not None:
-            self.space("workspace")
+        name = _workspace_name(line)
+        if name is not None:
+            self.space("workspace", name)
     def tick(self):
         raw = state.read_json(state.state_path("lock.json"), None)
         if lock.expire_if_due():
@@ -212,41 +292,47 @@ class _Ctx:
             ui.notify("Lock ended", purpose or "")
             lock.run_hook("unlock", _env("unlock", purpose or ""))
             self.write_state(True)
-        self.space("tick")
-        if hypr.on_space() is not True and time.monotonic() - self.last_period >= PERIOD:
+        if self.prev is not True and time.monotonic() - self.last_period >= PERIOD:
             self.last_period = time.monotonic()
             self.request("periodic")
-    def space(self, reason):
-        here, prev = hypr.on_space(), self.prev
+    def space(self, reason, name=None):
+        here = (name == hypr.SPACE) if name is not None else hypr.on_space()
+        if here is None:
+            return
+        prev = self.prev
         if prev is None:
             self.prev = here
+            self.write_state()
             return
         if here is True and prev is not True:
             lock.run_hook("enter", _env("enter"))
             self.flush()
-        elif here is not True and prev is True:
+        elif here is False and prev is True:
             lock.run_hook("leave", _env("leave"))
             self.request("workspace")
-        elif here is not True and reason == "workspace":
+        elif here is False and reason == "workspace":
             self.request("workspace")
         self.prev = here
         self.write_state()
     def reload(self):
         cfg = _read_cfg()
         if cfg is None:
+            self._note_invalid()
             return False
         self.cfg, self.exp = cfg, _from_cfg(cfg)
         state.write_expansion(self.exp)
-        self.enforce("reload")
-        return True
+        return self.enforce("reload")
     def refresh(self):
-        (self.flush if hypr.on_space() is True else self.request)("refresh")
-        return True
+        if self.prev is True:
+            self.flush("refresh")
+            return True
+        self.request("refresh")
+        return self.latest
     def write_state(self, force=False):
         lk = state.read_lock()
         obj = {
             "locked": bool(lk.get("locked")), "until": lk.get("until"),
-            "purpose": lk.get("purpose") or "", "on_space": hypr.on_space(),
+            "purpose": lk.get("purpose") or "", "on_space": self.prev,
             "site_block": net.site_block, "listener_pid": os.getpid(),
             "updated": state.now_iso(),
         }
@@ -375,6 +461,12 @@ def _recv_sock2(sock, buf):
         lines.append(raw.decode("utf-8", "replace"))
     return lines, buf, sock
 
+def _send_reply(sock, msg):
+    try:
+        sock.sendall(msg)
+    except OSError:
+        pass
+    _close(sock)
 
 def _accept_reload(rs, ctx):
     while True:
@@ -383,17 +475,66 @@ def _accept_reload(rs, ctx):
         except (BlockingIOError, OSError):
             return
         try:
-            conn.settimeout(2)
-            buf = b""
-            while b"\n" not in buf:
-                chunk = conn.recv(256)
-                if not chunk:
-                    break
-                buf += chunk
-            verb = buf.split(b"\n", 1)[0].decode("utf-8", "replace").strip()
-            ok = ctx.reload() if verb == "reload" else ctx.refresh() if verb == "refresh" else False
-            conn.sendall(b"ok\n" if ok else b"error\n")
+            conn.setblocking(False)
         except OSError:
-            pass
-        finally:
             _close(conn)
+            continue
+        ctx.clients.append(_Client(conn))
+
+def _dispatch_client(c, ctx, verb):
+    result = ctx.reload() if verb == "reload" else ctx.refresh() if verb == "refresh" else False
+    if result is True:
+        _send_reply(c.sock, b"ok\n")
+        c.gen = "done"
+        return
+    if result is False:
+        _send_reply(c.sock, b"error\n")
+        c.gen = "done"
+        return
+    c.gen = result
+
+def _read_client(c, ctx):
+    try:
+        data = c.sock.recv(CLIENT_CAP)
+    except BlockingIOError:
+        return
+    except OSError:
+        _close(c.sock)
+        c.gen = "done"
+        return
+    if c.gen == "done":
+        return
+    if isinstance(c.gen, int):
+        if not data:
+            _close(c.sock)
+            c.gen = "done"
+        return
+    if not data:
+        _close(c.sock)
+        c.gen = "done"
+        return
+    if len(c.buf) + len(data) > CLIENT_CAP:
+        _close(c.sock)
+        c.gen = "done"
+        return
+    c.buf += data
+    if b"\n" not in c.buf:
+        if len(c.buf) >= CLIENT_CAP:
+            _close(c.sock)
+            c.gen = "done"
+        return
+    verb = c.buf.split(b"\n", 1)[0].decode("utf-8", "replace").strip()
+    _dispatch_client(c, ctx, verb)
+
+def _service_clients(ctx, ready):
+    now = time.monotonic()
+    for c in ctx.clients:
+        if c.gen == "done":
+            continue
+        if now >= c.deadline:
+            _close(c.sock)
+            c.gen = "done"
+            continue
+        if c.sock in ready:
+            _read_client(c, ctx)
+    ctx.clients = [c for c in ctx.clients if c.gen != "done"]

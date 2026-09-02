@@ -8,6 +8,7 @@ import os
 import signal
 import socket
 import sys
+import threading
 import time
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -23,6 +24,9 @@ from ds.state import write_json
 HYPRCTL = r"""
 import json, os, sys
 from pathlib import Path
+fail = os.environ.get("DS_HYPR_FAIL")
+if fail and Path(fail).exists():
+    sys.exit(1)
 log = Path(os.environ["DS_HYPR_LOG"])
 log.parent.mkdir(parents=True, exist_ok=True)
 with log.open("a", encoding="utf-8") as f:
@@ -100,7 +104,7 @@ with p.open("a", encoding="utf-8") as f:
 
 _ENV_KEYS = (
     "DS_HYPR_LOG", "DS_NOTIFY_LOG", "DS_NFT_LOG", "GETENT_LOG", "DS_HOOK_LOG",
-    "DS_HYPR_STATE", "DS_SOCKET2", "GETENT_MAP", "GETENT_GATE",
+    "DS_HYPR_STATE", "DS_SOCKET2", "GETENT_MAP", "GETENT_GATE", "DS_HYPR_FAIL",
     "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT",
 )
 
@@ -283,10 +287,10 @@ class ListenerTests(unittest.TestCase):
     def _send(self, line):
         self.conn.sendall((line if line.endswith("\n") else line + "\n").encode())
 
-    def _reload(self, verb="reload"):
+    def _reload(self, verb="reload", timeout=16):
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
-            sock.settimeout(3)
+            sock.settimeout(timeout)
             sock.connect(str(self.box.runtime / "distraction-space.sock"))
             sock.sendall((verb + "\n").encode())
             buf = b""
@@ -298,6 +302,12 @@ class ListenerTests(unittest.TestCase):
             return buf.split(b"\n", 1)[0]
         finally:
             sock.close()
+
+    def _reload_sock(self):
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(2)
+        sock.connect(str(self.box.runtime / "distraction-space.sock"))
+        return sock
 
     def _state(self):
         path = self.box.state_dir / "state.json"
@@ -518,6 +528,155 @@ class ListenerTests(unittest.TestCase):
         time.sleep(1.2)
         self.assertEqual(self._hooks().count("enter"), 1)
         self.assertEqual(self._hooks().count("leave"), 1)
+
+    def test_reload_client_idle_and_overflow_does_not_block(self):
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        idle = self._reload_sock()
+        overflow = self._reload_sock()
+        try:
+            overflow.sendall(b"x" * 300)
+
+            def overflow_closed():
+                try:
+                    overflow.settimeout(0.2)
+                    return overflow.recv(64) == b""
+                except TimeoutError:
+                    return False
+                except (ConnectionResetError, BrokenPipeError, OSError):
+                    return True
+
+            self.assertTrue(_wait(overflow_closed, 2), "overflow client stayed open")
+            self._workspace("distraction", 5)
+            self._send("workspacev2>>5,distraction")
+            self.assertTrue(_wait(lambda: self._hooks().count("enter") == 1, 1.8), self._hooks())
+            self.assertIsNone(self.proc.poll())
+        finally:
+            idle.close()
+            overflow.close()
+
+    def test_reload_ok_after_apply(self):
+        os.environ["GETENT_GATE"] = str(self.gate)
+        self.gate.write_text("1", encoding="utf-8")
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        n_before = self._nft().count("replace ds")
+        self.gate.unlink()
+        got = []
+
+        def go():
+            got.append(self._reload("reload", timeout=16))
+
+        t = threading.Thread(target=go, daemon=True)
+        t.start()
+        time.sleep(0.4)
+        self.assertEqual(got, [])
+        self.assertEqual(self._nft().count("replace ds"), n_before)
+        self.gate.write_text("1", encoding="utf-8")
+        t.join(timeout=12)
+        self.assertEqual(got, [b"ok"])
+        self.assertGreater(self._nft().count("replace ds"), n_before)
+
+    def test_resolve_exception_keeps_enforcement(self):
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        nft_before = self._nft()
+        addrs = self.box.state_dir / "addrs.json"
+        addrs.unlink()
+        addrs.mkdir()
+        self._workspace("2", 2)
+        self._send("workspacev2>>2,2")
+        self.assertTrue(_wait(
+            lambda: "Network update failed" in (
+                self.notify_log.read_text(encoding="utf-8") if self.notify_log.exists() else ""
+            ), 4
+        ))
+        self.assertEqual(self._nft(), nft_before)
+        self.assertNotIn("flush ds", nft_before)
+        text = self.notify_log.read_text(encoding="utf-8")
+        self.assertEqual(text.count("Network update failed"), 1)
+        self._workspace("3", 3)
+        self._send("workspacev2>>3,3")
+        time.sleep(0.6)
+        self.assertEqual(self._nft(), nft_before)
+        self.assertEqual(
+            self.notify_log.read_text(encoding="utf-8").count("Network update failed"), 1
+        )
+
+    def test_batched_workspace_events_ordered(self):
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        self.assertEqual(self._hooks(), [])
+        self.conn.sendall(b"workspacev2>>5,distraction\nworkspacev2>>1,1\n")
+        self.assertTrue(_wait(lambda: self._hooks()[:2] == ["enter", "leave"], 4), self._hooks())
+        self.assertEqual(self._hooks().count("enter"), 1)
+        self.assertEqual(self._hooks().count("leave"), 1)
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("on_space") is False, 3), self._state())
+
+    def test_reload_preserves_transition_baseline(self):
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        self.assertEqual(self._hooks(), [])
+        self._workspace("distraction", 5)
+        self.assertEqual(self._reload("reload"), b"ok")
+        self.assertTrue(_wait(lambda: self._hooks().count("enter") == 1, 3), self._hooks())
+        self.assertEqual(self._hooks().count("leave"), 0)
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("on_space") is True, 3), self._state())
+
+    def test_on_space_none_skips_transition(self):
+        fail = self.box.runtime / "hypr.fail"
+        os.environ["DS_HYPR_FAIL"] = str(fail)
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        self._workspace("distraction", 5)
+        self._send("workspacev2>>5,distraction")
+        self.assertTrue(_wait(lambda: self._hooks().count("enter") == 1, 4), self._hooks())
+        fail.write_text("1", encoding="utf-8")
+        self.assertEqual(self._reload("reload"), b"ok")
+        time.sleep(0.3)
+        self.assertEqual(self._hooks().count("leave"), 0)
+        fail.unlink()
+        self.assertEqual(self._reload("reload"), b"ok")
+        time.sleep(0.3)
+        self.assertEqual(self._hooks().count("enter"), 1)
+        self.assertEqual(self._hooks().count("leave"), 0)
+
+    def test_stale_socket_and_invalid_config_notices(self):
+        path = self.box.runtime / "distraction-space.sock"
+        leftover = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        leftover.bind(str(path))
+        leftover.close()
+        r = self.box.run("reload", timeout=3)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        text = self.notify_log.read_text(encoding="utf-8") if self.notify_log.exists() else ""
+        self.assertIn("No listener running", text)
+        try:
+            path.unlink()
+        except OSError:
+            pass
+        if self.notify_log.exists():
+            self.notify_log.write_text("", encoding="utf-8")
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        self.box.config_file.write_text("{not json", encoding="utf-8")
+        r = self.box.run("reload", timeout=16)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        text = self.notify_log.read_text(encoding="utf-8") if self.notify_log.exists() else ""
+        self.assertIn("Invalid config", text)
+        self.assertEqual(text.count("Invalid config"), 1)
+        self.assertIn("Reload failed", text)
+        r = self.box.run("reload", timeout=16)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        text = self.notify_log.read_text(encoding="utf-8")
+        self.assertEqual(text.count("Invalid config"), 1)
+        self.assertGreaterEqual(text.count("Reload failed"), 2)
 
 
 if __name__ == "__main__":
