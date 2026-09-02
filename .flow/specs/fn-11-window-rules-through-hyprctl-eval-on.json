@@ -10,7 +10,7 @@
   "id": "fn-11-window-rules-through-hyprctl-eval-on",
   "impl_review_rounds": {
     "fn-11-window-rules-through-hyprctl-eval-on.1": 0,
-    "fn-11-window-rules-through-hyprctl-eval-on.2": 4
+    "fn-11-window-rules-through-hyprctl-eval-on.2": 0
   },
   "next_task": 1,
   "no_plan": true,
@@ -265,10 +265,78 @@
       "task": "fn-11-window-rules-through-hyprctl-eval-on.2",
       "timestamp": "2026-09-02T09:39:04.912089Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "62565e68bf7463417624c716fb41749100c480fbdd7468f0871f4dfe5f627123",
+      "backend": "cursor",
+      "base_sha": "09d97578f7cc0305eb9424bd9c142a7fbc145d72",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "classification": "introduced",
+            "findingId": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "classification": "introduced",
+            "findingId": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-42564ae7b8e9838094781e992fa21913",
+            "classification": "introduced",
+            "findingId": "finding-42564ae7b8e9838094781e992fa21913",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-676f3691b8cc3fb08ff82dfeb9df5172",
+            "classification": "introduced",
+            "findingId": "finding-676f3691b8cc3fb08ff82dfeb9df5172",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "8d7b8d515b10e9ebaf64d44227c494c6f1f0c6f6",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 588,
+      "output_sha256": "c7793ec8aa5c00c8732db9fa7fba3abd64848de26412846d3bffeabd07df899b",
+      "reservation_id": "3f06c21aee434162a4f2768cca2ea667",
+      "round_consumed": true,
+      "scope": "impl:fn-11-window-rules-through-hyprctl-eval-on.2",
+      "superseded_by": null,
+      "task": "fn-11-window-rules-through-hyprctl-eval-on.2",
+      "timestamp": "2026-09-02T09:41:42.950544Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
-    "impl:fn-11-window-rules-through-hyprctl-eval-on.1": 1
+    "impl:fn-11-window-rules-through-hyprctl-eval-on.1": 1,
+    "impl:fn-11-window-rules-through-hyprctl-eval-on.2": 1
   },
   "review_pending_rounds": {},
   "review_reservations": {},
@@ -290,5 +358,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T09:39:04.914486Z"
+  "updated_at": "2026-09-02T09:41:42.952975Z"
 }
