@@ -1,11 +1,56 @@
 {
   "branch_name": "fn-15-blocked-site-banners-only-for-off-space",
+  "completion_review_status": "unknown",
+  "completion_reviewed_at": null,
   "created_at": "2026-09-02T12:56:43.414949Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-15-blocked-site-banners-only-for-off-space",
+  "impl_review_rounds": {
+    "fn-15-blocked-site-banners-only-for-off-space.1": 0
+  },
   "next_task": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "b76c8c1b97a617f1bb3f85bee96811d02cc2873b0490a60607a5aac838a89241",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "6915e28d26559812c6ed5b68fe1d00f0a09b66cb",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 3895,
+      "output_sha256": "79d7c02d20f4d61a88aa0f9841fc1f729c2d8a3e8cdc904dad50210d394e4691",
+      "reservation_id": "a1648a9c4f724819b499e232fe4e61c2",
+      "round_consumed": true,
+      "scope": "impl:fn-15-blocked-site-banners-only-for-off-space.1",
+      "superseded_by": null,
+      "task": "fn-15-blocked-site-banners-only-for-off-space.1",
+      "timestamp": "2026-09-02T13:26:39.993500Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-15-blocked-site-banners-only-for-off-space.1": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-15-blocked-site-banners-only-for-off-space.1": 0
+  },
   "spec_path": ".flow/specs/fn-15-blocked-site-banners-only-for-off-space.md",
   "status": "open",
   "title": "Blocked-site banners only for off-space origins; hold push robustness",
@@ -20,5 +65,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T12:56:43.421926Z"
+  "updated_at": "2026-09-02T13:26:40.473448Z"
 }
