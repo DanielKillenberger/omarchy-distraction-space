@@ -1,0 +1,32 @@
+{
+  "branch_name": "fn-11-window-rules-through-hyprctl-eval-on",
+  "completion_review_status": "unknown",
+  "completion_reviewed_at": null,
+  "created_at": "2026-09-02T08:18:50.460353Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
+  "depends_on_epics": [],
+  "id": "fn-11-window-rules-through-hyprctl-eval-on",
+  "impl_review_rounds": {},
+  "next_task": 1,
+  "no_plan": true,
+  "plan_review_rounds": 0,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": null,
+  "spec_path": ".flow/specs/fn-11-window-rules-through-hyprctl-eval-on.md",
+  "status": "open",
+  "title": "Window rules through hyprctl eval on the Lua config",
+  "tracker": {
+    "baseHashFlow": null,
+    "baseHashTracker": null,
+    "depRelations": [],
+    "id": null,
+    "identifier": null,
+    "lastSyncedAt": null,
+    "mergeBaseFlow": null,
+    "mergeBaseTracker": null,
+    "url": null
+  },
+  "updated_at": "2026-09-02T08:18:50.888521Z"
+}
