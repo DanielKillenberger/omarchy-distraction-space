@@ -228,7 +228,7 @@ Runtime files in `$XDG_RUNTIME_DIR`:
 
 Lock expiry is lazy. `is_locked()` treats `until` in the past as unlocked. The listener's one-second tick notices the transition, rewrites `state.json`, notifies "Lock ended", and runs the `unlock` hook.
 
-Hook ownership: `lock` / `unlock` commands run those hooks because they write `lock.json`. The listener runs `unlock` for a lazy expiry it observes, and `enter` / `leave` on every observed workspace transition onto or off the space. `enter`, `leave`, and `toggle` never run hooks themselves. Without a listener, `enter`/`leave` hooks, the expiry `unlock` hook, and the summary notice do not fire.
+Hook ownership: `lock` / `unlock` commands run those hooks because they write `lock.json`. The listener runs `unlock` for a lazy expiry it observes, and `enter` / `leave` on every observed workspace transition onto or off the space. `enter`, `leave`, and `toggle` never run hooks themselves. Without a listener, `enter`/`leave` hooks, the expiry `unlock` hook, and the summary for those two boundaries do not fire; a manual `unlock` still summarizes.
 
 ## Listener
 
@@ -258,7 +258,7 @@ With `mute_sounds` true, streams of listed apps are muted while the hold is in e
 
 ## Summary
 
-When a lock ends (expiry or `unlock`) or the space is entered, the listener takes the records in `held.jsonl`, hands their per-app counts to the `unlock` or `enter` hook as `DS_HELD`, and shows one notification titled "While you were away". Zero records show nothing. The records are removed as they are taken, so a second boundary during a slow agent call never repeats them and pings held meanwhile wait for the next summary.
+When a lock ends or the space is entered, the records in `held.jsonl` are claimed (the file is renamed away, then read), their per-app counts go to the `unlock` or `enter` hook as `DS_HELD`, and one notification titled "While you were away" shows. Zero records show nothing. Whoever marks the boundary does this: `distractions unlock` for a manual unlock (the command returns after the notice), the listener for a lock expiry and for entering the space. Because the claim is atomic, the hook's counts and the notice come from the same records, a second boundary during a slow agent call has nothing to repeat, and pings held meanwhile wait for the next summary.
 
 The body comes from `summary.command`:
 
@@ -266,7 +266,7 @@ The body comes from `summary.command`:
 - an argv array: run as given.
 - `off`: the grouped count.
 
-The command gets the prompt on stdin (a request for one or two plain sentences in the second person on whether anything needs attention, followed by the records as JSON lines) and answers on stdout. The reply is collapsed to one line and clipped to 800 bytes. A non-zero exit, a timeout at `summary.timeout_seconds`, or an empty reply falls back to the grouped count, `Telegram 3 · Discord 1`, most held first. The command runs on the person's own machine as the person; there is no sandbox beyond the timeout and the clip.
+The command gets the prompt on stdin (a request for one or two plain sentences in the second person on whether anything needs attention, followed by the records as JSON lines) and answers on stdout. At most 64 KiB of stdout and 4 KiB of stderr are read; the reply is collapsed to one line and clipped to 800 bytes. A non-zero exit, a timeout at `summary.timeout_seconds`, or an empty reply falls back to the grouped count, `Telegram 3 · Discord 1`, most held first. The command runs on the person's own machine as the person; there is no sandbox beyond the timeout and the clip.
 
 ## License
 

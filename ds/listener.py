@@ -180,7 +180,7 @@ class _Ctx:
         self.pending, self.lock, self.wake_w = None, threading.Lock(), None
         self.clients = []
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
-        self.capture, self.mute, self.locked = hold.Capture(), hold.Mute(), None
+        self.capture, self.mute = hold.Capture(), hold.Mute()
     def _note_invalid(self):
         if not self.noted:
             ui.notify("Invalid config", "Using the last saved expansion.")
@@ -210,9 +210,10 @@ class _Ctx:
         if self.pushed:
             hold.push(self.pushed, False)
     def summarize(self):
-        """A hold boundary (a lock ended, the space was entered): consume the held records and start the notice.
+        """A boundary this listener marks (a lock expired, the space was entered): claim the records, start the notice.
 
-        Returns the per-app counts for the hook that marks the same boundary.
+        Returns the per-app counts for the hook of the same boundary. A manual
+        `distractions unlock` is the command's boundary; it claims and notifies itself.
         """
         records = summary.take()
         summary.start(records, self.cfg)
@@ -237,8 +238,6 @@ class _Ctx:
             here = hypr.on_space()
             if here is not None and self.prev is None:
                 self.prev = here
-        if self.locked is None:
-            self.locked = lock.is_locked()
         self.sync_hold(force=True)
         if self.prev is True:
             self.flush(reason)
@@ -352,17 +351,11 @@ class _Ctx:
             self.space("workspace", name)
     def tick(self):
         raw = state.read_json(state.state_path("lock.json"), None)
-        locked = lock.is_locked()
-        expired = lock.expire_if_due()
-        # A lock ends by expiry (observed here, the listener runs the hook) or by
-        # `distractions unlock` (the command ran the hook); the notice is ours both ways.
-        held = self.summarize() if expired or (self.locked is True and not locked) else None
-        if expired:
+        if lock.expire_if_due():
             purpose = raw.get("purpose") if isinstance(raw, dict) else ""
             ui.notify("Lock ended", purpose or "")
-            lock.run_hook("unlock", _env("unlock", purpose or "", held))
+            lock.run_hook("unlock", _env("unlock", purpose or "", self.summarize()))
             self.write_state(True)
-        self.locked = locked
         self.space("tick")
         self.capture.tick()
         self.mute.tick()

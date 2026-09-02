@@ -11,7 +11,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from ds import config, hold, hypr, state, ui
+from ds import config, hypr, state, summary, ui
 from ds.config import DEFAULTS
 
 _alive = []
@@ -73,12 +73,13 @@ def unlock(reason):
             )
         except OSError:
             return ("log", None, None)
-        # Counted before the write: the listener consumes the records once it sees the lock end.
-        held = hold.held_counts()
+        # This command marks the boundary, so it claims the held records: the
+        # hook's counts and the notice below come from the same claim.
+        records = summary.take()
         state.write_lock(False, None, "")
-        return ("ok", purpose, held)
+        return ("ok", purpose, records)
 
-    kind, extra, held = _with_lockfile(_do)
+    kind, extra, records = _with_lockfile(_do)
     if kind == "short":
         _notify("Reason too short", f"Write at least {extra} characters.")
         print(f"unlock needs at least {extra} characters", file=sys.stderr)
@@ -92,8 +93,9 @@ def unlock(reason):
             "DS_PURPOSE": extra,
             "DS_MINUTES": "",
             "DS_REASON": reason,
-            "DS_HELD": json.dumps(held),
+            "DS_HELD": json.dumps(summary.counts(records)),
         })
+        summary.notice(records, _load_cfg())
     return 0
 
 

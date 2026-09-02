@@ -31,6 +31,14 @@ from pathlib import Path
 text = sys.stdin.read()
 Path(os.environ["DS_AGENT_LOG"]).open("a", encoding="utf-8").write(json.dumps({"argv": sys.argv, "stdin": text}) + "\n")
 time.sleep(float(os.environ.get("DS_AGENT_SLEEP", "0")))
+if os.environ.get("DS_AGENT_FLOOD"):
+    try:
+        for _ in range(400):
+            sys.stdout.write("x" * 65536)
+            sys.stdout.flush()
+    except BrokenPipeError:
+        os._exit(0)
+    os._exit(0)
 sys.stdout.write(os.environ.get("DS_AGENT_REPLY", "You missed nothing that needs you."))
 sys.exit(int(os.environ.get("DS_AGENT_RC", "0")))
 """
@@ -48,7 +56,7 @@ RECORDS = [
     {"at": "2026-09-02T10:00:09+00:00", "app": "Telegram", "title": "Alice", "body": "or coffee"},
 ]
 GROUPED = "Telegram 2 · Discord 1"
-_ENV_KEYS = ("DS_AGENT_LOG", "DS_AGENT_REPLY", "DS_AGENT_RC", "DS_AGENT_SLEEP", "DS_HOOK_OUT", "DS_HOOK_LOG",
+_ENV_KEYS = ("DS_AGENT_LOG", "DS_AGENT_REPLY", "DS_AGENT_RC", "DS_AGENT_SLEEP", "DS_AGENT_FLOOD", "DS_HOOK_OUT", "DS_HOOK_LOG",
              "DS_SHELL_LOG", "DS_SHELL_STATE", "DS_SHELL_MISSING", "DS_BUS_LOG", "DS_BUS_LINES", "DS_BUS_EXIT",
              "DS_HYPR_LOG", "DS_HYPR_STATE", "DS_NOTIFY_LOG", "DS_NFT_LOG", "DS_SOCKET2", "GETENT_MAP",
              "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT")
@@ -121,6 +129,18 @@ class SummaryUnitTests(_Env):
         self.assertEqual(len(reply.encode("utf-8")), summary.CLIP)
         self.assertEqual(reply, "é" * (summary.CLIP // 2))
         self.assertEqual(self._asked()[-1]["argv"][1:], ["--flag"])
+        # A reply that fills the read cap exactly is still a reply, clipped; only what fits the cap is read.
+        os.environ["DS_AGENT_REPLY"] = "y" * summary.READ_CAP
+        self.assertEqual(summary.body(RECORDS, _cfg()), "y" * summary.CLIP)
+
+    def test_a_flooding_agent_is_cut_off_at_the_read_cap(self):
+        os.environ["DS_AGENT_FLOOD"] = "1"
+        t0 = time.monotonic()
+        with mock.patch.object(summary, "READ_CAP", 8192):
+            # Twenty-six megabytes are offered; the pipe closes at the cap and the fake exits 0 on the broken pipe.
+            self.assertEqual(summary.ask(["claude", "-p"], "prompt", 10), "x" * summary.CLIP)
+        self.assertLess(time.monotonic() - t0, 5.0)
+        self.assertEqual(summary.body(RECORDS, _cfg(timeout_seconds=10)), "x" * summary.CLIP)
 
     def test_failure_timeout_empty_off_and_missing_fall_back_to_the_grouped_count(self):
         cases = [
@@ -150,6 +170,16 @@ class SummaryUnitTests(_Env):
         self.assertFalse(hold.held_path().exists())
         self.assertEqual(hold.held_counts(), {})
         self.assertEqual(summary.take(), [])
+        self.assertEqual([p.name for p in self.box.state_dir.iterdir() if "taken" in p.name], [])
+        # A claim that cannot be made (the state dir is read-only) takes nothing and leaves the file for later.
+        self.assertTrue(hold.append_held("Telegram", "t", "b"))
+        os.chmod(self.box.state_dir, 0o500)
+        try:
+            self.assertEqual(summary.take(), [])
+        finally:
+            os.chmod(self.box.state_dir, 0o700)
+        self.assertEqual(hold.held_counts(), {"Telegram": 1})
+        self.assertEqual(len(summary.take()), 1)
         with mock.patch.object(summary.ui, "notify") as notify:
             self.assertFalse(summary.notice([], _cfg(command="off")))
             self.assertIsNone(summary.start([], _cfg(command="off")))
@@ -157,25 +187,34 @@ class SummaryUnitTests(_Env):
             self.assertTrue(summary.notice(records, _cfg(command="off")))
             notify.assert_called_once_with(summary.TITLE, GROUPED)
 
-    def test_unlock_command_hands_the_counts_to_its_hook(self):
+    def test_unlock_command_claims_the_records_for_its_hook_and_its_notice(self):
         hook_out = self.box.runtime / "hook-out.json"
         os.environ["DS_HOOK_OUT"] = str(hook_out)
         hook_py = self.box.bin / "ds-hook.py"
         hook_py.write_text(HOOK_SCRIPT, encoding="utf-8")
-        cfg = _cfg()
+        cfg = _cfg(command="off")
         cfg["hooks"]["unlock"] = [[sys.executable, str(hook_py)]]
         self.box.config_file.write_text(json.dumps(cfg), encoding="utf-8")
-        with mock.patch.object(lock, "_notify"):
+        def hook_payload():
+            self.assertTrue(_wait(lambda: hook_out.exists() and hook_out.stat().st_size, 3))
+            payload = json.loads(hook_out.read_text(encoding="utf-8"))
+            hook_out.unlink()
+            self.assertEqual(payload["DS_EVENT"], "unlock")
+            return json.loads(payload["DS_HELD"])
+
+        with mock.patch.object(lock, "_notify"), mock.patch.object(summary.ui, "notify") as notify:
             self.assertEqual(lock.lock(25, "write"), 0)
             for rec in RECORDS:
                 hold.append_held(rec["app"], rec["title"], rec["body"])
             self.assertEqual(lock.unlock("x" * 50), 0)
-        self.assertTrue(_wait(lambda: hook_out.exists() and hook_out.stat().st_size, 3))
-        payload = json.loads(hook_out.read_text(encoding="utf-8"))
-        self.assertEqual(payload["DS_EVENT"], "unlock")
-        self.assertEqual(json.loads(payload["DS_HELD"]), {"Telegram": 2, "Discord": 1})
-        # The command only counts; the listener consumes the records when it sees the lock end.
-        self.assertEqual(hold.held_counts(), {"Telegram": 2, "Discord": 1})
+            notify.assert_called_once_with(summary.TITLE, GROUPED)
+            self.assertEqual(hook_payload(), {"Telegram": 2, "Discord": 1})
+            self.assertFalse(hold.held_path().exists())
+            # Nothing held, nothing shown; the hook still runs.
+            self.assertEqual(lock.lock(25, "again"), 0)
+            self.assertEqual(lock.unlock("y" * 50), 0)
+            notify.assert_called_once()
+            self.assertEqual(hook_payload(), {})
 
 
 class SummaryListenerTests(_Env):
