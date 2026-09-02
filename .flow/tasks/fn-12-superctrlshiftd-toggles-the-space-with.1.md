@@ -20,6 +20,7 @@ The plugin's toggle binding moves from Super+D to Super+Ctrl+Shift+D and enterin
 Baseline green (179), verify green (178: 6 confirm-era tests removed, 5 added). Review: cursor:gpt-5.6-sol-high SHIP first pass, 0 findings.
 
 stage: impl-review - ran (cursor:gpt-5.6-sol-high, 1 round, SHIP)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
 - Commits: fe223348fa1da6f6bec43d07e1a87fb47a8d525f
 - Tests: baseline: green (179 tests, rc=0) - cd <worktree> && PATH=/usr/bin:$PATH python3 -m unittest discover -s tests > <log> 2>&1, red-first: 11 changed/new tests failed against d1b67f9 source (enter opened a menu, old hotkey text, schema key present), verify: cd <worktree> && PATH=/usr/bin:$PATH python3 -m unittest discover -s tests > <log> 2>&1 -> Ran 178 tests, OK, suite_rc=0, gate receipt: unittest - python3 -m unittest discover -s tests > /tmp/ds-suite.log 2>&1; tail -3 /tmp/ds-suite.log
