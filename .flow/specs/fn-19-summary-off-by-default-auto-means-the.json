@@ -115,7 +115,7 @@
     "impl:fn-19-summary-off-by-default-auto-means-the.1": 0
   },
   "spec_path": ".flow/specs/fn-19-summary-off-by-default-auto-means-the.md",
-  "status": "open",
+  "status": "done",
   "title": "Summary off by default; auto means the Omarchy default agent",
   "tracker": {
     "baseHashFlow": null,
@@ -128,5 +128,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T15:59:03.598741Z"
+  "updated_at": "2026-09-02T17:27:57.357097Z"
 }
