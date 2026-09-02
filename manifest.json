@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "id": "distraction-space",
+  "id": "io.github.danielkillenberger.distraction-space",
   "name": "Distraction space",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "author": "Daniel Killenberger",
   "license": "MIT",
   "description": "One named Hyprland workspace for the apps and sites that take your attention. Listed windows open only there, listed sites do not load anywhere else, and their notifications wait until you come back.",

@@ -6,7 +6,7 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "distraction-space"
+  moduleName: "io.github.danielkillenberger.distraction-space"
 
   readonly property string helperPath: localPath(Qt.resolvedUrl("distractions"))
   readonly property string statePath: {

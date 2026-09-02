@@ -23,17 +23,19 @@ Copy the three Hyprland snippets into your own config, because `omarchy plugin a
 Reload Hyprland, then run setup once.
 
 ```bash
-chmod +x ~/.config/omarchy/plugins/distraction-space/distractions
+chmod +x ~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions
 hyprctl reload
-~/.config/omarchy/plugins/distraction-space/distractions setup
+~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions setup
 ```
 
-`setup` asks for sudo one time. It installs the nftables wrapper at `/usr/local/libexec/omarchy-distraction-space/distractions-nft` and the grant at `/etc/sudoers.d/omarchy-distraction-space`, then clones and patches the notification service so the hold has a per-sender silenced list to write to. Run it again after an Omarchy update. `distractions setup --remove` reverses all of it. The bar widget lands in the center section; `omarchy bar move distraction-space --section right` moves it.
+`setup` asks for sudo one time. It installs the nftables wrapper at `/usr/local/libexec/omarchy-distraction-space/distractions-nft` and the grant at `/etc/sudoers.d/omarchy-distraction-space`, then clones and patches the notification service so the hold has a per-sender silenced list to write to. Run it again after an Omarchy update. `distractions setup --remove` reverses all of it. The bar widget lands in the center section; `omarchy bar move io.github.danielkillenberger.distraction-space --section right` moves it.
+
+Installs from before 2.1.0 used the id `distraction-space`. To move to the new id: `omarchy plugin remove distraction-space`, add the plugin again with the command above, copy the three snippets again (the helper path changed), and run `distractions setup`.
 
 Autostart owns the long-running listener. To start it now without logging out:
 
 ```bash
-~/.config/omarchy/plugins/distraction-space/distractions listen
+~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions listen
 ```
 
 ## What it does
@@ -110,7 +112,7 @@ With no config file, the first load seeds `list` from your existing `~/.config/o
 
 ## Commands
 
-`distractions <command>`, at `~/.config/omarchy/plugins/distraction-space/distractions`. Exit 0 on success, 1 on a refused or failed action, 2 on usage.
+`distractions <command>`, at `~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions`. Exit 0 on success, 1 on a refused or failed action, 2 on usage.
 
 | Command | What it does |
 |---|---|
@@ -138,7 +140,16 @@ State file shapes, the listener loop, the network generation counter, the clone 
 PATH=/usr/bin:$PATH python3 -m unittest discover -s tests
 ```
 
-255 tests, offline, about 100 seconds. `tests/harness.py` gives every test its own temporary XDG root and puts fake `hyprctl`, `getent`, `busctl`, `pactl`, and nft binaries at the front of `PATH`, so a run never touches your session, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, 20 of the 27 cases in `tests/test_hypr.py` fail here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request.
+256 tests, offline, about 100 seconds. `tests/harness.py` gives every test its own temporary XDG root and puts fake `hyprctl`, `getent`, `busctl`, `pactl`, and nft binaries at the front of `PATH`, so a run never touches your session, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, 20 of the 27 cases in `tests/test_hypr.py` fail here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request.
+
+Lint the bar widget with `qmllint` from `qt6-declarative`; it is not on `PATH`. Quickshell maps `qs.*` onto the shell root, so a bare `-I "$OMARCHY_PATH/shell"` cannot resolve `qs.Commons` or `qs.Ui`. Give it an import directory whose `qs` entry links to the shell instead.
+
+```bash
+mkdir -p /tmp/qmlimports && ln -sfn "${OMARCHY_PATH:-/usr/share/omarchy}/shell" /tmp/qmlimports/qs
+/usr/lib/qt6/bin/qmllint -I /tmp/qmlimports BarWidget.qml
+```
+
+One warning remains, `Member "iconSlot" not found on type "QObject"` at `Style.bar.iconSlot`. `Style.bar` is an inline `QtObject` whose declared properties qmllint cannot see through the bare `QObject` type, so the warning is noise. Anything else is a finding.
 
 ## License
 
