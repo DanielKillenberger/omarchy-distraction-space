@@ -364,7 +364,7 @@
     "impl:fn-17-marketplace-readiness-and-submission.2": 0
   },
   "spec_path": ".flow/specs/fn-17-marketplace-readiness-and-submission.md",
-  "status": "open",
+  "status": "done",
   "title": "Marketplace readiness and submission",
   "tracker": {
     "baseHashFlow": null,
@@ -377,5 +377,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T19:00:15.778579Z"
+  "updated_at": "2026-09-02T20:16:49.066935Z"
 }
