@@ -1,7 +1,7 @@
 -- Add to ~/.config/hypr/bindings.lua
 -- Super+Ctrl+Shift+F is unbound in stock Omarchy.
 
-local helper = os.getenv("HOME") .. "/.config/omarchy/plugins/distraction-space/distractions"
+local helper = os.getenv("HOME") .. "/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions"
 
 hl.unbind("SUPER + TAB")
 hl.unbind("SUPER + SHIFT + TAB")

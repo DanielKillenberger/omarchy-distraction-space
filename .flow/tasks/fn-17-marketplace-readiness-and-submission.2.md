@@ -1,3 +1,6 @@
+---
+satisfies: [R4, R5]
+---
 # fn-17-marketplace-readiness-and-submission.2 Prepare docs/marketplace-submission.md with the baseline capability mapping
 
 ## Description
@@ -9,9 +12,22 @@ Write `docs/marketplace-submission.md`: a filled-in copy of the marketplace's su
 - [ ] TBD
 
 ## Done summary
-TBD
+Added `docs/marketplace-submission.md`: the submit-plugin issue body (six headings in the marketplace's order, category Productivity, tags hyprland/workspaces/system, maintainer notes on the sudo boundary, the `distractions-nft` argv and stdin validation, the notification-service clone, runtime dependencies, Hyprland snippets by hand, removal, and the expected `manual-setup` label) inside the SUBMISSION.md heredoc plus the `gh issue create` command; an "Automated Security Baseline mapping" section with one line per SECURITY.md finding and capability naming the triggering file and line or the evidence that nothing triggers it; and a "Pinning discipline" section. Nothing else in the repo changed. The maintainer notes describe only what was read in `distractions-nft`, `ds/setup.py`, `ds/net.py`, `ds/state.py`, `ds/listener.py`, `ds/ui.py`, `install/sudoers.omarchy-distraction-space`, `README.md`, and `docs/internals.md`.
 
+Assumes task fn-17.1's id rename to `io.github.danielkillenberger.distraction-space` and the 2.1.0 bump; the document names that id and version, so if task 1 lands differently the "Before filing" bullet and the removal command need the final values.
+
+Gates: `flowctl gate classify` -> TIER_B docs-only; GATE_SKIPPED:unittest:docs-only - cumulative diff classified tier-B (no executable paths touched); `omarchy plugin validate .` rc 0; `qmllint` INCONCLUSIVE (binary not on PATH in this shell, owned by task 1); no lint or format tooling is configured in the repo. Baseline: skipped (docs-only per conductor; no green receipt existed for HEAD).
+
+stage: impl-review - skipped(policy: host-deferred - conductor owns the gate; parallel-wave worker)
+
+### Integration (conductor)
+
+Fast-forwarded onto the spec branch unchanged (69c4a9b). Review (cursor, gpt-5.6-sol-high): round 1 NEEDS_WORK on four wording inaccuracies (config file ownership, flush stdin, the curl inventory, the .flow scan scope), fixed in 445981775efa64314c046d512994f2b06e6e9a9a; round 2 NEEDS_WORK on the scan-scope claim (setup-named .flow task files are scanned whatever their extension), fixed in 6a02d82cc82cf463b806a28adbc3c5ae0daaa13f; round 3 SHIP. Quiesce verification at ea8b4bb15409a4ac0686860ad416d625607a7e7d as in task 1.
+
+stage: wave-dispatch - ran [2 tasks, native worktrees, disjoint Touches, no join collision]
+stage: impl-review - ran [round 1 NEEDS_WORK, round 2 NEEDS_WORK, round 3 SHIP] (model: gpt-5.6-sol-high via cursor)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 69c4a9bc0de667429ce2065c88f1dc7862fc4802, 445981775efa64314c046d512994f2b06e6e9a9a, 6a02d82cc82cf463b806a28adbc3c5ae0daaa13f
+- Tests: baseline: skipped (docs-only task per conductor; gate check --gate unittest reported no receipt for HEAD, suite not run), flowctl gate classify --base 240d5c8713c72361ca313d2cf4f08cd3812f9b9d -> TIER_B: docs-only (1 files), GATE_SKIPPED:unittest:docs-only - cumulative diff classified tier-B (no executable paths touched), omarchy plugin validate . -> rc 0 (passed), qmllint -I $OMARCHY_PATH/shell BarWidget.qml -> INCONCLUSIVE: qmllint not on PATH in the worker shell (rc 127); owned by task fn-17.1, unaffected by a docs-only diff, grep -P '\x{2014}|\x{2013}' docs/marketplace-submission.md -> no em or en dashes, quiesce at ea8b4bb: unittest 256 OK
 - PRs:
