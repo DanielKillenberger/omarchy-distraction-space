@@ -55,7 +55,7 @@
     "impl:fn-14-nft-wrapper-valid-tcp-reset-rule.1": 0
   },
   "spec_path": ".flow/specs/fn-14-nft-wrapper-valid-tcp-reset-rule.md",
-  "status": "open",
+  "status": "done",
   "title": "nft wrapper: valid TCP reset rule",
   "tracker": {
     "baseHashFlow": null,
@@ -68,5 +68,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T11:09:58.684210Z"
+  "updated_at": "2026-09-02T11:10:40.959145Z"
 }
