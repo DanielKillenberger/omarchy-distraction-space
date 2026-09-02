@@ -22,7 +22,7 @@ _DELETED = (
 
 
 def _skip_dir(name: str) -> bool:
-    return name in {".git", "__pycache__", ".pyc"}
+    return name in {".git", "__pycache__", ".pyc", ".worktrees", ".clawpatch"}
 
 
 class TreeTests(unittest.TestCase):

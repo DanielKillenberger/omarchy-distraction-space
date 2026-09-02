@@ -122,7 +122,7 @@ class EnterTests(unittest.TestCase):
 
     def _switched(self):
         return any(
-            "dispatch workspace" in j and "name:distraction" in j
+            "hl.dsp.focus" in j and "name:distraction" in j
             for j in self._hypr_joined()
         )
 
@@ -224,8 +224,8 @@ class EnterTests(unittest.TestCase):
             rc = lock.leave()
         self.assertEqual(rc, 0)
         joined = "\n".join(self._hypr_joined())
-        self.assertIn("dispatch workspace", joined)
-        self.assertNotIn("name:distraction", joined.split("dispatch workspace", 1)[-1])
+        self.assertIn("hl.dsp.focus", joined)
+        self.assertNotIn("name:distraction", joined.split("hl.dsp.focus", 1)[-1])
 
     def test_toggle_on_space_leaves_without_confirm(self):
         self._state(name="distraction")
@@ -233,8 +233,8 @@ class EnterTests(unittest.TestCase):
             rc = lock.toggle()
         self.assertEqual(rc, 0)
         joined = "\n".join(self._hypr_joined())
-        self.assertIn("dispatch workspace", joined)
-        self.assertNotIn("name:distraction", joined.split("dispatch workspace", 1)[-1])
+        self.assertIn("hl.dsp.focus", joined)
+        self.assertNotIn("name:distraction", joined.split("hl.dsp.focus", 1)[-1])
 
     def test_toggle_off_space_enters(self):
         self._state(name="1")

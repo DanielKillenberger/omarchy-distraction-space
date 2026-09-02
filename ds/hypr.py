@@ -170,6 +170,19 @@ def disable_rule_lua(name):
     )
 
 
+def focus_workspace_lua(name):
+    """`hyprctl dispatch` argument on the Lua parser: focus workspace `name`."""
+    return f"hl.dsp.focus({{ workspace = {lua_string(f'name:{name}')} }})"
+
+
+def move_window_lua(address, workspace=f"name:{SPACE}"):
+    """`hyprctl dispatch` argument on the Lua parser: silent move of one window by address."""
+    return (
+        f"hl.dsp.window.move({{ window = {lua_string(f'address:{address}')}, "
+        f"workspace = {lua_string(workspace)}, follow = false }})"
+    )
+
+
 def is_config_reload(line):
     """True for the socket2 `configreloaded` event, which drops every eval-created rule."""
     raw = (line or "").strip() if isinstance(line, str) else ""
@@ -327,7 +340,7 @@ def _match_entry(klass):
 def move_to_space(address):
     if not address:
         return
-    _run("dispatch", "movetoworkspacesilent", f"name:{SPACE},address:{address}")
+    _run("dispatch", move_window_lua(address))
 
 
 def _maybe_banner(name):
@@ -435,7 +448,7 @@ def cycle(direction):
     name = names.get(dest)
     if not name:
         return True
-    return _run("dispatch", "workspace", f"name:{name}") is not None
+    return _run("dispatch", focus_workspace_lua(name)) is not None
 
 
 def cmd_next(args):

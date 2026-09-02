@@ -191,7 +191,7 @@ class HyprTests(unittest.TestCase):
         hypr.handle_event("movewindow>>0xaaa,2")
         hypr.handle_event("movewindow>>0xccc,2")
         joined = "\n".join(self._joined())
-        self.assertIn("movetoworkspacesilent", joined)
+        self.assertIn("hl.dsp.window.move", joined)
         self.assertIn("address:0xaaa", joined)
         self.assertIn("address:0xbbb", joined)
         self.assertNotIn("address:0xccc", joined)
@@ -239,12 +239,12 @@ class HyprTests(unittest.TestCase):
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])
         hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
         self.assertEqual(self._notifies(), [])
-        self.assertTrue(any("movetoworkspacesilent" in j for j in self._joined()))
+        self.assertTrue(any("hl.dsp.window.move" in j for j in self._joined()))
 
     def test_hyprctl_failure_logged_and_skipped(self):
         hypr.apply_rules([TELEGRAM])
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])
-        os.environ["DS_HYPR_FAIL"] = "movetoworkspacesilent"
+        os.environ["DS_HYPR_FAIL"] = "hl.dsp.window.move"
         hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertIn("hyprctl", log)
@@ -331,7 +331,7 @@ class HyprTests(unittest.TestCase):
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])
         os.environ["DS_NOTIFY_FAIL"] = "1"
         hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
-        self.assertTrue(any("movetoworkspacesilent" in j and "0xaaa" in j for j in self._joined()))
+        self.assertTrue(any("hl.dsp.window.move" in j and "0xaaa" in j for j in self._joined()))
 
     def test_cycle_skips_space(self):
         self._state(
@@ -344,9 +344,9 @@ class HyprTests(unittest.TestCase):
         )
         hypr.cycle("next")
         joined = "\n".join(self._joined())
-        self.assertIn("dispatch workspace", joined)
+        self.assertIn("hl.dsp.focus", joined)
         self.assertIn("name:2", joined)
-        self.assertNotIn("name:distraction", joined.split("dispatch workspace", 1)[-1])
+        self.assertNotIn("name:distraction", joined.split("hl.dsp.focus", 1)[-1])
 
         self.hypr_log.write_text("", encoding="utf-8")
         self._state(
@@ -360,7 +360,7 @@ class HyprTests(unittest.TestCase):
         hypr.cycle("next")
         dest = "\n".join(self._joined())
         self.assertIn("name:1", dest)
-        self.assertNotIn("name:distraction", dest.split("dispatch workspace", 1)[-1])
+        self.assertNotIn("name:distraction", dest.split("hl.dsp.focus", 1)[-1])
 
         self.hypr_log.write_text("", encoding="utf-8")
         self._state(
@@ -374,7 +374,7 @@ class HyprTests(unittest.TestCase):
         hypr.cycle("prev")
         dest = "\n".join(self._joined())
         self.assertIn("name:1", dest)
-        self.assertNotIn("name:distraction", dest.split("dispatch workspace", 1)[-1])
+        self.assertNotIn("name:distraction", dest.split("hl.dsp.focus", 1)[-1])
 
     def test_failed_disable_kept_in_rules_json_and_retried(self):
         hypr.apply_rules(_entries("Telegram", "Discord"))
@@ -412,6 +412,20 @@ class HyprTests(unittest.TestCase):
         r = hypr._run("keyword", "windowrule[x]:enable false")
         self.assertIsNone(r)
         self.assertIn("non-legacy parsers", state.state_path("log").read_text(encoding="utf-8"))
+
+    def test_lua_dispatcher_fragments(self):
+        self.assertEqual(
+            hypr.move_window_lua("0xaaa"),
+            'hl.dsp.window.move({ window = "address:0xaaa", workspace = "name:distraction", follow = false })',
+        )
+        self.assertEqual(hypr.focus_workspace_lua("2"), 'hl.dsp.focus({ workspace = "name:2" })')
+        for frag in (hypr.move_window_lua("0xaaa"), hypr.focus_workspace_lua("distraction")):
+            self.assertFalse(frag.startswith("-"))
+        self._state(clients=[self._client("0xaaa", NATIVE, "1")])
+        hypr.apply_rules([TELEGRAM])
+        hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
+        moves = [c for c in self._hypr_cmds() if c[0] == "dispatch"]
+        self.assertEqual(moves, [["dispatch", hypr.move_window_lua("0xaaa")]])
 
     def test_is_config_reload(self):
         self.assertTrue(hypr.is_config_reload("configreloaded>>"))
@@ -535,7 +549,7 @@ class HyprTests(unittest.TestCase):
         self.hypr_log.write_text("", encoding="utf-8")
         os.environ["DS_HYPR_FAIL"] = "activeworkspace"
         hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
-        self.assertTrue(any("movetoworkspacesilent" in j and "0xaaa" in j for j in self._joined()))
+        self.assertTrue(any("hl.dsp.window.move" in j and "0xaaa" in j for j in self._joined()))
         self.assertEqual(self._notifies(), [])
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertIn("hyprctl", log)
@@ -552,18 +566,18 @@ class HyprTests(unittest.TestCase):
         r = self.box.run("next")
         self.assertEqual(r.returncode, 0, r.stderr)
         dest = "\n".join(self._joined())
-        self.assertIn("dispatch workspace", dest)
+        self.assertIn("hl.dsp.focus", dest)
         self.assertIn("name:2", dest)
-        self.assertNotIn("name:distraction", dest.split("dispatch workspace", 1)[-1])
+        self.assertNotIn("name:distraction", dest.split("hl.dsp.focus", 1)[-1])
 
         self.hypr_log.write_text("", encoding="utf-8")
         self._state(activeworkspace={"id": 2, "name": "2"}, workspaces=occupied)
         r = self.box.run("prev")
         self.assertEqual(r.returncode, 0, r.stderr)
         dest = "\n".join(self._joined())
-        self.assertIn("dispatch workspace", dest)
+        self.assertIn("hl.dsp.focus", dest)
         self.assertIn("name:1", dest)
-        self.assertNotIn("name:distraction", dest.split("dispatch workspace", 1)[-1])
+        self.assertNotIn("name:distraction", dest.split("hl.dsp.focus", 1)[-1])
 
 
 if __name__ == "__main__":
