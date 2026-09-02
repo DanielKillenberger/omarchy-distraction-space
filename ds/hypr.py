@@ -356,7 +356,7 @@ def _maybe_banner(name):
                 "-g",
                 GLYPH,
                 f"{name} lives in the distraction space",
-                "Super+D opens it.",
+                "Super+Ctrl+Shift+D opens it.",
                 "--exec",
                 "distractions enter",
             ],

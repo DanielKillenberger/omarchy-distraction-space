@@ -15,12 +15,12 @@ from ds import state
 from ds.catalog import DEFAULT_LIST, expand, is_class_entry, is_hostname, load_catalog
 
 HOLD_VALUES = ("off-space", "locked", "never")
-NUDGE_KEYS = ("app_banner", "block_page", "entry_confirm")
+NUDGE_KEYS = ("app_banner", "block_page")
 HOOK_NAMES = ("lock", "unlock", "enter", "leave")
 DEFAULTS = {
     "list": list(DEFAULT_LIST),
     "keep_reachable": [],
-    "nudges": {"app_banner": True, "block_page": True, "entry_confirm": True},
+    "nudges": {"app_banner": True, "block_page": True},
     "hold_notifications": "off-space",
     "mute_sounds": True,
     "lock": {"default_minutes": 25, "ask_purpose": True, "reason_min_chars": 50},

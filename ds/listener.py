@@ -64,7 +64,7 @@ def run():
         lf.close()
 
 def _empty():
-    return {"list": [], "keep_reachable": [], "nudges": {"app_banner": False, "block_page": False, "entry_confirm": False}}
+    return {"list": [], "keep_reachable": [], "nudges": {"app_banner": False, "block_page": False}}
 
 def _close(*objs):
     for obj in objs:

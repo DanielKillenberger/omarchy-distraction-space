@@ -1,19 +1,89 @@
 {
   "branch_name": "fn-12-superctrlshiftd-toggles-the-space-with",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-02T10:22:16.979393Z",
   "created_at": "2026-09-02T09:58:20.617121Z",
   "default_impl": null,
   "default_review": null,
   "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-12-superctrlshiftd-toggles-the-space-with",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-12-superctrlshiftd-toggles-the-space-with.1": 0
+  },
   "next_task": 1,
   "no_plan": true,
   "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "da60596ad2ec2cefe52c1f1495828fac984d54d2a377ea29323c5c7387e9d3d7",
+      "backend": "cursor",
+      "base_sha": "d1b67f9969c384ae2057e9e244c86ed2f9b698bb",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "fe223348fa1da6f6bec43d07e1a87fb47a8d525f",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1055,
+      "output_sha256": "cae7cdba4c944bb29e863720278e3f1ba19796dfccd17792f16e6103b714176c",
+      "reservation_id": "0d73ba1a44474fddb9a4a00c738a4bca",
+      "round_consumed": true,
+      "scope": "impl:fn-12-superctrlshiftd-toggles-the-space-with.1",
+      "superseded_by": null,
+      "task": "fn-12-superctrlshiftd-toggles-the-space-with.1",
+      "timestamp": "2026-09-02T10:15:55.686826Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "4337aa53171bae89d71b9aa34455300683e442055083003a4e969f85274986db",
+      "backend": "cursor",
+      "base_sha": "d1b67f9969c384ae2057e9e244c86ed2f9b698bb",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "c0dbde0fcc5247f28b3d00c8014c33e6d04793af",
+      "head_sha_observed": true,
+      "kind": "completion",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 3731,
+      "output_sha256": "9d79dcd3e19647b96c663fd5b85e0c36f794cfea68c6f10def81e5ddd0e9a4c6",
+      "reservation_id": "70a99d93d63245cab3d92ba98cd1fd75",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-02T10:22:16.977142Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-12-superctrlshiftd-toggles-the-space-with.1": 1,
+    "plan#completion": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "completion": 0,
+    "impl:fn-12-superctrlshiftd-toggles-the-space-with.1": 0
+  },
   "spec_path": ".flow/specs/fn-12-superctrlshiftd-toggles-the-space-with.md",
   "status": "open",
   "title": "Super+Ctrl+Shift+D toggles the space with no confirm",
@@ -28,5 +98,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T09:58:21.094789Z"
+  "updated_at": "2026-09-02T10:22:16.979953Z"
 }

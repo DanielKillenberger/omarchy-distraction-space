@@ -221,7 +221,7 @@ class ListenerTests(unittest.TestCase):
 
     def _cfg(self, **over):
         cfg = json.loads(json.dumps(DEFAULTS))
-        cfg["nudges"] = {"app_banner": False, "block_page": False, "entry_confirm": False}
+        cfg["nudges"] = {"app_banner": False, "block_page": False}
         cfg["list"] = ["x.com"]
         cfg["hooks"] = {
             "lock": [],
@@ -436,7 +436,7 @@ class ListenerTests(unittest.TestCase):
             "list": [{"name": "Cached", "classes": ["^CachedClass$"], "hosts": ["cached.example"],
                       "senders": [], "audio": {}}],
             "keep_reachable": [],
-            "nudges": {"app_banner": False, "block_page": False, "entry_confirm": False},
+            "nudges": {"app_banner": False, "block_page": False},
         }
         write_json(self.box.state_dir / "expansion.json", cached)
         before = (self.box.state_dir / "expansion.json").read_bytes()

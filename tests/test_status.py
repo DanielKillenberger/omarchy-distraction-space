@@ -195,7 +195,7 @@ class StubContractTests(unittest.TestCase):
         self.assertIsNone(notify.parameters["glyph"].default)
         self.assertIsNone(notify.parameters["action"].default)
         self.assertIs(notify.parameters["urgent"].default, False)
-        self.assertEqual(inspect.signature(ui.confirm_enter).parameters["timeout"].default, 30)
+        self.assertFalse(hasattr(ui, "confirm_enter"))
         self.assertEqual(_params(ui.prompt_lock), ["cfg"])
         self.assertEqual(_params(ui.prompt_reason), ["min_chars"])
         self.assertEqual(_params(ui.menu), [])

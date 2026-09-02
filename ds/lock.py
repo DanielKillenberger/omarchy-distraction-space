@@ -152,30 +152,6 @@ def enter():
     if is_locked():
         _lock_notice()
         return 1
-    held = None
-    if _entry_confirm_on():
-        held = _try_confirm_lock()
-        if held is None:
-            return 0
-        try:
-            try:
-                decision = ui.confirm_enter(timeout=30)
-            except ui.Unavailable:
-                decision = "unavailable"
-            if decision == "stay":
-                return 0
-            if decision == "unavailable":
-                _notify("Entry confirm unavailable", "Entering the distraction space.")
-            elif decision != "enter":
-                return 0
-            if is_locked():
-                _lock_notice()
-                return 1
-            if hypr.on_space() is True:
-                return 0
-        finally:
-            _release(held)
-            held = None
     return _go_to_space()
 
 
@@ -285,10 +261,6 @@ def _reason_min():
     return int(_load_cfg()["lock"]["reason_min_chars"])
 
 
-def _entry_confirm_on():
-    return bool(_load_cfg()["nudges"]["entry_confirm"])
-
-
 def _log_path():
     raw = _load_cfg()["log"]
     if not isinstance(raw, str) or not raw or raw == DEFAULTS["log"]:
@@ -338,37 +310,6 @@ def _lock_notice():
     if until:
         body = f"{body} Until {until}"
     _notify("Distraction space locked", body, urgent=True)
-
-
-def _try_confirm_lock():
-    path = state.runtime_path("distraction-space.confirm")
-    path.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        fh = open(path, "a+", encoding="utf-8")
-    except OSError:
-        return False
-    try:
-        fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        fh.close()
-        return None
-    except OSError:
-        fh.close()
-        return False
-    return fh
-
-
-def _release(fh):
-    if not fh:
-        return
-    try:
-        fcntl.flock(fh, fcntl.LOCK_UN)
-    except OSError:
-        pass
-    try:
-        fh.close()
-    except OSError:
-        pass
 
 
 def _go_to_space():

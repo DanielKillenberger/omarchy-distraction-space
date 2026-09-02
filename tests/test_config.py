@@ -39,7 +39,6 @@ GOOD_VALUES = [
     ("keep_reachable", json.dumps(["example.com"]), ["example.com"]),
     ("nudges.app_banner", "false", False),
     ("nudges.block_page", "false", False),
-    ("nudges.entry_confirm", "false", False),
     ("hold_notifications", "locked", "locked"),
     ("hold_notifications", "never", "never"),
     ("hold_notifications", "off-space", "off-space"),
@@ -147,6 +146,23 @@ class ConfigTests(unittest.TestCase):
         r = self.box.run("config", "set", "lock.start_locked", "true")
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertEqual(self.box.config_file.read_bytes(), before)
+
+    def test_saved_entry_confirm_loads_and_survives_save(self):
+        self.assertNotIn("entry_confirm", DEFAULTS["nudges"])
+        self.assertFalse(is_schema_key("nudges.entry_confirm"))
+        for value in (True, False):
+            with self.subTest(entry_confirm=value):
+                self.box.config_file.write_text(
+                    json.dumps({"nudges": {"app_banner": True, "block_page": True, "entry_confirm": value}}) + "\n",
+                    encoding="utf-8",
+                )
+                r = self.box.run("config", "get", "nudges.app_banner")
+                self.assertEqual(r.returncode, 0, r.stderr)
+                r = self.box.run("config", "set", "nudges.block_page", "false")
+                self.assertEqual(r.returncode, 0, r.stderr)
+                saved = json.loads(self.box.config_file.read_text(encoding="utf-8"))
+                self.assertIs(saved["nudges"]["entry_confirm"], value)
+                self.assertIs(saved["nudges"]["block_page"], False)
 
     def test_unknown_top_level_key_survives(self):
         self.box.config_file.write_text(

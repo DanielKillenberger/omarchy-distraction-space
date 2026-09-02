@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
-"""Entry confirm, leave, toggle, and lock-notice paths."""
+"""Enter without a prompt, leave, toggle, and lock-notice paths."""
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
 import sys
-import threading
 import time
 import unittest
 from pathlib import Path
@@ -17,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
-from ds import config, hypr, lock, state
+from ds import config, hypr, lock, state, ui
 from ds.config import DEFAULTS
 
 
@@ -79,6 +77,9 @@ class EnterTests(unittest.TestCase):
         self.notify_patch = patch("ds.ui.notify", self._notify)
         self.notify_patch.start()
         self.addCleanup(self.notify_patch.stop)
+        self.menu_patch = patch("ds.ui.select", side_effect=AssertionError("enter never opens a menu"))
+        self.menu_patch.start()
+        self.addCleanup(self.menu_patch.stop)
         self._state(name="1")
         self._cfg()
 
@@ -129,13 +130,12 @@ class EnterTests(unittest.TestCase):
     def _clear_hypr(self):
         self.hypr_log.write_text("", encoding="utf-8")
 
-    def test_enter_switches_on_confirm_enter(self):
-        with patch("ds.ui.confirm_enter", return_value="enter") as confirm:
-            rc = lock.enter()
+    def test_enter_switches_without_prompt(self):
+        self.assertFalse(hasattr(ui, "confirm_enter"))
+        rc = lock.enter()
         self.assertEqual(rc, 0)
-        confirm.assert_called_once()
-        self.assertEqual(confirm.call_args.kwargs["timeout"], 30)
         self.assertTrue(self._switched())
+        self.assertEqual(self.notices, [])
 
     def test_expired_lock_does_not_block_enter(self):
         from datetime import datetime, timedelta, timezone
@@ -146,91 +146,33 @@ class EnterTests(unittest.TestCase):
             {"locked": True, "since": past, "until": past, "purpose": "old"},
         )
         self.assertFalse(lock.is_locked())
-        with patch("ds.ui.confirm_enter", return_value="enter"):
-            rc = lock.enter()
+        rc = lock.enter()
         self.assertEqual(rc, 0)
         self.assertTrue(self._switched())
         self.assertFalse(any("locked" in (t + b).lower() for t, b in self.notices))
 
-    def test_stay_maps_stay_escape_and_timeout_and_does_not_switch(self):
-        for verdict in ("stay",):
-            self._clear_hypr()
-            with patch("ds.ui.confirm_enter", return_value=verdict):
-                rc = lock.enter()
-            self.assertEqual(rc, 0, verdict)
-            self.assertFalse(self._switched(), verdict)
-
-    def test_second_super_d_during_dialog_is_noop(self):
-        path = state.runtime_path("distraction-space.confirm")
-        ready = threading.Event()
-        release = threading.Event()
-
-        def hold():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "a+", encoding="utf-8") as fh:
-                fcntl.flock(fh, fcntl.LOCK_EX)
-                ready.set()
-                release.wait(5)
-
-        t = threading.Thread(target=hold)
-        t.start()
-        self.addCleanup(lambda: (release.set(), t.join(timeout=2)))
-        self.assertTrue(ready.wait(2))
-        called = []
-
-        def boom(timeout=30):
-            called.append(timeout)
-            raise AssertionError("second Super+D must not open a dialog")
-
-        with patch("ds.ui.confirm_enter", boom):
-            rc = lock.enter()
-        self.assertEqual(rc, 0)
-        self.assertEqual(called, [])
-        self.assertFalse(self._switched())
-
-    def test_lock_flipped_mid_dialog_shows_lock_notice(self):
-        def flip(timeout=30):
-            lock.lock(25, "mid-dialog")
-            return "enter"
-
-        with patch("ds.ui.confirm_enter", flip):
-            rc = lock.enter()
+    def test_locked_enter_shows_notice_and_does_not_switch(self):
+        lock.lock(25, "nope")
+        self._clear_hypr()
+        self.notices.clear()
+        rc = lock.enter()
         self.assertEqual(rc, 1)
         self.assertFalse(self._switched())
         self.assertTrue(self.notices)
         blob = " ".join(t + " " + b for t, b in self.notices).lower()
         self.assertIn("lock", blob)
 
-    def test_unavailable_enters_with_one_notice(self):
-        with patch("ds.ui.confirm_enter", return_value="unavailable"):
-            rc = lock.enter()
-        self.assertEqual(rc, 0)
-        self.assertTrue(self._switched())
-        self.assertEqual(len(self.notices), 1)
-
-    def test_locked_enter_shows_notice_and_skips_confirm(self):
-        lock.lock(25, "nope")
-        self._clear_hypr()
-        self.notices.clear()
-        with patch("ds.ui.confirm_enter", side_effect=AssertionError("no confirm while locked")):
-            rc = lock.enter()
-        self.assertEqual(rc, 1)
-        self.assertFalse(self._switched())
-        self.assertTrue(self.notices)
-
-    def test_leave_never_asks_and_cycles_off_space(self):
+    def test_leave_cycles_off_space(self):
         self._state(name="distraction")
-        with patch("ds.ui.confirm_enter", side_effect=AssertionError("leave never confirms")):
-            rc = lock.leave()
+        rc = lock.leave()
         self.assertEqual(rc, 0)
         joined = "\n".join(self._hypr_joined())
         self.assertIn("hl.dsp.focus", joined)
         self.assertNotIn("name:distraction", joined.split("hl.dsp.focus", 1)[-1])
 
-    def test_toggle_on_space_leaves_without_confirm(self):
+    def test_toggle_on_space_leaves(self):
         self._state(name="distraction")
-        with patch("ds.ui.confirm_enter", side_effect=AssertionError("toggle leave never confirms")):
-            rc = lock.toggle()
+        rc = lock.toggle()
         self.assertEqual(rc, 0)
         joined = "\n".join(self._hypr_joined())
         self.assertIn("hl.dsp.focus", joined)
@@ -238,23 +180,34 @@ class EnterTests(unittest.TestCase):
 
     def test_toggle_off_space_enters(self):
         self._state(name="1")
-        with patch("ds.ui.confirm_enter", return_value="enter"):
-            rc = lock.toggle()
+        rc = lock.toggle()
         self.assertEqual(rc, 0)
         self.assertTrue(self._switched())
 
-    def test_entry_confirm_off_skips_dialog(self):
-        self._cfg(nudges={"entry_confirm": False})
-        with patch("ds.ui.confirm_enter", side_effect=AssertionError("confirm disabled")):
-            rc = lock.enter()
-        self.assertEqual(rc, 0)
-        self.assertTrue(self._switched())
+    def test_toggle_off_space_locked_refuses(self):
+        self._state(name="1")
+        lock.lock(25, "nope")
+        self._clear_hypr()
+        self.notices.clear()
+        rc = lock.toggle()
+        self.assertEqual(rc, 1)
+        self.assertFalse(self._switched())
+        self.assertTrue(self.notices)
+
+    def test_saved_entry_confirm_key_is_inert(self):
+        for value in (True, False):
+            with self.subTest(entry_confirm=value):
+                self._clear_hypr()
+                self._cfg(nudges={"entry_confirm": value})
+                rc = lock.enter()
+                self.assertEqual(rc, 0)
+                self.assertTrue(self._switched())
+                self.assertEqual(self.notices, [])
 
     def test_enter_leave_toggle_run_no_hook(self):
         argv = [sys.executable, str(self.hook_py)]
         self._cfg(hooks={"enter": [argv], "leave": [argv], "lock": [argv], "unlock": [argv]})
-        with patch("ds.ui.confirm_enter", return_value="enter"):
-            self.assertEqual(lock.enter(), 0)
+        self.assertEqual(lock.enter(), 0)
         time.sleep(0.2)
         self.assertFalse(self.hook_out.exists())
         self._state(name="distraction")
@@ -263,8 +216,7 @@ class EnterTests(unittest.TestCase):
         time.sleep(0.2)
         self.assertFalse(self.hook_out.exists())
         self._state(name="1")
-        with patch("ds.ui.confirm_enter", return_value="stay"):
-            self.assertEqual(lock.toggle(), 0)
+        self.assertEqual(lock.toggle(), 0)
         time.sleep(0.2)
         self.assertFalse(self.hook_out.exists())
 
