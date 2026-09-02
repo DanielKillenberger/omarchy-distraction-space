@@ -1209,11 +1209,11 @@ class FeedbackTests(unittest.TestCase):
         release = threading.Event()
         written = []
 
-        def stalled_log(msg):
+        def stalled_log(path, msg):
             release.wait(5.0)
             written.append(msg)
 
-        with patch("ds.feedback.hypr._log", stalled_log):
+        with patch("ds.feedback.hypr._log_to", stalled_log):
             t0 = time.perf_counter()
             feedback._maybe_banner("x.com", peer_port=None)
             elapsed = time.perf_counter() - t0
@@ -1224,6 +1224,26 @@ class FeedbackTests(unittest.TestCase):
             self.assertTrue(feedback._prov_flush())
         self.assertEqual(len(written), 1)
         self.assertTrue(written[0].startswith("banner: host=x.com entry=x.com "), written[0])
+
+    def test_r1_provenance_lands_in_the_state_dir_current_at_decision_time(self):
+        self._list_hosts("x.com")
+        home = state.state_path("log")
+        other = self.box.runtime / "other-state"
+        release = threading.Event()
+        real = hypr._log_to
+
+        def slow_log_to(path, msg):
+            release.wait(5.0)
+            real(path, msg)
+
+        with patch("ds.feedback.hypr._log_to", slow_log_to):
+            feedback._maybe_banner("x.com", peer_port=None)
+            os.environ["XDG_STATE_HOME"] = str(other)
+            release.set()
+            self.assertTrue(feedback._prov_flush())
+        os.environ.pop("XDG_STATE_HOME", None)
+        self.assertIn(" banner: host=x.com ", home.read_text(encoding="utf-8"))
+        self.assertFalse((other / "omarchy" / "distraction-space" / "log").exists())
 
     def test_r1_provenance_unattributed_lines(self):
         uid = os.getuid()

@@ -15,7 +15,7 @@ import threading
 import time
 from pathlib import Path
 
-from ds import hypr, ui
+from ds import hypr, state, ui
 
 HTTP_PORT = 28080
 TLS_PORT = 28443
@@ -147,10 +147,11 @@ def start(config, is_locked):
 
 
 def stop():
-    """Close the listeners. Live splices keep their slot and source port until they end."""
+    """Close the listeners and drain queued provenance lines. Live splices keep their slot and source port until they end."""
     global _bind_ok
     _stop.set()
     _bind_ok = False
+    _prov_flush()
     with _ctl:
         socks, threads = _socks[:], _threads[:]
         _socks.clear()
@@ -869,22 +870,26 @@ def _provenance(host, entry, peer_port, decision, attr=None):
 
 def _prov_writer():
     while True:
-        line = _prov_queue.get()
+        path, line = _prov_queue.get()
         try:
-            hypr._log(line)
+            hypr._log_to(path, line)
         finally:
             _prov_queue.task_done()
 
 
 def _prov_submit(line, key):
-    """Hand the line to the writer without blocking; a full queue counts the line as dropped."""
+    """Hand the line to the writer without blocking; a full queue counts the line as dropped.
+
+    The log path is resolved here, at submit time, so a line always lands in the
+    state directory that was current when the decision was made.
+    """
     global _prov_thread
     with _banner_lock:
         if _prov_thread is None or not _prov_thread.is_alive():
             _prov_thread = threading.Thread(target=_prov_writer, name="ds-provenance", daemon=True)
             _prov_thread.start()
     try:
-        _prov_queue.put_nowait(line)
+        _prov_queue.put_nowait((state.state_path("log"), line))
     except queue.Full:
         with _banner_lock:
             rec = _prov_at.get(key)

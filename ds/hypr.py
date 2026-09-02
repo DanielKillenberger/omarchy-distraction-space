@@ -75,7 +75,10 @@ def on_space():
 
 
 def _log(msg):
-    path = state.state_path("log")
+    _log_to(state.state_path("log"), msg)
+
+
+def _log_to(path, msg):
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:
