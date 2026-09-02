@@ -86,6 +86,63 @@ class NftTests(unittest.TestCase):
         self.assertIn("redirect to :28080", logged)
         self.assertIn("meta l4proto tcp reject with tcp reset", logged)
 
+    def test_splice_source_port_accept_precedes_redirect_and_reject(self):
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"])
+        filter_body = script[
+            script.index("chain output {") : script.index("chain output_nat {")
+        ]
+        nat_body = script[script.index("chain output_nat {") :]
+        first_rules = (
+            "\n    meta nfproto ipv4 tcp sport 60000-60999 accept"
+            "\n    meta nfproto ipv6 tcp sport 60000-60999 accept\n"
+        )
+        for body, type_line, chain in (
+            (
+                filter_body,
+                "type filter hook output priority filter; policy accept;",
+                "output",
+            ),
+            (
+                nat_body,
+                "type nat hook output priority dstnat; policy accept;",
+                "output_nat",
+            ),
+        ):
+            with self.subTest(chain=chain, check="first_rules"):
+                after_type = body[body.index(type_line) + len(type_line) :]
+                self.assertTrue(after_type.startswith(first_rules), after_type[:200])
+        families = (
+            (
+                "ipv4",
+                "meta nfproto ipv4 tcp sport 60000-60999 accept",
+                "ip daddr @omarchy_ds_v4",
+            ),
+            (
+                "ipv6",
+                "meta nfproto ipv6 tcp sport 60000-60999 accept",
+                "ip6 daddr @omarchy_ds_v6",
+            ),
+        )
+        for family, accept, daddr in families:
+            with self.subTest(family=family, chain="output"):
+                self.assertLess(
+                    filter_body.index(accept),
+                    filter_body.index(f"{daddr} meta l4proto tcp reject with tcp reset"),
+                )
+                self.assertLess(
+                    filter_body.index(accept),
+                    filter_body.index(f"{daddr} reject\n"),
+                )
+            with self.subTest(family=family, chain="output_nat"):
+                self.assertLess(
+                    nat_body.index(accept),
+                    nat_body.index(f"{daddr} tcp dport 80 redirect"),
+                )
+                self.assertLess(
+                    nat_body.index(accept),
+                    nat_body.index(f"{daddr} tcp dport 443 redirect"),
+                )
+
     def test_empty_sets_render_table_that_matches_nothing(self):
         script = self.nft.render_table([], [])
         self.assertIn("table inet omarchy_ds", script)
