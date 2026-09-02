@@ -2,9 +2,9 @@
 
 One named Hyprland workspace for the apps and sites that take your attention, and a plugin that keeps them there.
 
-![The Omarchy bar showing the distraction-space eye glyph with one held notification, and the "While you were away" notice summarizing what was held](preview.png)
+![The Omarchy bar showing the distraction-space eye glyph with three held notifications, and the "While you were away" notice listing the per-app count](preview.png)
 
-You list Telegram, X, YouTube, and whatever else pulls you off task. Their windows open on the workspace `name:distraction` and get moved back when they land anywhere else. Their sites are refused at the network while you work elsewhere, so the tab you opened out of habit gets a block page instead of the feed. Their notifications wait, native apps' sounds stay muted, the bar shows how many are waiting, and when you come back one line from your own agent tells you whether any of them needed you. Lock the space for 25 minutes and it refuses to open until the timer runs out or you type 50 characters saying why you are leaving early.
+You list Telegram, X, YouTube, and whatever else pulls you off task. Their windows open on the workspace `name:distraction` and get moved back when they land anywhere else. Their sites are refused at the network while you work elsewhere, so the tab you opened out of habit gets a block page instead of the feed. Their notifications wait, native apps' sounds stay muted, the bar shows how many are waiting, and when you come back one notice tells you what was held, per app, or, if you turn it on, one line from your own agent saying whether any of them needed you. Lock the space for 25 minutes and it refuses to open until the timer runs out or you type 50 characters saying why you are leaving early.
 
 ## Install
 
