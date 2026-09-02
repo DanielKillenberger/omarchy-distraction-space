@@ -7,7 +7,7 @@ from ds import catalog, config, hypr
 
 CHECK, UNCHECK = "󰄲", "󰄱"
 _BOOL = (
-    "nudges.app_banner", "nudges.block_page", "nudges.entry_confirm",
+    "nudges.app_banner", "nudges.block_page",
     "mute_sounds", "lock.ask_purpose",
 )
 _INT = ("lock.default_minutes", "lock.reason_min_chars", "summary.timeout_seconds")
@@ -83,14 +83,6 @@ def notify(title, body, *, glyph=None, action=None, urgent=False):
         subprocess.run(cmd, capture_output=True, timeout=5)
     except Exception:
         pass
-
-
-def confirm_enter(timeout=30):
-    try:
-        i = select("Enter the distraction space?", [_row("", "Enter"), _row("", "Stay")], timeout=timeout)
-    except Unavailable:
-        return "unavailable"
-    return "enter" if i == 0 else "stay"
 
 
 def prompt_lock(cfg):

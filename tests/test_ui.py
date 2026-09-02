@@ -200,20 +200,6 @@ class UiTests(unittest.TestCase):
         box.apply_env()
         ui.notify("Title", "Body")
 
-    def test_confirm_enter_choose_cancel_timeout_missing(self):
-        self._sq(["index", 0])
-        self.assertEqual(ui.confirm_enter(), "enter")
-        self._sq(["index", 1])
-        self.assertEqual(ui.confirm_enter(), "stay")
-        self._sq(["cancel"])
-        self.assertEqual(ui.confirm_enter(), "stay")
-        self._sq(["sleep", 2])
-        self.assertEqual(ui.confirm_enter(timeout=0.2), "stay")
-        box = Sandbox(isolate_path=True)
-        self.addCleanup(box.cleanup)
-        box.apply_env()
-        self.assertEqual(ui.confirm_enter(), "unavailable")
-
     def test_prompt_lock_choose_cancel_timeout_missing(self):
         self._sq(["index", 0])
         self._iq(["text", "deep work"])
@@ -308,21 +294,21 @@ class UiTests(unittest.TestCase):
         # Settings is root index 3. Row order is documented in ds.ui SETTINGS.
         self._sq(
             ["index", 3],
-            *[["index", i] for i in range(5)],
+            *[["index", i] for i in range(4)],
+            ["index", 4],
             ["index", 5],
             ["index", 6],
             ["index", 7],
             ["index", 8],
             ["index", 9],
-            ["index", 10],
             ["index", ncat + 1],
+            ["index", 10],
             ["index", 11],
             ["index", 12],
             ["index", 13],
             ["index", 14],
             ["index", 15],
             ["index", 16],
-            ["index", 17],
             ["cancel"],
         )
         self._iq(["text", "40"], ["text", "10"], ["text", "90"])
@@ -330,7 +316,7 @@ class UiTests(unittest.TestCase):
         cfg = self._cfg()
         self.assertFalse(cfg["nudges"]["app_banner"])
         self.assertFalse(cfg["nudges"]["block_page"])
-        self.assertFalse(cfg["nudges"]["entry_confirm"])
+        self.assertNotIn("entry_confirm", cfg["nudges"])
         self.assertFalse(cfg["mute_sounds"])
         self.assertFalse(cfg["lock"]["ask_purpose"])
         self.assertEqual(cfg["hold_notifications"], "locked")
@@ -351,7 +337,7 @@ class UiTests(unittest.TestCase):
         config.load()
         config.update(lambda c: config.set_value(c, "summary.command", ["agent", "--x"]))
         before = self._cfg()["lock"]["default_minutes"]
-        self._sq(["index", 3], ["index", 7], ["index", 7], ["index", 6], ["index", 17], ["cancel"])
+        self._sq(["index", 3], ["index", 6], ["index", 6], ["index", 5], ["index", 16], ["cancel"])
         self._iq(["text", "-3"], ["text", "nope"])
         self.assertEqual(ui.menu(), 0)
         cfg = self._cfg()
@@ -395,14 +381,14 @@ class UiTests(unittest.TestCase):
         config.load()
         self.assertTrue(self._cfg()["mute_sounds"])
         self.assertEqual(self._cfg()["hold_notifications"], "off-space")
-        # Settings is root index 3; mute_sounds is settings index 3; Back is 17.
+        # Settings is root index 3; mute_sounds is settings index 2; Back is 16.
         self._two_menus_while_locked(
-            [["index", 3], ["index", 3], ["index", 17], ["cancel"]],
+            [["index", 3], ["index", 2], ["index", 16], ["cancel"]],
             "hold-bool",
         )
         self.assertTrue(self._cfg()["mute_sounds"])
         self._two_menus_while_locked(
-            [["index", 3], ["index", 5], ["index", 17], ["cancel"]],
+            [["index", 3], ["index", 4], ["index", 16], ["cancel"]],
             "hold-cycle",
         )
         self.assertEqual(self._cfg()["hold_notifications"], "never")

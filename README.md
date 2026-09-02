@@ -1,6 +1,6 @@
 # Omarchy distraction space
 
-Every listed distraction lives on one named Hyprland workspace (`name:distraction`) and stays there. Listed apps open only on that space. Listed sites do not load anywhere else. Reaching for a distraction from a normal workspace earns a nudge that names the app or site and says Super+D opens the space. Entering is a deliberate choice behind a confirm. A lock makes the space unreachable for a chosen number of minutes, with a purpose stated up front and a written reason to leave early.
+Every listed distraction lives on one named Hyprland workspace (`name:distraction`) and stays there. Listed apps open only on that space. Listed sites do not load anywhere else. Reaching for a distraction from a normal workspace earns a nudge that names the app or site and says Super+Ctrl+Shift+D opens the space. A lock makes the space unreachable for a chosen number of minutes, with a purpose stated up front and a written reason to leave early.
 
 This plugin is a small Python package, one config file an agent can read and edit, one shipped catalog, and a menu UI built only from `omarchy-menu-select` and `omarchy-menu-input`. Notification holding, sound muting, and the agent summary are not in this release; they land in fn-10 on the listener, schema, and state file defined here. Between the two, listed apps notify normally.
 
@@ -59,7 +59,7 @@ That flushes table `inet omarchy_ds`, removes both files, and rescans the same w
 
 | Action | Keys |
 |---|---|
-| Open or leave the distraction space | Super+D (`distractions toggle`) |
+| Open or leave the distraction space | Super+Ctrl+Shift+D (`distractions toggle`) |
 | Move the focused window there | Super+Alt+D |
 | Lock or unlock | Super+Ctrl+Shift+F (unlock when locked, otherwise lock) |
 | Next occupied workspace (skips the space) | Super+Tab |
@@ -83,7 +83,7 @@ Path: `~/.config/omarchy/distraction-space.json` (`$XDG_CONFIG_HOME` honored). M
 {
   "list": ["Telegram", "Discord", "x.com", {"name": "Slack", "class": "^Slack$", "hosts": ["slack.com", "app.slack.com"]}],
   "keep_reachable": [],
-  "nudges": {"app_banner": true, "block_page": true, "entry_confirm": true},
+  "nudges": {"app_banner": true, "block_page": true},
   "hold_notifications": "off-space",
   "mute_sounds": true,
   "lock": {"default_minutes": 25, "ask_purpose": true, "reason_min_chars": 50},
@@ -97,7 +97,7 @@ Defaults for a fresh file (no migration sources):
 
 - `list`: Telegram, Discord, WhatsApp, Signal, Google Messages, Facebook, Instagram, Threads, X, Reddit, TikTok, Snapchat, YouTube, Twitch, Netflix
 - `keep_reachable`: `[]`
-- `nudges.app_banner`, `nudges.block_page`, `nudges.entry_confirm`: `true`
+- `nudges.app_banner`, `nudges.block_page`: `true`
 - `hold_notifications`: `"off-space"`
 - `mute_sounds`: `true`
 - `lock.default_minutes`: `25`
@@ -160,8 +160,8 @@ Catalog products: the fifteen defaults above, plus Bluesky, Pinterest, Tumblr, L
 | Command | What it does |
 |---|---|
 | `status [--json]` | Human summary, or the `state.json` shape computed live (lock, `on_space`, `site_block` from the last listener write, `listener_pid` null when absent or dead). Works without a listener. Missing hyprctl sets `on_space` null. |
-| `toggle` | Super+D: enter when off the space, leave when on it. |
-| `enter` | Switch to `name:distraction`. Refuses with the lock notice while locked. With `nudges.entry_confirm` (default on) shows Enter / Stay first (30 s). Stay, Escape, or timeout leave the workspace unchanged. Menu tooling missing enters with one notice. |
+| `toggle` | Super+Ctrl+Shift+D: enter when off the space, leave when on it. |
+| `enter` | Switch to `name:distraction` immediately. Refuses with the lock notice while locked. |
 | `leave` | Cycle to the next occupied workspace, skipping the space. |
 | `next` / `prev` | Cycle occupied workspaces (`windows > 0`), skipping `name:distraction`. |
 | `lock [MINUTES\|forever] [PURPOSE...]` | No args opens the duration menu (default_minutes, 50, 90, Until I unlock, Other…) then the purpose input when `ask_purpose`. Already locked is a no-op with exit 0. Escape on the duration menu locks nothing. Escape on the purpose input still locks with an empty purpose. |
@@ -198,7 +198,6 @@ Runtime files in `$XDG_RUNTIME_DIR`:
 | File | Role |
 |---|---|
 | `distraction-space.lock` | Single listener |
-| `distraction-space.confirm` | One confirm dialog at a time |
 | `distraction-space.config.lock` | Config mutation flock |
 | `distraction-space.sock` | Reload / refresh |
 
@@ -212,9 +211,9 @@ Hyprland autostart starts one listener per session with the shipped line in `hyp
 
 On start, on every workspace change off the space, on reload, and every 30 s while off the space, the listener resolves listed hosts (`getent ahosts`, 2 s per host, 10 s batch deadline), subtracts `keep_reachable` addresses, and pipes one address per line to `sudo -n /usr/local/libexec/omarchy-distraction-space/distractions-nft replace ds` (the installed path the sudoers grant names). Entering the space sends `flush ds`. The wrapper's filter output chain `reject`s set members (TCP reset for TCP, ICMP unreachable otherwise) and a nat output chain redirects TCP 80 to 28080 and TCP 443 to 28443 on set members.
 
-When `nudges.block_page` is true, loopback HTTP on 28080 serves a block page naming the Host header with the Super+D line (and a lock note when locked). Port 28443 reads the ClientHello (SNI) and closes; one banner per host per 30 s. Nothing is served on 28443 beyond that read.
+When `nudges.block_page` is true, loopback HTTP on 28080 serves a block page naming the Host header with the Super+Ctrl+Shift+D line (and a lock note when locked). Port 28443 reads the ClientHello (SNI) and closes; one banner per host per 30 s. Nothing is served on 28443 beyond that read.
 
-Window rules: one named rule per class in every expanded entry (`windowrule[omarchy-ds-<slug>-<n>]`), recorded in `rules.json`. socket2 `openwindow` / `movewindow` silently moves a listed client found off the space. When `nudges.app_banner` is on and the person is off the space, one banner per app per 30 s: title "`<Name>` lives in the distraction space", body "Super+D opens it.", click action `distractions enter`.
+Window rules: one named rule per class in every expanded entry (`windowrule[omarchy-ds-<slug>-<n>]`), recorded in `rules.json`. socket2 `openwindow` / `movewindow` silently moves a listed client found off the space. When `nudges.app_banner` is on and the person is off the space, one banner per app per 30 s: title "`<Name>` lives in the distraction space", body "Super+Ctrl+Shift+D opens it.", click action `distractions enter`.
 
 Config mutations already call reload after a successful write.
 

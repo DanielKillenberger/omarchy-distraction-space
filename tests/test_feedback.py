@@ -145,12 +145,12 @@ class FeedbackTests(unittest.TestCase):
         self.assertIn(b"200", page.split(b"\r\n", 1)[0])
         self.assertNotIn(b"<script>", page)
         self.assertIn(b"&lt;script&gt;alert(1)&lt;/script&gt;", page)
-        self.assertIn(b"Super+D", page)
+        self.assertIn(b"Super+Ctrl+Shift+D", page)
         self.assertNotIn(b"is locked", page)
 
         fallback = _http_get(None)
         self.assertIn(b"this site", fallback)
-        self.assertIn(b"Super+D", fallback)
+        self.assertIn(b"Super+Ctrl+Shift+D", fallback)
 
         locked = True
         locked_page = _http_get("x.com")
@@ -163,7 +163,7 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(junk, b"")
         page = _http_get("still.example")
         self.assertIn(b"still.example", page)
-        self.assertIn(b"Super+D", page)
+        self.assertIn(b"Super+Ctrl+Shift+D", page)
 
     def test_blank_line_terminated_garbage_closes_silently(self):
         self._start()
@@ -171,7 +171,7 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(junk, b"")
         page = _http_get("still.example")
         self.assertIn(b"still.example", page)
-        self.assertIn(b"Super+D", page)
+        self.assertIn(b"Super+Ctrl+Shift+D", page)
 
     def test_sni_parser_valid_clienthello(self):
         data = make_client_hello("www.youtube.com")
@@ -196,7 +196,7 @@ class FeedbackTests(unittest.TestCase):
         banners = [n for n in self.notices if n[0] == "Blocked on this workspace"]
         self.assertEqual(len(banners), 1)
         self.assertIn("early.example", banners[0][1])
-        self.assertIn("Super+D", banners[0][1])
+        self.assertIn("Super+Ctrl+Shift+D", banners[0][1])
 
     def test_concurrent_clienthellos_one_banner_per_host(self):
         self._start()
@@ -223,7 +223,7 @@ class FeedbackTests(unittest.TestCase):
         banners = [n for n in self.notices if n[0] == "Blocked on this workspace"]
         self.assertEqual(len(banners), 1)
         self.assertIn("x.com", banners[0][1])
-        self.assertIn("Super+D", banners[0][1])
+        self.assertIn("Super+Ctrl+Shift+D", banners[0][1])
 
         _exchange("127.0.0.1", TLS_PORT, hello, timeout=2.0)
         banners = [n for n in self.notices if n[0] == "Blocked on this workspace"]
@@ -238,7 +238,7 @@ class FeedbackTests(unittest.TestCase):
         self._start()
         page = _http_get("ipv6.test", addr="::1")
         self.assertIn(b"ipv6.test", page)
-        self.assertIn(b"Super+D", page)
+        self.assertIn(b"Super+Ctrl+Shift+D", page)
         unavail = [
             n for n in self.notices
             if "unavailable" in n[0].lower() or "unavailable" in n[1].lower()

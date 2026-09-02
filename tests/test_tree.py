@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Cutover: deleted files gone, no leftover module name."""
+"""Cutover: deleted files gone, no leftover module name, no stale hotkey text."""
 
 from __future__ import annotations
 
@@ -9,6 +9,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _NEEDLE = "focus" + "_block"
+_OLD_KEY = "Super" + "+D"
+_KEY_PHRASES = ("Super+Ctrl+Shift" + "+D", "Super+Alt" + "+D")
 _DELETED = (
     "focus" + "_block.py",
     "focus" + "_dns.py",
@@ -51,6 +53,29 @@ class TreeTests(unittest.TestCase):
                 if _NEEDLE in text:
                     hits.append(str(path.relative_to(ROOT)))
         self.assertEqual(hits, [], f"{_NEEDLE} remains outside .flow/: {hits}")
+
+    def test_bindings_toggle_is_super_ctrl_shift_d(self):
+        lua = (ROOT / "hypr" / "bindings.lua").read_text(encoding="utf-8")
+        self.assertIn('o.bind("SUPER + CTRL + SHIFT + D", "Toggle distraction space"', lua)
+        self.assertNotIn('"SUPER + D"', lua)
+        self.assertIn('o.bind("SUPER + ALT + D"', lua)
+        self.assertIn('o.bind("SUPER + CTRL + SHIFT + F"', lua)
+
+    def test_no_bare_old_hotkey_outside_flow(self):
+        hits = []
+        for dirpath, dirnames, filenames in os.walk(ROOT):
+            dirnames[:] = [n for n in dirnames if not _skip_dir(n) and n != ".flow"]
+            for name in filenames:
+                path = Path(dirpath) / name
+                try:
+                    text = path.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                for phrase in _KEY_PHRASES:
+                    text = text.replace(phrase, "")
+                if _OLD_KEY in text:
+                    hits.append(str(path.relative_to(ROOT)))
+        self.assertEqual(hits, [], f"bare {_OLD_KEY} remains outside .flow/: {hits}")
 
 
 if __name__ == "__main__":

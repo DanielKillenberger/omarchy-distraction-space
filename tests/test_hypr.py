@@ -213,7 +213,7 @@ class HyprTests(unittest.TestCase):
         self.assertEqual(len(self._notifies()), 2)
         args = self._notifies()[0]
         self.assertTrue(any("Telegram lives in the distraction space" in a for a in args))
-        self.assertTrue(any("Super+D opens it." in a for a in args))
+        self.assertTrue(any("Super+Ctrl+Shift+D opens it." in a for a in args))
         self.assertIn("--exec", args)
         exec_bits = " ".join(args[args.index("--exec") + 1 :])
         self.assertIn("distractions", exec_bits)
@@ -233,7 +233,7 @@ class HyprTests(unittest.TestCase):
         hypr.apply_rules(
             {
                 "list": [TELEGRAM],
-                "nudges": {"app_banner": False, "block_page": True, "entry_confirm": True},
+                "nudges": {"app_banner": False, "block_page": True},
             }
         )
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])

@@ -262,7 +262,7 @@ def _page(host, locked):
         "padding:0 1.5rem;background:#111;color:#eee}"
         "@media(prefers-color-scheme:light){body{background:#f4f4f2;color:#111}}</style>"
         f"</head><body><h1>Can't open {safe} on this workspace</h1>"
-        "<p>Super+D opens the distraction space.</p>"
+        "<p>Super+Ctrl+Shift+D opens the distraction space.</p>"
         f"{lock_note}</body></html>"
     )
 
@@ -307,7 +307,7 @@ def _maybe_banner(host):
         if last is not None and now - last < BANNER_DEBOUNCE_S:
             return
         _banner_at[key] = now
-    _notify("Blocked on this workspace", f"{host} opens in the distraction space — Super+D.")
+    _notify("Blocked on this workspace", f"{host} opens in the distraction space — Super+Ctrl+Shift+D.")
 
 
 def _tls_conn(conn):
