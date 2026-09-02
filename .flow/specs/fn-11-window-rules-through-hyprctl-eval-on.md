@@ -75,3 +75,5 @@ Fix inside the current tree rather than waiting for fn-9: the user hits this tod
 Rejected: keeping `hyprctl keyword` and parsing its stdout for the refusal text. It still cannot install rules on the Lua parser.
 Rejected: writing the rules into `~/.config/hypr/hyprland.lua` and running `hyprctl reload`. The plugin does not own that file, and a reload is disruptive on every list edit.
 Rejected: relying on same-name redefinition to replace a rule. Whether Hyprland replaces or duplicates by name is unverified, so the handle table makes disable explicit.
+
+Update 2026-09-02: PR #9 (fn-9 rewrite) merged while this spec was in flight and carried the same `hyprctl keyword` path in `ds/hypr.py`. Task .2 ports the eval primitive, handle table, and `configreloaded` re-apply into `ds/hypr.py` and `ds/listener.py`; the task .1 change to the legacy script was superseded by the rewrite and dropped at merge.

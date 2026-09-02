@@ -1,19 +1,349 @@
 {
   "branch_name": "fn-11-window-rules-through-hyprctl-eval-on",
   "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_reviewed_at": "2026-09-02T08:36:52.539310Z",
   "created_at": "2026-09-02T08:18:50.460353Z",
   "default_impl": null,
   "default_review": null,
   "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-11-window-rules-through-hyprctl-eval-on",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-11-window-rules-through-hyprctl-eval-on.1": 0,
+    "fn-11-window-rules-through-hyprctl-eval-on.2": 0
+  },
   "next_task": 1,
   "no_plan": true,
   "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "a0e74c54bb67c5970f6fc8cf6909452e2dd07a55d4f7ee75e445f69851ffee27",
+      "backend": "cursor",
+      "base_sha": "6fe05311e2e680ae22f52978f576307e926c4923",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "29b54050ab110157e470e8720b91367e3cc9c452",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 751,
+      "output_sha256": "dc9979dbb8398d573a09077c65e9b4b00be3a1e3c4aac9cdf71037bab495c4ae",
+      "reservation_id": "181743c5bf93456c8deb6cff1685a993",
+      "round_consumed": true,
+      "scope": "impl:fn-11-window-rules-through-hyprctl-eval-on.1",
+      "superseded_by": null,
+      "task": "fn-11-window-rules-through-hyprctl-eval-on.1",
+      "timestamp": "2026-09-02T08:36:12.056235Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "ec2c3122265395aa3b3789edc8d92652e9009db0b0f43b78f4421a038ab3a525",
+      "backend": "cursor",
+      "base_sha": "09d97578f7cc0305eb9424bd9c142a7fbc145d72",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "classification": "introduced",
+            "findingId": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "7c874760f540cfe5e285da0eded13b1353da58d0",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1430,
+      "output_sha256": "39fb5f7db1670e805311258f61aab75ca60c777f8cb7ba72d4d245fd390431ee",
+      "reservation_id": "9017657acb4c4266b0a708ac38d0420e",
+      "round_consumed": true,
+      "scope": "impl:fn-11-window-rules-through-hyprctl-eval-on.2",
+      "superseded_by": null,
+      "task": "fn-11-window-rules-through-hyprctl-eval-on.2",
+      "timestamp": "2026-09-02T08:58:43.657058Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "c12aa2d48c59aea7ee262de92dc6ecad34fd12e570bdd0b0e5fec63c3a40a492",
+      "backend": "cursor",
+      "base_sha": "09d97578f7cc0305eb9424bd9c142a7fbc145d72",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "classification": "introduced",
+            "findingId": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "classification": "introduced",
+            "findingId": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "0a8e422292e220895e32573b848f8b7115e8101e",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1214,
+      "output_sha256": "f96fe3446de84277ed1c98135d7a6d9a9d536349fe4c586ff33ac2bb0e05bf07",
+      "reservation_id": "f75151e25cb84eccb6785d126deaf478",
+      "round_consumed": true,
+      "scope": "impl:fn-11-window-rules-through-hyprctl-eval-on.2",
+      "superseded_by": null,
+      "task": "fn-11-window-rules-through-hyprctl-eval-on.2",
+      "timestamp": "2026-09-02T09:14:20.203046Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "bb2321875f836ea9404d13500fe17a14e810632e86f010926614cd297ed92695",
+      "backend": "cursor",
+      "base_sha": "09d97578f7cc0305eb9424bd9c142a7fbc145d72",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "classification": "introduced",
+            "findingId": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "classification": "introduced",
+            "findingId": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-42564ae7b8e9838094781e992fa21913",
+            "classification": "introduced",
+            "findingId": "finding-42564ae7b8e9838094781e992fa21913",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1dce1c1a92b67872f64558b24e3e78f997256208",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1319,
+      "output_sha256": "0c99f57398da7128495df60d1422b696ddaed266f91e5bb19b1dda5be613ccce",
+      "reservation_id": "e3fe6a2fb4244c94b4db94583593b2cb",
+      "round_consumed": true,
+      "scope": "impl:fn-11-window-rules-through-hyprctl-eval-on.2",
+      "superseded_by": null,
+      "task": "fn-11-window-rules-through-hyprctl-eval-on.2",
+      "timestamp": "2026-09-02T09:22:30.784246Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "be33175cbbc36e0497ef4162b293d95f7c65f735431e3a22e80461f43077a91e",
+      "backend": "cursor",
+      "base_sha": "09d97578f7cc0305eb9424bd9c142a7fbc145d72",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "classification": "introduced",
+            "findingId": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "classification": "introduced",
+            "findingId": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-42564ae7b8e9838094781e992fa21913",
+            "classification": "introduced",
+            "findingId": "finding-42564ae7b8e9838094781e992fa21913",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-676f3691b8cc3fb08ff82dfeb9df5172",
+            "classification": "introduced",
+            "findingId": "finding-676f3691b8cc3fb08ff82dfeb9df5172",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "69f26caa6f851253daa023586c1748c8c4a5f0b0",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1130,
+      "output_sha256": "9eb220024cf710ef2e2f6d750820969153b6adad5f01d65578932b9bc7f7d6fe",
+      "reservation_id": "959669cfc2454a6cb5118b00118def00",
+      "round_consumed": true,
+      "scope": "impl:fn-11-window-rules-through-hyprctl-eval-on.2",
+      "superseded_by": null,
+      "task": "fn-11-window-rules-through-hyprctl-eval-on.2",
+      "timestamp": "2026-09-02T09:39:04.912089Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "62565e68bf7463417624c716fb41749100c480fbdd7468f0871f4dfe5f627123",
+      "backend": "cursor",
+      "base_sha": "09d97578f7cc0305eb9424bd9c142a7fbc145d72",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "classification": "introduced",
+            "findingId": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "classification": "introduced",
+            "findingId": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-42564ae7b8e9838094781e992fa21913",
+            "classification": "introduced",
+            "findingId": "finding-42564ae7b8e9838094781e992fa21913",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-676f3691b8cc3fb08ff82dfeb9df5172",
+            "classification": "introduced",
+            "findingId": "finding-676f3691b8cc3fb08ff82dfeb9df5172",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "8d7b8d515b10e9ebaf64d44227c494c6f1f0c6f6",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 588,
+      "output_sha256": "c7793ec8aa5c00c8732db9fa7fba3abd64848de26412846d3bffeabd07df899b",
+      "reservation_id": "3f06c21aee434162a4f2768cca2ea667",
+      "round_consumed": true,
+      "scope": "impl:fn-11-window-rules-through-hyprctl-eval-on.2",
+      "superseded_by": null,
+      "task": "fn-11-window-rules-through-hyprctl-eval-on.2",
+      "timestamp": "2026-09-02T09:41:42.950544Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-11-window-rules-through-hyprctl-eval-on.1": 1,
+    "impl:fn-11-window-rules-through-hyprctl-eval-on.2": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-11-window-rules-through-hyprctl-eval-on.1": 0,
+    "impl:fn-11-window-rules-through-hyprctl-eval-on.2": 0
+  },
   "spec_path": ".flow/specs/fn-11-window-rules-through-hyprctl-eval-on.md",
   "status": "open",
   "title": "Window rules through hyprctl eval on the Lua config",
@@ -28,5 +358,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T08:18:50.888521Z"
+  "updated_at": "2026-09-02T09:41:42.952975Z"
 }

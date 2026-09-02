@@ -154,6 +154,27 @@ class NetTests(unittest.TestCase):
         self.assertNotIn("replace ds", text)
         self.assertEqual(net.site_block, "off")
 
+    def test_flush_does_not_inherit_an_open_stdin(self):
+        # The wrapper reads stdin to EOF on flush. With an inherited stdin that never
+        # closes (a socket, a pipe held by the launcher), apply([]) would block forever.
+        r, w = os.pipe()
+        saved = os.dup(0)
+        result = {}
+        worker = threading.Thread(target=lambda: result.setdefault("value", net.apply([])), daemon=True)
+        try:
+            os.dup2(r, 0)
+            worker.start()
+            worker.join(timeout=5)
+            self.assertFalse(worker.is_alive(), "flush blocked on the inherited stdin")
+        finally:
+            os.dup2(saved, 0)
+            os.close(saved)
+            os.close(w)
+            os.close(r)
+            worker.join(timeout=5)
+        self.assertEqual(result.get("value"), "off")
+        self.assertIn(f"{setup.wrapper_dest()} flush ds", self.nft_log.read_text(encoding="utf-8"))
+
     def test_keep_reachable_subtracted(self):
         self._map({
             "blocked.example": ["203.0.113.10", "198.51.100.10"],

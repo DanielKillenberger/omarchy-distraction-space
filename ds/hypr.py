@@ -9,6 +9,8 @@ import time
 from ds import state
 
 SPACE = "distraction"
+WORKSPACE_EFFECT = f"name:{SPACE} silent"
+RULE_HANDLES = "_G.omarchy_ds_rules"
 BANNER_S = 30
 GLYPH = "󰈈"
 
@@ -113,6 +115,69 @@ def _rule_names(entries):
     return names, specs
 
 
+def lua_string(value):
+    """Double-quoted Lua literal for any Python string (regex patterns included)."""
+    out = ['"']
+    for ch in value:
+        code = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif code < 32 or code == 127:
+            out.append(f"\\{code:03d}")
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
+def set_rule_lua(name, klass, workspace=WORKSPACE_EFFECT):
+    """Lua for `hyprctl eval`: retire any previous handle under `name`, then create the rule.
+
+    `hyprctl keyword` refuses on the Lua config parser (exit 0, message on stdout), so
+    rules go through `hl.window_rule`. Handles live in a Lua global table so a later
+    disable or re-apply can reach them. The old handle is disabled first so two rules
+    never share a name (whether Hyprland replaces or duplicates by name is unverified).
+    A create error propagates so eval exits nonzero; `apply_rules` then re-sets the
+    name from its recorded class.
+    """
+    key = lua_string(name)
+    # The first line never starts with "-": hyprctl parses a leading "--" as a flag.
+    return "\n".join(
+        [
+            f"local rules = {RULE_HANDLES} or {{}}  -- omarchy-ds set {name}",
+            f"{RULE_HANDLES} = rules",
+            f"local old = rules[{key}]",
+            "if old ~= nil then pcall(function() old:set_enabled(false) end) end",
+            "local rule = hl.window_rule({ "
+            f"name = {key}, match = {{ class = {lua_string(klass)} }}, workspace = {lua_string(workspace)}"
+            " })",
+            f"rules[{key}] = rule",
+        ]
+    )
+
+
+def disable_rule_lua(name):
+    """Lua for `hyprctl eval`: disable the stored handle for `name`; a missing handle is a no-op."""
+    key = lua_string(name)
+    return "\n".join(
+        [
+            f"local rules = {RULE_HANDLES}  -- omarchy-ds disable {name}",
+            f"local rule = rules and rules[{key}]",
+            f"if rule ~= nil then rules[{key}] = nil; pcall(function() rule:set_enabled(false) end) end",
+        ]
+    )
+
+
+def is_config_reload(line):
+    """True for the socket2 `configreloaded` event, which drops every eval-created rule."""
+    raw = (line or "").strip() if isinstance(line, str) else ""
+    if raw.startswith(">>"):
+        raw = raw[2:]
+    return raw.split(">>", 1)[0] == "configreloaded"
+
+
 def _read_rule_names():
     data = state.read_json(state.state_path("rules.json"), [])
     if isinstance(data, list):
@@ -132,22 +197,69 @@ def apply_rules(expanded):
     names, specs = _rule_names(entries)
     if len(names) != len(set(names)):
         _log("apply_rules: generated windowrule names collide; skipped")
-        return
+        return False
     old = _read_rule_names()
+    old_specs = _read_rule_specs()
+    created = []
     for name, klass in specs:
-        _run("keyword", f"windowrule[{name}]:match:class {klass}")
-        _run("keyword", f"windowrule[{name}]:workspace name:{SPACE} silent")
-        _run("keyword", f"windowrule[{name}]:enable true")
+        if _run("eval", set_rule_lua(name, klass, WORKSPACE_EFFECT)) is None:
+            _rollback_created(created + [name], old_specs)
+            _notify("Distraction list", "Window rules could not be updated. Keeping the previous set.")
+            return False
+        created.append(name)
     desired = set(names)
     recorded = list(names)
     seen = set(names)
     for name in old:
         if name not in desired:
-            if _run("keyword", f"windowrule[{name}]:enable false") is None:
+            if _run("eval", disable_rule_lua(name)) is None:
                 if name not in seen:
                     recorded.append(name)
                     seen.add(name)
+    new_specs = dict(specs)
+    for name in recorded:
+        if name not in new_specs and name in old_specs:
+            new_specs[name] = old_specs[name]
     state.write_json(state.state_path("rules.json"), recorded)
+    state.write_json(state.state_path("rule-specs.json"), new_specs)
+    return True
+
+
+def _read_rule_specs():
+    data = state.read_json(state.state_path("rule-specs.json"), {})
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str) and v}
+
+
+def _rollback_created(created, old_specs):
+    """Restore the previous active set after a failed batch.
+
+    Names that existed before are re-set with their recorded class; names this batch
+    brought into being are disabled. `created` includes the name whose create just
+    failed: the fragment retires the old handle before creating, so a Lua-level
+    failure leaves that name with no live rule until this re-set puts it back. Both registries stay untouched so the next apply
+    retries the whole set. A name with no recorded class (registry written before
+    rule-specs.json existed) is disabled.
+    """
+    for name in reversed(created):
+        prev = old_specs.get(name)
+        if prev is not None:
+            _run("eval", set_rule_lua(name, prev, WORKSPACE_EFFECT))
+        else:
+            _run("eval", disable_rule_lua(name))
+
+
+def _notify(title, body):
+    try:
+        subprocess.run(
+            ["omarchy-notification-send", "-g", GLYPH, title, body],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except Exception:
+        pass
 
 
 def _current_entries():

@@ -297,6 +297,10 @@ class _Ctx:
         self._drop_waiters()
         self.write_state(True)
     def event(self, line):
+        if hypr.is_config_reload(line):
+            hypr.apply_rules(self.exp)
+            _scan(self.exp.get("list") or [])
+            return
         hypr.handle_event(line)
         name = _workspace_name(line)
         if name is not None:

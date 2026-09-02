@@ -38,7 +38,13 @@ if args[:1] == ["-j"] and len(args) >= 2:
     key = args[1]
     print(json.dumps(data.get(key) or ([] if key == "clients" else {"id": 1, "name": "1"})))
     sys.exit(0)
-if args[:1] in (["keyword"], ["dispatch"]):
+if args[:1] == ["keyword"]:
+    print("keyword can't work with non-legacy parsers. Use eval.")
+    sys.exit(1)
+if args[:1] == ["eval"] and (len(args) < 2 or args[1].startswith("-")):
+    sys.stderr.write("usage: hyprctl [flags] <command> [args...|--help]\n")
+    sys.exit(1)
+if args[:1] in (["eval"], ["dispatch"]):
     sys.exit(0)
 sys.exit(1)
 """
@@ -616,6 +622,58 @@ class ListenerTests(unittest.TestCase):
         self.assertEqual(self._hooks().count("enter"), 1)
         self.assertEqual(self._hooks().count("leave"), 1)
         self.assertTrue(_wait(lambda: (self._state() or {}).get("on_space") is False, 3), self._state())
+
+    def _evals(self, marker):
+        if not self.hypr_log.exists():
+            return []
+        out = []
+        for line in self.hypr_log.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            argv = json.loads(line)
+            if argv[:1] == ["eval"] and marker in argv[1]:
+                out.append(argv[1])
+        return out
+
+    def test_configreloaded_reapplies_rules_and_rescans(self):
+        self._cfg(list=["Telegram", "x.com"])
+        self._start()
+        self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: len(self._evals("omarchy-ds set")) >= 1, 4))
+        boot_sets = self._evals("omarchy-ds set")
+        self.assertNotIn("keyword", self.hypr_log.read_text(encoding="utf-8"))
+        self._workspace("1", 1, clients=[{
+            "address": "0xbeef", "class": "org.telegram.desktop",
+            "workspace": {"id": 1, "name": "1"},
+        }])
+        self.hypr_log.write_text("", encoding="utf-8")
+        self._send("configreloaded>>")
+        self.assertTrue(_wait(lambda: self._evals("omarchy-ds set") == boot_sets, 4), self._evals("omarchy-ds set"))
+        self.assertTrue(_wait(lambda: "movetoworkspacesilent" in self.hypr_log.read_text(encoding="utf-8"), 4))
+        self.assertIn("0xbeef", self.hypr_log.read_text(encoding="utf-8"))
+        self.assertIsNone(self.proc.poll(), self._err())
+        self.assertEqual(self._hooks(), [])
+
+    def test_configreloaded_rule_failure_notifies_and_keeps_listener(self):
+        fail = self.box.runtime / "hypr.fail"
+        os.environ["DS_HYPR_FAIL"] = str(fail)  # the double fails while this file exists
+        self._cfg(list=["Telegram", "x.com"])
+        self._start()
+        self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: len(self._evals("omarchy-ds set")) >= 1, 4))
+        boot_sets = self._evals("omarchy-ds set")
+        fail.write_text("", encoding="utf-8")
+        self.hypr_log.write_text("", encoding="utf-8")
+        self._send("configreloaded>>")
+        self.assertTrue(
+            _wait(lambda: self.notify_log.exists() and "Window rules could not be updated" in self.notify_log.read_text(encoding="utf-8"), 4),
+            self.notify_log.read_text(encoding="utf-8") if self.notify_log.exists() else "",
+        )
+        self.assertIsNone(self.proc.poll(), self._err())
+        fail.unlink()
+        self._send("configreloaded>>")
+        self.assertTrue(_wait(lambda: self._evals("omarchy-ds set") == boot_sets, 4), self._evals("omarchy-ds set"))
+        self.assertIsNone(self.proc.poll(), self._err())
 
     def test_reload_preserves_transition_baseline(self):
         self._cfg()
