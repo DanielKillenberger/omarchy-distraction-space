@@ -103,6 +103,10 @@ class SummaryUnitTests(_Env):
         return [json.loads(ln) for ln in self.agent_log.read_text(encoding="utf-8").splitlines()] \
             if self.agent_log.exists() else []
 
+    def _log_text(self):
+        p = self.box.state_dir / "log"
+        return p.read_text(encoding="utf-8") if p.exists() else ""
+
     def test_resolve_auto_prefers_claude_then_grok_then_count(self):
         self.assertEqual(summary.resolve_command(_cfg()), ["claude", "-p", "--output-format", "text"])
         (self.box.bin / "claude").unlink()
@@ -144,18 +148,25 @@ class SummaryUnitTests(_Env):
 
     def test_failure_timeout_empty_off_and_missing_fall_back_to_the_grouped_count(self):
         cases = [
-            ("exit 1", {"DS_AGENT_RC": "1"}, _cfg()),
-            ("timeout", {"DS_AGENT_SLEEP": "5"}, _cfg(timeout_seconds=1)),
-            ("empty", {"DS_AGENT_REPLY": " \n"}, _cfg()),
-            ("off", {}, _cfg(command="off")),
-            ("missing", {}, _cfg(command=[str(self.box.bin / "no-such-agent")])),
+            ("exit 1", {"DS_AGENT_RC": "1"}, _cfg(), "summary: claude exited 1"),
+            ("timeout", {"DS_AGENT_SLEEP": "5"}, _cfg(timeout_seconds=1), "summary: claude timed out after 1s"),
+            ("empty", {"DS_AGENT_REPLY": " \n"}, _cfg(), None),
+            ("off", {}, _cfg(command="off"), None),
+            ("missing", {}, _cfg(command=[str(self.box.bin / "no-such-agent")]), "no-such-agent"),
         ]
-        for name, env, cfg in cases:
+        for name, env, cfg, log_bit in cases:
             with self.subTest(case=name):
                 with mock.patch.dict(os.environ, env):
+                    before = self._log_text()
                     t0 = time.monotonic()
                     self.assertEqual(summary.body(RECORDS, cfg), GROUPED)
                     self.assertLess(time.monotonic() - t0, 4.0)
+                    tail = self._log_text()[len(before):]
+                    if log_bit is None:
+                        self.assertEqual(tail, "")
+                    else:
+                        self.assertIn("summary: ", tail)
+                        self.assertIn(log_bit, tail)
         self.assertEqual(summary.grouped({"A": 1, "B": 3, "C": 1}), "B 3 · A 1 · C 1")
 
     def test_take_consumes_records_and_zero_records_show_nothing(self):

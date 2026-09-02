@@ -7,12 +7,11 @@ import os
 import select
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
 import time
 
-from ds import config, hold, ui
+from ds import config, hold, state, ui
 
 TITLE = "While you were away"
 CLIP = 800
@@ -27,7 +26,13 @@ PROMPT = (
 
 
 def _log(msg):
-    print(f"summary: {msg}", file=sys.stderr, flush=True)
+    path = state.state_path("log")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{state.now_iso()} summary: {msg}\n")
+    except OSError:
+        pass
 
 
 def settings(cfg) -> dict:

@@ -69,3 +69,5 @@ Redirect the suite to a file. A leaked child in one test keeps a pipe open, so p
 <!-- scope: both -->
 
 The user chose on 2026-09-02 to keep the banner as the HTTPS feedback and to make it origin-aware rather than adding an in-browser page. Rejected: a global rate limit alone, because it hides the banner the person actually needs while the X web app keeps polling.
+
+Wording fix 2026-09-02 (task 1 review, Opus): the R2 fallback applies only when the process that opened the connection itself owns a window matching the entry's classes, and all of those windows are on the distraction space. The literal "every window matching those classes" would also silence a terminal `curl https://x.com` while the X web app sits on the space, which R5 forbids. Accepted follow-ups from the same review: memoize the on-space verdict per banner key for about a second (the per-connection /proc/<pid>/fd scan costs ~60 ms), and do not hold the clients-cache lock across the hyprctl subprocess.

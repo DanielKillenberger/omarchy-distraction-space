@@ -180,6 +180,7 @@ class _Ctx:
         self.pending, self.lock, self.wake_w = None, threading.Lock(), None
         self.clients = []
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
+        self.hold_failed_at = 0.0
         self.capture, self.mute = hold.Capture(), hold.Mute()
     def _note_invalid(self):
         if not self.noted:
@@ -196,14 +197,20 @@ class _Ctx:
     def hold_table(self):
         return hold.key_table(self.exp.get("list") or [])
     def sync_hold(self, force=False):
-        """Push the plugin's sender keys on every change of effective hold or of the keys."""
+        """Push the plugin's sender keys on every change of effective hold or of the keys.
+
+        While the shell answered `unavailable`, the push is retried once per PERIOD until it takes.
+        """
         want = hold.effective_hold(self.cfg, self.prev, lock.is_locked())
         keys = list(self.hold_table())
-        if not force and want == self.hold_on and keys == self.pushed:
+        now = time.monotonic()
+        retry = self.hold_ipc == "unavailable" and now - self.hold_failed_at >= PERIOD
+        if not force and not retry and want == self.hold_on and keys == self.pushed:
             return
         self.hold_ipc = hold.push(keys, want, retire=[k for k in self.pushed if k not in keys])
         self.hold_on, self.pushed = want, keys
         if self.hold_ipc == "unavailable":
+            self.hold_failed_at = now
             self._note_hold()
         self.mute.sync(want and hold.mute_on(self.cfg), hold.audio_table(self.exp.get("list") or []))
     def release_hold(self):

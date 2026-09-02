@@ -136,12 +136,15 @@ class HyprTests(unittest.TestCase):
             if line.strip()
         ]
 
-    def _client(self, address, klass, workspace="1"):
-        return {
+    def _client(self, address, klass, workspace="1", pid=None):
+        client = {
             "address": address,
             "class": klass,
             "workspace": {"id": 1 if workspace != hypr.SPACE else 99, "name": workspace},
         }
+        if pid is not None:
+            client["pid"] = pid
+        return client
 
     def test_two_classes_yield_two_named_rules_and_rules_json(self):
         self.assertTrue(hypr.apply_rules([TELEGRAM]))
@@ -555,6 +558,61 @@ class HyprTests(unittest.TestCase):
         self.assertIn("hyprctl", log)
         self.assertIn("activeworkspace", log)
         self.assertIn("skipping banner", log)
+
+    def test_clients_cached_once_per_second_and_failed_read_not_cached(self):
+        clients = [self._client("0xaaa", NATIVE, "1")]
+        self._state(clients=clients)
+        clock = mock.Mock()
+        clock.side_effect = lambda: clock.t
+        clock.t = 10.0
+        with mock.patch("ds.hypr.time.monotonic", clock):
+            first = hypr.clients_cached()
+            clock.t = 10.4
+            second = hypr.clients_cached()
+            self.assertEqual(first, clients)
+            self.assertIs(first, second)
+            n = sum(1 for c in self._hypr_cmds() if c[:2] == ["-j", "clients"])
+            self.assertEqual(n, 1)
+            clock.t = 11.1
+            third = hypr.clients_cached()
+            n = sum(1 for c in self._hypr_cmds() if c[:2] == ["-j", "clients"])
+            self.assertEqual(n, 2)
+            self.assertEqual(third, clients)
+
+        os.environ["DS_HYPR_FAIL"] = "clients"
+        hypr._reset_for_tests()
+        self.hypr_log.write_text("", encoding="utf-8")
+        self.assertIsNone(hypr.clients_cached())
+        self.assertIsNone(hypr.clients_cached())
+        n = sum(1 for c in self._hypr_cmds() if c[:2] == ["-j", "clients"])
+        self.assertEqual(n, 2)
+
+    def test_entry_for_host_www_and_case(self):
+        x = expand_entry("X")
+        extra = {"name": "Ex", "hosts": ["www.Example.COM"], "classes": ["ExClass"]}
+        hypr._entries = [x, extra]
+        self.assertEqual(hypr.entry_for_host("x.com")["name"], "X")
+        self.assertEqual(hypr.entry_for_host("www.x.com")["name"], "X")
+        self.assertEqual(hypr.entry_for_host("API.X.COM")["name"], "X")
+        self.assertEqual(hypr.entry_for_host("example.com")["name"], "Ex")
+        self.assertEqual(hypr.entry_for_host("WWW.example.com")["name"], "Ex")
+        self.assertIsNone(hypr.entry_for_host("unknown.example"))
+        self.assertIsNone(hypr.entry_for_host(None))
+        self.assertIsNone(hypr.entry_for_host(""))
+
+    def test_entry_clients_on_space(self):
+        x = expand_entry("X")
+        klass = "chrome-x.com__-Default"
+        on = [self._client("0xa", klass, hypr.SPACE, pid=10)]
+        self.assertTrue(hypr.entry_clients_on_space(x, on))
+        mixed = [
+            self._client("0xa", klass, hypr.SPACE, pid=10),
+            self._client("0xb", klass, "1", pid=10),
+        ]
+        self.assertFalse(hypr.entry_clients_on_space(x, mixed))
+        none = [self._client("0xc", "google-chrome", hypr.SPACE, pid=10)]
+        self.assertFalse(hypr.entry_clients_on_space(x, none))
+        self.assertFalse(hypr.entry_clients_on_space({"name": "Z", "hosts": ["z.com"]}, on))
 
     def test_cli_next_prev_dispatch_workspace(self):
         occupied = [

@@ -29,7 +29,7 @@ args = sys.argv[1:]
 if args[:1] != ["notifications"]:
     print("Target not found.")
     sys.exit(1)
-if os.environ.get("DS_SHELL_MISSING"):
+if Path(os.environ.get("DS_SHELL_MISSING", "/nonexistent")).exists():
     print("Function not found.")
     sys.exit(1)
 path = Path(os.environ["DS_SHELL_STATE"])
@@ -120,6 +120,10 @@ class HoldUnitTests(unittest.TestCase):
     def _calls(self):
         return self.shell_log.read_text().splitlines() if self.shell_log.exists() else []
 
+    def _log_text(self):
+        p = self.box.state_dir / "log"
+        return p.read_text(encoding="utf-8") if p.exists() else ""
+
     def test_sender_keys_cover_senders_pwa_hosts_and_plain_hosts(self):
         expanded = catalog.expand({"list": [*LIST, {"name": "Foo", "hosts": ["www.foo.org"], "senders": ["Foo App"]}]})
         self.assertEqual(hold.sender_keys(expanded), [*KEYS, "foo app", "foo.org"])
@@ -170,9 +174,12 @@ class HoldUnitTests(unittest.TestCase):
         self.assertFalse(hold.owned_path().exists())
 
     def test_push_missing_method_is_unavailable_without_a_set_call(self):
-        os.environ["DS_SHELL_MISSING"] = "1"
+        missing = self.box.runtime / "shell-missing"
+        missing.write_text("1")
+        os.environ["DS_SHELL_MISSING"] = str(missing)
         self.assertEqual(hold.push(KEYS, True), "unavailable")
         self.assertEqual(self._calls(), ["notifications silencedSenders"])
+        self.assertIn("hold: silencedSenders: Function not found.", self._log_text())
         with mock.patch.object(hold.subprocess, "run", side_effect=PermissionError("denied")):
             self.assertEqual(hold.push(KEYS, True), "unavailable")
 
@@ -276,14 +283,14 @@ class HoldListenerTests(unittest.TestCase):
         write_json(self.hypr_state, {"activeworkspace": {"id": wid, "name": name}, "clients": [],
                                      "workspaces": [{"id": 1, "name": "1"}, {"id": 5, "name": "distraction"}]})
 
-    def _start(self):
+    def _start(self, extra_env=None):
         import socket
         self.sock2 = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.sock2.bind(str(self.sock2_path))
         self.sock2.listen(1)
         self.sock2.settimeout(5)
         self.addCleanup(self.sock2.close)
-        self.proc = self.box.popen("listen")
+        self.proc = self.box.popen("listen", extra_env=extra_env)
         self.conn, _ = self.sock2.accept()
         self.addCleanup(self.conn.close)
         self.box.wait_file(self.box.runtime / "distraction-space.sock", timeout=5)
@@ -326,6 +333,10 @@ class HoldListenerTests(unittest.TestCase):
         text = self.notify_log.read_text(encoding="utf-8") if self.notify_log.exists() else ""
         return [ln for ln in text.splitlines() if "Notification hold unavailable" in ln]
 
+    def _log_text(self):
+        p = self.box.state_dir / "log"
+        return p.read_text(encoding="utf-8") if p.exists() else ""
+
     def test_hold_pushes_captures_releases_and_removes_on_exit(self):
         self.shell_state.write_text(json.dumps(["hand added"]))
         self._start()
@@ -356,7 +367,9 @@ class HoldListenerTests(unittest.TestCase):
         self.assertEqual(self._notices(), [])
 
     def test_missing_method_is_unavailable_once_and_capture_continues(self):
-        os.environ["DS_SHELL_MISSING"] = "1"
+        missing = self.box.runtime / "shell-missing"
+        missing.write_text("1")
+        os.environ["DS_SHELL_MISSING"] = str(missing)
         self._start()
         self.assertTrue(_wait(lambda: self._state().get("notification_hold") == "unavailable", 5), self._state())
         self.assertTrue(self._state().get("hold"))
@@ -371,6 +384,34 @@ class HoldListenerTests(unittest.TestCase):
         self.assertEqual(len(self._notices()), 1)
         self.assertGreaterEqual(self.shell_log.read_text().count("silencedSenders"), 3)
 
+    def test_unavailable_shell_recovers_on_a_later_tick_with_one_notice(self):
+        missing = self.box.runtime / "shell-missing"
+        missing.write_text("1")
+        os.environ["DS_SHELL_MISSING"] = str(missing)
+        site = self.box.runtime / "pysite"
+        site.mkdir(exist_ok=True)
+        (site / "sitecustomize.py").write_text(
+            "import sys\n"
+            f"sys.path.insert(0, {str(ROOT)!r})\n"
+            "from ds import listener\n"
+            "listener.PERIOD = 1.0\n",
+            encoding="utf-8",
+        )
+        self._start(extra_env={"PYTHONPATH": str(site)})
+        self.assertTrue(_wait(lambda: self._state().get("notification_hold") == "unavailable", 5), self._state())
+        self.assertEqual(len(self._notices()), 1)
+        self.assertIn("hold: silencedSenders: Function not found.", self._log_text())
+        missing.unlink()
+        self.assertTrue(
+            _wait(lambda: self._state().get("notification_hold") == "on" and self._silenced() == KEYS, 6),
+            (self._state(), self._silenced()),
+        )
+        self.assertEqual(len(self._notices()), 1)
+        self.assertTrue(
+            any(ln.split()[1:2] == ["silence"] for ln in self.shell_log.read_text().splitlines()),
+            self.shell_log.read_text(),
+        )
+
     def test_busctl_exit_restarts_with_backoff(self):
         self.bus_exit.write_text("1")
         self._start()
@@ -381,9 +422,10 @@ class HoldListenerTests(unittest.TestCase):
         self.assertGreaterEqual(t[1] - t[0], 0.9, t)
         self.assertGreaterEqual(t[2] - t[1], 3.9, t)
         self.assertLess(t[2] - t[1], 8.0, t)
-        err = self._stop()
-        self.assertIn("busctl exited with 3; restarting in 1s", err)
-        self.assertIn("restarting in 4s", err)
+        self._stop()
+        log = self._log_text()
+        self.assertIn("hold: busctl exited with 3; restarting in 1s", log)
+        self.assertIn("hold: busctl exited with 3; restarting in 4s", log)
 
 
 if __name__ == "__main__":
