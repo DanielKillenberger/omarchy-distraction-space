@@ -550,7 +550,7 @@
     "impl:fn-10-notification-hold-sound-mute-and-the.4": 0
   },
   "spec_path": ".flow/specs/fn-10-notification-hold-sound-mute-and-the.md",
-  "status": "open",
+  "status": "done",
   "title": "Notification hold, sound mute, and the agent one-liner",
   "tracker": {
     "baseHashFlow": null,
@@ -563,5 +563,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T12:52:56.468550Z"
+  "updated_at": "2026-09-02T12:54:20.791244Z"
 }
