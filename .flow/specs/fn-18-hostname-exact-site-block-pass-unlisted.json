@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-18-hostname-exact-site-block-pass-unlisted",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-02T15:18:12.440646Z",
   "created_at": "2026-09-02T14:04:27.073251Z",
   "default_impl": null,
   "default_review": null,
@@ -294,15 +294,45 @@
       "task": "fn-18-hostname-exact-site-block-pass-unlisted.2",
       "timestamp": "2026-09-02T15:13:25.683247Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "bd2aa36c76a4db1f0111650e3c5ffb460afc79844c1c33dd64b2e68b6c79cc33",
+      "backend": "cursor",
+      "base_sha": "7f009b865fe7c57e222807282fefcc7b379fa5e2",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "f60618d79e933ee9f6a131d1238da3f23ba1dc36",
+      "head_sha_observed": true,
+      "kind": "completion",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 3980,
+      "output_sha256": "7db4742122d7d72646f59e51ec6847dcaa745ebdde072a82ee15551e4b221c49",
+      "reservation_id": "7d058329e67c460fa7fd2b45e2a53ca6",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-02T15:18:12.438585Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-18-hostname-exact-site-block-pass-unlisted.1": 1,
-    "impl:fn-18-hostname-exact-site-block-pass-unlisted.2": 1
+    "impl:fn-18-hostname-exact-site-block-pass-unlisted.2": 1,
+    "plan#completion": 1
   },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "completion": 0,
     "impl:fn-18-hostname-exact-site-block-pass-unlisted.1": 0,
     "impl:fn-18-hostname-exact-site-block-pass-unlisted.2": 0
   },
@@ -320,5 +350,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T15:13:25.692511Z"
+  "updated_at": "2026-09-02T15:18:12.441169Z"
 }
