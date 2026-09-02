@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import socket
@@ -825,6 +826,215 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(feedback.pass_through_state(), "on")
         feedback.stop()
         self.assertEqual(feedback.pass_through_state(), "unavailable")
+
+    def _fake_dest_multi(self, count, reply=REPLY):
+        """A destination that serves `count` connections, recording each source port."""
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(8)
+        srv.settimeout(3.0)
+        port = srv.getsockname()[1]
+        rec = {"sports": []}
+
+        def one(conn):
+            conn.settimeout(2.0)
+            try:
+                conn.recv(65536)
+                conn.sendall(reply)
+            except OSError:
+                pass
+            finally:
+                conn.close()
+
+        def serve():
+            workers = []
+            for _ in range(count):
+                try:
+                    conn, addr = srv.accept()
+                except OSError:
+                    break
+                rec["sports"].append(addr[1])
+                w = threading.Thread(target=one, args=(conn,), daemon=True)
+                w.start()
+                workers.append(w)
+            for w in workers:
+                w.join(timeout=3)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+
+        def _cleanup():
+            try:
+                srv.close()
+            except OSError:
+                pass
+            t.join(timeout=3)
+
+        self.addCleanup(_cleanup)
+        return port, rec
+
+    def _wait_splices(self, want, timeout=2.0):
+        deadline = time.monotonic() + timeout
+        while feedback._splices != want and time.monotonic() < deadline:
+            time.sleep(0.01)
+        return feedback._splices
+
+    def test_r1_concurrent_splices_to_one_destination_take_distinct_ports(self):
+        dest, rec = self._fake_dest_multi(2)
+        req = b"GET / HTTP/1.1\r\nHost: other.example\r\n\r\n"
+        results = {}
+
+        def go(key):
+            results[key] = _exchange("127.0.0.1", HTTP_PORT, req, timeout=4.0)
+
+        # Every splice starts its port search at the same offset, so without a registry
+        # of live source ports the two would bind the same port and the second connect
+        # would fail on the four-tuple.
+        with patch("ds.feedback.random.randrange", lambda span: 0):
+            with patch("ds.feedback._original_dst", lambda conn: ("127.0.0.1", dest)):
+                self._start(config=CFG_ON)
+                a = threading.Thread(target=go, args=("a",))
+                b = threading.Thread(target=go, args=("b",))
+                a.start()
+                b.start()
+                a.join(timeout=6)
+                b.join(timeout=6)
+        self.assertEqual(results, {"a": REPLY, "b": REPLY})
+        self.assertEqual(len(rec["sports"]), 2)
+        self.assertNotEqual(rec["sports"][0], rec["sports"][1])
+        self.assertEqual(self._wait_splices(0), 0)
+        self.assertEqual(feedback._ports_in_use, set())
+
+    def test_r1_open_splice_retries_another_port_on_tuple_collision(self):
+        dest, rec = self._fake_dest()
+        real_connect = socket.socket.connect
+        tried = []
+
+        def collide_once(sock, addr):
+            tried.append(sock.getsockname()[1])
+            if len(tried) == 1:
+                raise OSError(errno.EADDRNOTAVAIL, "four-tuple still in TIME_WAIT")
+            return real_connect(sock, addr)
+
+        with patch.object(socket.socket, "connect", collide_once):
+            up, port, why = feedback._open_splice(("127.0.0.1", dest), socket.AF_INET)
+        self.assertIsNotNone(up)
+        self.assertIsNone(why)
+        self.assertEqual(len(tried), 2)
+        self.assertNotEqual(tried[0], tried[1])
+        self.assertEqual(port, tried[1])
+        self.assertEqual(feedback._ports_in_use, {port})
+        up.close()
+        feedback._free_port(port)
+        self.assertEqual(feedback._ports_in_use, set())
+
+        def refuse(sock, addr):
+            raise OSError(errno.ECONNREFUSED, "refused")
+
+        with patch.object(socket.socket, "connect", refuse):
+            up, port, why = feedback._open_splice(("127.0.0.1", dest), socket.AF_INET)
+        self.assertIsNone(up)
+        self.assertIsNone(port)
+        self.assertEqual(why, "connect")
+        self.assertEqual(feedback._ports_in_use, set())
+
+    def test_r1_pass_through_serves_with_block_page_nudge_off(self):
+        self._list_hosts("x.com")
+        cfg = {"nudges": {"block_page": False}, "site_block": {"pass_through": True}}
+        dest, rec = self._fake_dest()
+        req = b"GET / HTTP/1.1\r\nHost: other.example\r\n\r\n"
+        with patch("ds.feedback._original_dst", lambda conn: ("127.0.0.1", dest)):
+            self._start(config=cfg)
+            self.assertEqual(feedback.pass_through_state(), "on")
+            got = _exchange("127.0.0.1", HTTP_PORT, req)
+            self.assertEqual(got, REPLY)
+            self.assertEqual(rec["got"], req)
+            # Listed hosts keep the pre-router behavior of the nudge being off: a fast
+            # close with no page and no banner.
+            page = _http_get("x.com")
+            tls_got = _exchange("127.0.0.1", TLS_PORT, make_client_hello("x.com"))
+        self.assertEqual(page, b"")
+        self.assertEqual(tls_got, b"")
+        self.assertEqual(self._banners(), [])
+
+        both_off = {"nudges": {"block_page": False}, "site_block": {"pass_through": False}}
+        self._start(config=both_off)
+        self.assertEqual(feedback.pass_through_state(), "off")
+        with self.assertRaises(OSError):
+            sock = socket.create_connection(("127.0.0.1", HTTP_PORT), timeout=1.0)
+            sock.close()
+
+    def test_r4_reload_keeps_live_splices_counted(self):
+        dest, rec = self._fake_dest(reply=b"")
+        req = b"GET / HTTP/1.1\r\nHost: other.example\r\n\r\n"
+        with patch("ds.feedback._original_dst", lambda conn: ("127.0.0.1", dest)):
+            self._start(config=CFG_ON)
+            cli = socket.create_connection(("127.0.0.1", HTTP_PORT), timeout=3.0)
+            self.addCleanup(cli.close)
+            cli.sendall(req)
+            self.assertEqual(self._wait_splices(1), 1)
+            self.assertEqual(len(feedback._ports_in_use), 1)
+            # A config reload restarts the listeners while the splice is still pumping.
+            self._start(config=CFG_ON)
+        self.assertEqual(feedback._splices, 1)
+        self.assertEqual(len(feedback._ports_in_use), 1)
+        cli.close()
+        self.assertEqual(self._wait_splices(0, timeout=4.0), 0)
+        self.assertEqual(feedback._ports_in_use, set())
+
+    def test_r2_fragmented_clienthello_still_reaches_listed_host_block(self):
+        hello = make_client_hello("x.com")
+        hs = hello[5:]
+        first, rest = hs[:20], hs[20:]
+        frag = (b"\x16\x03\x01" + _u16(len(first)) + first
+                + b"\x16\x03\x01" + _u16(len(rest)) + rest)
+        self.assertEqual(feedback.parse_sni(frag), "x.com")
+        self.assertFalse(feedback._tls_done(frag[:-1]))
+        self.assertTrue(feedback._tls_done(frag))
+        self.assertTrue(feedback._tls_done(b"GET / HTTP/1.1\r\n"))
+        for cut in range(1, len(frag)):
+            with self.subTest(cut=cut):
+                self.assertIsNone(feedback.parse_sni(frag[:cut]))
+
+        self._list_hosts("x.com")
+        dest, rec = self._fake_dest()
+        with patch("ds.feedback._original_dst", lambda conn: ("127.0.0.1", dest)):
+            self._start(config=CFG_ON)
+            got = _exchange("127.0.0.1", TLS_PORT, frag)
+        self.assertEqual(got, b"")
+        self.assertEqual(rec["got"], b"")
+        self.assertIsNone(rec["sport"])
+        self.assertEqual(len(self._banners()), 1)
+
+        self._clear_banners()
+        dest2, rec2 = self._fake_dest()
+        unlisted = make_client_hello("safebrowsing.google.com")
+        hs2 = unlisted[5:]
+        frag2 = (b"\x16\x03\x01" + _u16(9) + hs2[:9]
+                 + b"\x16\x03\x01" + _u16(len(hs2) - 9) + hs2[9:])
+        with patch("ds.feedback._original_dst", lambda conn: ("127.0.0.1", dest2)):
+            self._start(config=CFG_ON)
+            got2 = _exchange("127.0.0.1", TLS_PORT, frag2)
+        self.assertEqual(got2, REPLY)
+        self.assertEqual(rec2["got"], frag2)
+        self.assertEqual(self._banners(), [])
+
+    def test_r2_listed_subdomain_shares_entry_identity_and_debounce(self):
+        self._list_hosts("youtube.com")
+        self.assertEqual(feedback._entry_for_host("m.youtube.com")["name"], "youtube.com")
+        self.assertEqual(feedback._entry_for_host("WWW.YouTube.com.")["name"], "youtube.com")
+        self.assertIsNone(feedback._entry_for_host("notyoutube.com"))
+        self.assertEqual(feedback._banner_identity("m.youtube.com"), ("youtube.com", "youtube.com"))
+        clock = _Clock(100.0)
+        with patch("ds.feedback.time.monotonic", clock):
+            feedback._maybe_banner("youtube.com")
+            feedback._maybe_banner("m.youtube.com")
+            feedback._maybe_banner("i.ytimg.youtube.com")
+        banners = self._banners()
+        self.assertEqual(len(banners), 1)
+        self.assertIn("youtube.com opens in the distraction space", banners[0][1])
+
 
 
 if __name__ == "__main__":

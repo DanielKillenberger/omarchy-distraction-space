@@ -43,7 +43,12 @@ _PPID_WALK = 8
 _LOG_LIMIT_S = 60
 _splices = 0
 _splice_lock = threading.Lock()
+# Source ports held by live splices. SO_REUSEADDR stays on the splice sockets so
+# a port in TIME_WAIT toward one destination can serve another, which means bind
+# alone cannot tell two live splices apart; this registry does.
+_ports_in_use: set[int] = set()
 _pass_through = True
+_block_page = True
 _bind_ok = False
 
 
@@ -92,11 +97,13 @@ def pass_through_state():
 
 
 def start(config, is_locked):
+    """Bind the routers when either the block page or pass-through wants them."""
     stop()
-    global _is_locked, _pass_through, _bind_ok
+    global _is_locked, _pass_through, _bind_ok, _block_page
     _pass_through = _pass_through_cfg(config)
+    _block_page = _block_page_on(config)
     _bind_ok = False
-    if not _block_page_on(config):
+    if not _block_page and not _pass_through:
         return
     _is_locked = is_locked if callable(is_locked) else (lambda v=bool(is_locked): v)
     _stop.clear()
@@ -131,11 +138,10 @@ def start(config, is_locked):
 
 
 def stop():
-    global _bind_ok, _splices
+    """Close the listeners. Live splices keep their slot and source port until they end."""
+    global _bind_ok
     _stop.set()
     _bind_ok = False
-    with _splice_lock:
-        _splices = 0
     with _ctl:
         socks, threads = _socks[:], _threads[:]
         _socks.clear()
@@ -175,16 +181,33 @@ def _u24(buf, off):
     return (buf[off] << 16) | (buf[off + 1] << 8) | buf[off + 2]
 
 
+def _handshake_payload(data):
+    """The concatenated payloads of the complete handshake records at the start of data.
+
+    A ClientHello may span several TLS records (RFC 8446 section 5.1), so the
+    routers reassemble before reading the SNI; a hello judged by its first
+    record alone would read as unreadable and pass through.
+    """
+    out = bytearray()
+    off = 0
+    while off + 5 <= len(data):
+        if data[off] != 0x16:
+            break
+        rec_len = _u16(data, off + 3)
+        if off + 5 + rec_len > len(data):
+            break
+        out.extend(data[off + 5:off + 5 + rec_len])
+        off += 5 + rec_len
+    return bytes(out)
+
+
 def _parse_sni(data):
     if not isinstance(data, (bytes, bytearray)) or len(data) < 5:
         return None
     if data[0] != 0x16:
         return None
-    rec_len = _u16(data, 3)
-    if rec_len < 4 or 5 + rec_len > len(data):
-        return None
-    payload = data[5:5 + rec_len]
-    if payload[0] != 0x01:
+    payload = _handshake_payload(data)
+    if len(payload) < 4 or payload[0] != 0x01:
         return None
     hs_len = _u24(payload, 1)
     if 4 + hs_len > len(payload):
@@ -289,9 +312,17 @@ def _http_request_line(buf):
 
 
 def _tls_done(buf):
+    """True once the whole ClientHello is buffered, or the bytes cannot be one."""
     if len(buf) < 5:
         return False
-    return len(buf) >= 5 + _u16(buf, 3)
+    if buf[0] != 0x16:
+        return True
+    payload = _handshake_payload(buf)
+    if len(payload) < 4:
+        return False
+    if payload[0] != 0x01:
+        return True
+    return len(payload) >= 4 + _u24(payload, 1)
 
 
 def _host_from_http(buf):
@@ -330,11 +361,15 @@ def _norm_host(host):
     return h
 
 
-def _listed(host):
-    """True when host equals, or is a subdomain of, a host in the active expansion."""
+def _entry_for_host(host):
+    """The active entry owning host, matched as an equal or parent domain, or None.
+
+    One matcher serves routing, banner identity, and origin attribution, so a
+    subdomain of a listed host debounces and attributes like the host itself.
+    """
     want = _norm_host(host)
     if not want:
-        return False
+        return None
     for entry in hypr._current_entries():
         if not isinstance(entry, dict):
             continue
@@ -343,8 +378,13 @@ def _listed(host):
                 continue
             base = _norm_host(h)
             if base and (want == base or want.endswith("." + base)):
-                return True
-    return False
+                return entry
+    return None
+
+
+def _listed(host):
+    """True when host equals, or is a subdomain of, a host in the active expansion."""
+    return _entry_for_host(host) is not None
 
 
 def _original_dst(conn):
@@ -375,37 +415,56 @@ def _is_self(conn, dst):
     return dst[0] == local[0] and dst[1] == local[1]
 
 
-def _open_splice(dst, family):
-    """(socket, None) or (None, reason) where reason is 'connect' or 'range'."""
-    lo, hi = _splice_range()
+def _acquire_port(lo, hi, skip):
+    """Reserve a port in [lo, hi] held by no live splice and not in skip, or None."""
     span = hi - lo + 1
     start = random.randrange(span)
+    with _splice_lock:
+        for i in range(span):
+            port = lo + ((start + i) % span)
+            if port in skip or port in _ports_in_use:
+                continue
+            _ports_in_use.add(port)
+            return port
+    return None
+
+
+def _free_port(port):
+    with _splice_lock:
+        _ports_in_use.discard(port)
+
+
+def _open_splice(dst, family):
+    """(socket, port, None) or (None, None, reason) where reason is 'connect' or 'range'.
+
+    A port the kernel refuses for this destination (bind EADDRINUSE, or connect
+    EADDRNOTAVAIL/EADDRINUSE when the same four-tuple is still in TIME_WAIT) is
+    skipped and another is tried; every other connect error is the destination's.
+    """
+    lo, hi = _splice_range()
     wildcard = "::" if family == socket.AF_INET6 else "0.0.0.0"
-    for i in range(span):
-        port = lo + ((start + i) % span)
+    skip: set[int] = set()
+    while True:
+        port = _acquire_port(lo, hi, skip)
+        if port is None:
+            return None, None, "range"
         sock = socket.socket(family, socket.SOCK_STREAM)
         try:
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             sock.bind((wildcard, port))
+            sock.settimeout(CONNECT_TIMEOUT)
+            sock.connect(dst)
         except OSError as e:
             try:
                 sock.close()
             except OSError:
                 pass
+            _free_port(port)
             if e.errno in (errno.EADDRINUSE, errno.EADDRNOTAVAIL, errno.EACCES):
+                skip.add(port)
                 continue
-            return None, "connect"
-        try:
-            sock.settimeout(CONNECT_TIMEOUT)
-            sock.connect(dst)
-        except OSError:
-            try:
-                sock.close()
-            except OSError:
-                pass
-            return None, "connect"
-        return sock, None
-    return None, "range"
+            return None, None, "connect"
+        return sock, port, None
 
 
 def _claim_splice():
@@ -485,7 +544,7 @@ def _route(conn, buf, host):
         _log_limited("splice-cap", f"pass-through cap {MAX_SPLICES} reached; connection closed")
         return True
     try:
-        up, why = _open_splice(dst, conn.family)
+        up, port, why = _open_splice(dst, conn.family)
         if up is None:
             if why == "range":
                 _log_limited("splice-cap", "pass-through source ports exhausted; connection closed")
@@ -497,6 +556,7 @@ def _route(conn, buf, host):
             _pump(conn, up, buf)
         finally:
             _close_sock(up)
+            _free_port(port)
     finally:
         _release_splice()
     return True
@@ -523,7 +583,7 @@ def _http_conn(conn):
         host = _host_from_http(buf) if ok else ""
         if _route(conn, buf, host):
             return
-        if not ok:
+        if not ok or not _block_page:
             return
         host = host or "this site"
         try:
@@ -556,7 +616,7 @@ def _log_limited(key, msg):
 
 
 def _banner_identity(host):
-    entry = hypr.entry_for_host(host)
+    entry = _entry_for_host(host)
     if isinstance(entry, dict):
         name = entry.get("name")
         if isinstance(name, str) and name:
@@ -727,7 +787,7 @@ def _origin_on_space_inner(peer_port, host):
     )
     if on_space:
         return True
-    entry = hypr.entry_for_host(host)
+    entry = _entry_for_host(host)
     if entry is None:
         return False
     if not any(hypr._class_matches(entry, c.get("class") or "") for c in owner_clients):
@@ -763,7 +823,7 @@ def _tls_conn(conn):
         host = parse_sni(buf)
         if _route(conn, buf, host or ""):
             return
-        if host:
+        if host and _block_page:
             _maybe_banner(host, peer_port)
     except OSError:
         pass
