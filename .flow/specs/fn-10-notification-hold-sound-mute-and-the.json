@@ -11,7 +11,7 @@
   ],
   "id": "fn-10-notification-hold-sound-mute-and-the",
   "impl_review_rounds": {
-    "fn-10-notification-hold-sound-mute-and-the.1": 1
+    "fn-10-notification-hold-sound-mute-and-the.1": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -69,9 +69,62 @@
       "task": "fn-10-notification-hold-sound-mute-and-the.1",
       "timestamp": "2026-09-02T10:46:48.315161Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "ada1878255b45b9c133f1a0b88261b02b8b4b4ab7f07ed4d662a494ef1368f96",
+      "backend": "cursor",
+      "base_sha": "89989ae9da0df5a99c07950c795f220380af3758",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-6df66c3468ae5a018e979d810552a2a5",
+            "classification": "introduced",
+            "findingId": "finding-6df66c3468ae5a018e979d810552a2a5",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-e5a67d142459297bc68ae3373239305a",
+            "classification": "introduced",
+            "findingId": "finding-e5a67d142459297bc68ae3373239305a",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "50a5b0aa434b6d76937f96ca1d5e39938825e643",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 678,
+      "output_sha256": "e2385964e6ee41ac78395cb30253ddb6ab3d12fa04cb14865ce010398f500e1f",
+      "reservation_id": "934ddc36ee7f419da446d3feb6e138ce",
+      "round_consumed": true,
+      "scope": "impl:fn-10-notification-hold-sound-mute-and-the.1",
+      "superseded_by": null,
+      "task": "fn-10-notification-hold-sound-mute-and-the.1",
+      "timestamp": "2026-09-02T10:50:27.531883Z",
+      "verdict": "SHIP"
     }
   ],
-  "review_hash_epoch": {},
+  "review_hash_epoch": {
+    "impl:fn-10-notification-hold-sound-mute-and-the.1": 1
+  },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
@@ -91,5 +144,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T10:46:48.317003Z"
+  "updated_at": "2026-09-02T10:50:27.534338Z"
 }
