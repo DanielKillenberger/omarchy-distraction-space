@@ -114,8 +114,8 @@ import sys
 args = sys.argv[1:]
 if args[:2] == ["notifications", "silencedSenders"]:
     print("[]")
-elif args[:2] == ["notifications", "setSilencedSenders"] and len(args) > 2:
-    print(args[2])
+elif args[:2] in (["notifications", "silence"], ["notifications", "unsilence"]) and len(args) == 3:
+    print("[]")
 else:
     print("Function not found.")
     sys.exit(1)

@@ -148,10 +148,17 @@ def push(keys, on, retire=()) -> str:
     want = [k for k in current if k not in drop]
     if on:
         want.extend(k for k in keys if k and k not in want)
-    if want != current:
-        out, err = _shell("setSilencedSenders", json.dumps(want))
+    # One IPC call per key: `qs ipc call` parses a `[...]` argument as its own
+    # list syntax, so a JSON array can never reach setSilencedSenders intact.
+    for key in [k for k in current if k not in want]:
+        out, err = _shell("unsilence", key)
         if out is None or out == "error":
-            _log(f"setSilencedSenders: {err or out}")
+            _log(f"unsilence {key}: {err or out}")
+            return "unavailable"
+    for key in [k for k in want if k not in current]:
+        out, err = _shell("silence", key)
+        if out is None or out == "error":
+            _log(f"silence {key}: {err or out}")
             return "unavailable"
     return "on" if on else "off"
 

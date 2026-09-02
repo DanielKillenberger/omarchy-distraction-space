@@ -37,20 +37,22 @@ current = json.loads(path.read_text()) if path.exists() else []
 if args[1:2] == ["silencedSenders"]:
     print(json.dumps(current))
 elif args[1:2] == ["setSilencedSenders"]:
-    try:
-        items = json.loads(args[2])
-    except (IndexError, ValueError):
-        items = None
-    if not isinstance(items, list):
-        print("error")
-        sys.exit(0)
-    out = []
-    for item in items:
-        if isinstance(item, str):
-            key = item.strip().lower()
-            key = key[4:] if key.startswith("www.") else key
-            if key and key not in out:
-                out.append(key)
+    # Real `qs ipc call` splits a "[...]" argument into separate arguments, so
+    # the JSON setter is unreachable from the CLI; mimic that failure.
+    print("Too many arguments provided (1 required but 2 were provided.)")
+    sys.exit(1)
+elif args[1:2] in (["silence"], ["unsilence"]) and len(args) == 3:
+    def norm(item):
+        key = item.strip().lower()
+        return key[4:] if key.startswith("www.") else key
+    out = [norm(i) for i in current if isinstance(i, str) and norm(i)]
+    out = list(dict.fromkeys(out))
+    key = norm(args[2])
+    if args[1] == "silence":
+        if key and key not in out:
+            out.append(key)
+    else:
+        out = [k for k in out if k != key]
     path.write_text(json.dumps(out))
     print(json.dumps(out))
 else:
@@ -143,7 +145,9 @@ class HoldUnitTests(unittest.TestCase):
         self.assertEqual(hold.push(KEYS, True), "on")
         self.assertEqual(self._silenced(), ["hand added", "example.com", *KEYS[:4]])
         self.assertEqual(hold.push(KEYS, True), "on")
-        self.assertEqual(len([c for c in self._calls() if "setSilencedSenders" in c]), 1)
+        mutations = [c for c in self._calls() if c.split()[1] in ("silence", "unsilence")]
+        self.assertEqual(len(mutations), len(self._silenced()) - 2, "one call per added key, none on the no-op push")
+        self.assertFalse(any("setSilencedSenders" in c for c in self._calls()), "the JSON setter is unreachable through qs ipc")
         self.assertEqual(hold.push(KEYS[1:], True, retire=[KEYS[0]]), "on")
         self.assertEqual(self._silenced(), ["hand added", "example.com", *KEYS[1:4]])
         self.assertEqual(hold.push(KEYS[1:], False), "off")
