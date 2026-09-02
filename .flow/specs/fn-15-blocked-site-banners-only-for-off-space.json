@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-15-blocked-site-banners-only-for-off-space",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-02T13:43:06.415842Z",
   "created_at": "2026-09-02T12:56:43.414949Z",
   "default_impl": null,
   "default_review": null,
@@ -68,15 +68,43 @@
       "task": "fn-15-blocked-site-banners-only-for-off-space.2",
       "timestamp": "2026-09-02T13:37:03.656280Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "1e822ef5df36efca65749c35ea2661668680af381413c91df131ceca5de0b778",
+      "backend": "host",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "2e2b9c2b834aaece6b8326942fe7741588a8d3d8",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "verdict",
+      "output_bytes": 2769,
+      "output_sha256": "4792a3f8511027c76c501cab0d6db9832900fb4ce55f3af82ca1de890a4c33cd",
+      "reservation_id": "2cf9e4753fc842b3b14acbbdd04918cd",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-02T13:43:05.859523Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-15-blocked-site-banners-only-for-off-space.1": 1,
-    "impl:fn-15-blocked-site-banners-only-for-off-space.2": 1
+    "impl:fn-15-blocked-site-banners-only-for-off-space.2": 1,
+    "plan#completion": 1
   },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "completion": 0,
     "impl:fn-15-blocked-site-banners-only-for-off-space.1": 0,
     "impl:fn-15-blocked-site-banners-only-for-off-space.2": 0
   },
@@ -94,5 +122,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T13:37:04.088998Z"
+  "updated_at": "2026-09-02T13:43:06.416214Z"
 }
