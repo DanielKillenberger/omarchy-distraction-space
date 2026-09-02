@@ -11,7 +11,7 @@
   ],
   "id": "fn-17-marketplace-readiness-and-submission",
   "impl_review_rounds": {
-    "fn-17-marketplace-readiness-and-submission.2": 1
+    "fn-17-marketplace-readiness-and-submission.2": 2
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -84,6 +84,81 @@
       "task": "fn-17-marketplace-readiness-and-submission.2",
       "timestamp": "2026-09-02T18:48:24.728361Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "d36b86b834edbc6db5edc606521fc708ad1b97afe6170f728bd64445177a9a09",
+      "backend": "cursor",
+      "base_sha": "240d5c8713c72361ca313d2cf4f08cd3812f9b9d",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-6a5a5842a8b12340e7aed52111fa1b4e",
+            "classification": "introduced",
+            "findingId": "finding-6a5a5842a8b12340e7aed52111fa1b4e",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-ec8e0f2b83fc2f721a4c0988cef35757",
+            "classification": "introduced",
+            "findingId": "finding-ec8e0f2b83fc2f721a4c0988cef35757",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-ed00a7ef75b1ddd456a01ca55f9ac1b7",
+            "classification": "introduced",
+            "findingId": "finding-ed00a7ef75b1ddd456a01ca55f9ac1b7",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-aa1232d271500f6f0c585afa42b7e695",
+            "classification": "introduced",
+            "findingId": "finding-aa1232d271500f6f0c585afa42b7e695",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-cbeef0a46fb7a65551a7b268fba56690",
+            "classification": "introduced",
+            "findingId": "finding-cbeef0a46fb7a65551a7b268fba56690",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "445981775efa64314c046d512994f2b06e6e9a9a",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1310,
+      "output_sha256": "fa9a6efbdea189df12403dd6a1a1c7b5bab2dc2d92ef570c321c83f83b00f09a",
+      "reservation_id": "34d9f64323694fe7b15ef1c20cb02494",
+      "round_consumed": true,
+      "scope": "impl:fn-17-marketplace-readiness-and-submission.2",
+      "superseded_by": null,
+      "task": "fn-17-marketplace-readiness-and-submission.2",
+      "timestamp": "2026-09-02T18:50:22.927022Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {},
@@ -106,5 +181,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T18:48:24.732972Z"
+  "updated_at": "2026-09-02T18:50:22.929274Z"
 }
