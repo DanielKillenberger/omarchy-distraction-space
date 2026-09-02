@@ -7,8 +7,9 @@ import os
 import socket
 import threading
 import time
+from pathlib import Path
 
-from ds import ui
+from ds import hypr, ui
 
 HTTP_PORT = 28080
 TLS_PORT = 28443
@@ -21,9 +22,16 @@ _stop = threading.Event()
 _ctl = threading.Lock()
 _banner_lock = threading.Lock()
 _banner_at: dict[str, float] = {}
+_log_at: dict[str, float] = {}
 _socks: list[socket.socket] = []
 _threads: list[threading.Thread] = []
 _is_locked = lambda: False
+_PPID_WALK = 8
+_LOG_LIMIT_S = 60
+
+
+def _proc_root():
+    return Path(os.environ.get("DS_PROC_ROOT") or "/proc")
 
 
 def parse_sni(data):
@@ -84,6 +92,7 @@ def stop():
         _socks.clear()
         _threads.clear()
         _banner_at.clear()
+        _log_at.clear()
     for sock in socks:
         try:
             sock.close()
@@ -299,23 +308,224 @@ def _http_conn(conn):
             pass
 
 
-def _maybe_banner(host):
+def _log_limited(key, msg):
     now = time.monotonic()
-    key = host.lower()
+    with _banner_lock:
+        last = _log_at.get(key)
+        if last is not None and now - last < _LOG_LIMIT_S:
+            return
+        _log_at[key] = now
+    hypr._log(msg)
+
+
+def _banner_identity(host):
+    entry = hypr.entry_for_host(host)
+    if isinstance(entry, dict):
+        name = entry.get("name")
+        if isinstance(name, str) and name:
+            return name, name
+    return (host or "").lower(), host
+
+
+def _inode_in_table(path, peer_port, uid):
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    lines = text.splitlines()
+    if not lines:
+        return None
+    for line in lines[1:]:
+        parts = line.split()
+        if len(parts) < 10:
+            continue
+        local = parts[1]
+        try:
+            hexport = local.rsplit(":", 1)[1]
+            port = int(hexport, 16)
+        except (IndexError, ValueError):
+            continue
+        if port != peer_port:
+            continue
+        try:
+            row_uid = int(parts[7])
+            inode = int(parts[9])
+        except ValueError:
+            continue
+        if row_uid != uid:
+            continue
+        return inode
+    return None
+
+
+def _inode_for_port(peer_port):
+    try:
+        peer_port = int(peer_port)
+    except (TypeError, ValueError):
+        return None
+    uid = os.getuid()
+    root = _proc_root()
+    for name in ("tcp", "tcp6"):
+        inode = _inode_in_table(root / "net" / name, peer_port, uid)
+        if inode is not None:
+            return inode
+    return None
+
+
+def _pid_for_inode(inode):
+    root = _proc_root()
+    uid = os.getuid()
+    want = f"socket:[{inode}]"
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return None
+    for name in names:
+        if not name.isdigit():
+            continue
+        proc_dir = root / name
+        try:
+            if os.stat(proc_dir).st_uid != uid:
+                continue
+        except OSError:
+            continue
+        fd_dir = proc_dir / "fd"
+        try:
+            fds = os.listdir(fd_dir)
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                target = os.readlink(fd_dir / fd)
+            except OSError:
+                continue
+            if target == want:
+                return int(name)
+    return None
+
+
+def _ppid_of(pid):
+    path = _proc_root() / str(pid) / "status"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    for line in text.splitlines():
+        if line.startswith("PPid:"):
+            try:
+                return int(line.split(":", 1)[1].strip())
+            except ValueError:
+                return None
+    return None
+
+
+def _pid_clients(pid, clients):
+    out = []
+    for c in clients:
+        if not isinstance(c, dict):
+            continue
+        try:
+            if int(c.get("pid")) == int(pid):
+                out.append(c)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _walk_to_hypr_owner(start_pid, clients):
+    owners = set()
+    for c in clients:
+        if not isinstance(c, dict):
+            continue
+        try:
+            owners.add(int(c.get("pid")))
+        except (TypeError, ValueError):
+            continue
+    try:
+        pid = int(start_pid)
+    except (TypeError, ValueError):
+        return None
+    for _ in range(_PPID_WALK + 1):
+        if pid <= 1:
+            return None
+        if pid in owners:
+            return pid
+        parent = _ppid_of(pid)
+        if parent is None or parent <= 1:
+            return None
+        pid = parent
+    return None
+
+
+def _origin_on_space(peer_port, host):
+    if peer_port is None:
+        return False
+    try:
+        return _origin_on_space_inner(peer_port, host)
+    except Exception as e:
+        _log_limited("proc", f"origin attribution: {e}")
+        return False
+
+
+def _origin_on_space_inner(peer_port, host):
+    clients = hypr.clients_cached()
+    if clients is None:
+        _log_limited("clients", "hyprctl clients unavailable; banner shown")
+        return False
+    inode = _inode_for_port(peer_port)
+    if inode is None:
+        return False
+    pid = _pid_for_inode(inode)
+    if pid is None:
+        return False
+    owner = _walk_to_hypr_owner(pid, clients)
+    if owner is None:
+        return False
+    owner_clients = _pid_clients(owner, clients)
+    if not owner_clients:
+        return False
+    on_space = all(
+        isinstance(c.get("workspace"), dict) and c["workspace"].get("name") == hypr.SPACE
+        for c in owner_clients
+    )
+    if on_space:
+        return True
+    entry = hypr.entry_for_host(host)
+    if entry is None:
+        return False
+    if not any(hypr._class_matches(entry, c.get("class") or "") for c in owner_clients):
+        return False
+    return hypr.entry_clients_on_space(entry, clients)
+
+
+def _maybe_banner(host, peer_port=None):
+    now = time.monotonic()
+    key, name = _banner_identity(host)
+    with _banner_lock:
+        last = _banner_at.get(key)
+        if last is not None and now - last < BANNER_DEBOUNCE_S:
+            return
+    if _origin_on_space(peer_port, host):
+        return
+    now = time.monotonic()
     with _banner_lock:
         last = _banner_at.get(key)
         if last is not None and now - last < BANNER_DEBOUNCE_S:
             return
         _banner_at[key] = now
-    _notify("Blocked on this workspace", f"{host} opens in the distraction space — Super+Ctrl+Shift+D.")
+    _notify("Blocked on this workspace", f"{name} opens in the distraction space — Super+Ctrl+Shift+D.")
 
 
 def _tls_conn(conn):
     try:
+        try:
+            peer_port = conn.getpeername()[1]
+        except OSError:
+            peer_port = None
         buf = _read_bounded(conn, _tls_done)
         host = parse_sni(buf)
         if host:
-            _maybe_banner(host)
+            _maybe_banner(host, peer_port)
     except OSError:
         pass
     finally:

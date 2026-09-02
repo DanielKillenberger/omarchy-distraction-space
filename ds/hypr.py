@@ -4,6 +4,7 @@ import hashlib
 import json
 import re
 import subprocess
+import threading
 import time
 
 from ds import state
@@ -17,13 +18,17 @@ GLYPH = "󰈈"
 _entries = None
 _app_banner = True
 _banner_at = {}
+_clients_cache = None
+_clients_lock = threading.Lock()
 
 
 def _reset_for_tests():
-    global _entries, _app_banner
+    global _entries, _app_banner, _clients_cache
     _entries = None
     _app_banner = True
     _banner_at.clear()
+    with _clients_lock:
+        _clients_cache = None
 
 
 def hyprctl_json(*args):
@@ -31,6 +36,24 @@ def hyprctl_json(*args):
         ["hyprctl", "-j", *args], capture_output=True, text=True, timeout=5, check=True
     )
     return json.loads(r.stdout)
+
+
+def clients_cached():
+    global _clients_cache
+    now = time.monotonic()
+    with _clients_lock:
+        if _clients_cache is not None:
+            ts, data = _clients_cache
+            if now - ts < 1.0:
+                return data
+        try:
+            data = hyprctl_json("clients")
+        except Exception:
+            return None
+        if not isinstance(data, list):
+            return None
+        _clients_cache = (now, data)
+        return data
 
 
 def active_workspace():
@@ -321,19 +344,69 @@ def _client_by_address(address):
     return None
 
 
+def _strip_www(host):
+    h = (host or "").lower()
+    if h.startswith("www."):
+        return h[4:]
+    return h
+
+
+def entry_for_host(host):
+    if not host:
+        return None
+    want = _strip_www(host if isinstance(host, str) else str(host))
+    if not want:
+        return None
+    for entry in _current_entries():
+        for h in entry.get("hosts") or []:
+            if not isinstance(h, str) or not h:
+                continue
+            if _strip_www(h) == want:
+                return entry
+    return None
+
+
+def _class_matches(entry, klass):
+    if not klass or not isinstance(entry, dict):
+        return False
+    for pat in entry.get("classes") or []:
+        if not isinstance(pat, str) or not pat:
+            continue
+        try:
+            if re.search(pat, klass):
+                return True
+        except re.error:
+            if pat == klass:
+                return True
+    return False
+
+
+def entry_clients_on_space(entry, clients):
+    if not isinstance(entry, dict) or not entry.get("classes"):
+        return False
+    if not isinstance(clients, list):
+        return False
+    matched = [
+        c
+        for c in clients
+        if isinstance(c, dict) and _class_matches(entry, c.get("class") or "")
+    ]
+    if not matched:
+        return False
+    for c in matched:
+        ws = c.get("workspace")
+        name = ws.get("name") if isinstance(ws, dict) else None
+        if name != SPACE:
+            return False
+    return True
+
+
 def _match_entry(klass):
     if not klass:
         return None
     for entry in _current_entries():
-        for pat in entry.get("classes") or []:
-            if not isinstance(pat, str) or not pat:
-                continue
-            try:
-                if re.search(pat, klass):
-                    return entry
-            except re.error:
-                if pat == klass:
-                    return entry
+        if _class_matches(entry, klass):
+            return entry
     return None
 
 
