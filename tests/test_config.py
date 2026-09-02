@@ -39,6 +39,7 @@ GOOD_VALUES = [
     ("keep_reachable", json.dumps(["example.com"]), ["example.com"]),
     ("nudges.app_banner", "false", False),
     ("nudges.block_page", "false", False),
+    ("site_block.pass_through", "false", False),
     ("hold_notifications", "locked", "locked"),
     ("hold_notifications", "never", "never"),
     ("hold_notifications", "off-space", "off-space"),
@@ -67,6 +68,7 @@ BAD_VALUES = [
     ("lock.default_minutes", "-5"),
     ("lock.reason_min_chars", "true"),
     ("nudges.app_banner", "1"),
+    ("site_block.pass_through", "yes"),
     ("list", '["not a host"]'),
     ("list", '[{"name": "Y"}]'),
     ("keep_reachable", '["nodots"]'),
@@ -117,6 +119,8 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(is_schema_key("hold_notifications"))
         self.assertTrue(is_schema_key("mute_sounds"))
         self.assertTrue(is_schema_key("summary.command"))
+        self.assertTrue(DEFAULTS["site_block"]["pass_through"])
+        self.assertTrue(is_schema_key("site_block.pass_through"))
 
     def test_config_path_honors_xdg(self):
         r = self.box.run("config", "path")

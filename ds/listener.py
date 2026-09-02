@@ -412,10 +412,11 @@ class _Ctx:
             "purpose": lk.get("purpose") or "", "on_space": self.prev,
             "site_block": net.site_block, "listener_pid": os.getpid(),
             "hold": self.hold_on is True, "held": hold.held_counts(), "notification_hold": self.hold_ipc,
+            "pass_through": feedback.pass_through_state(),
             "updated": state.now_iso(),
         }
         key = (obj["locked"], obj["until"], obj["purpose"], obj["on_space"], obj["site_block"],
-               obj["hold"], obj["notification_hold"], tuple(sorted(obj["held"].items())))
+               obj["hold"], obj["notification_hold"], obj["pass_through"], tuple(sorted(obj["held"].items())))
         if not force and key == self.last_state:
             return
         self.last_state = key

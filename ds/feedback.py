@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import errno
 import html
 import os
+import random
+import select
 import socket
+import struct
 import threading
 import time
 from pathlib import Path
@@ -16,6 +20,13 @@ TLS_PORT = 28443
 READ_TIMEOUT = 2.0
 READ_CAP = 16384
 BANNER_DEBOUNCE_S = 30
+SPLICE_PORT_MIN = 60000
+SPLICE_PORT_MAX = 60999
+MAX_SPLICES = 256
+CONNECT_TIMEOUT = 5.0
+IDLE_TIMEOUT = 120.0
+SO_ORIGINAL_DST = 80
+IP6T_SO_ORIGINAL_DST = 80
 _BIND_NOTICE = "Block-page server unavailable"
 
 _stop = threading.Event()
@@ -28,6 +39,10 @@ _threads: list[threading.Thread] = []
 _is_locked = lambda: False
 _PPID_WALK = 8
 _LOG_LIMIT_S = 60
+_splices = 0
+_splice_lock = threading.Lock()
+_pass_through = True
+_bind_ok = False
 
 
 def _proc_root():
@@ -51,14 +66,40 @@ def _env_port(name, default):
         return default
 
 
+def _splice_range():
+    lo = _env_port("DS_SPLICE_PORT_MIN", SPLICE_PORT_MIN)
+    hi = _env_port("DS_SPLICE_PORT_MAX", SPLICE_PORT_MAX)
+    return (lo, hi) if hi >= lo else (SPLICE_PORT_MIN, SPLICE_PORT_MAX)
+
+
+def _pass_through_cfg(config):
+    """site_block.pass_through, default True when the key or the config is absent."""
+    if not isinstance(config, dict):
+        return True
+    sb = config.get("site_block")
+    if not isinstance(sb, dict):
+        return True
+    return bool(sb.get("pass_through", True))
+
+
+def pass_through_state():
+    """on | off | unavailable — configured off wins; on only when the servers all bound."""
+    if not _pass_through:
+        return "off"
+    return "on" if _bind_ok else "unavailable"
+
+
 def start(config, is_locked):
     stop()
+    global _is_locked, _pass_through, _bind_ok
+    _pass_through = _pass_through_cfg(config)
+    _bind_ok = False
     if not _block_page_on(config):
         return
-    global _is_locked
     _is_locked = is_locked if callable(is_locked) else (lambda v=bool(is_locked): v)
     _stop.clear()
     notified = False
+    bound = 0
     http_port = _env_port("DS_FEEDBACK_HTTP_PORT", HTTP_PORT)
     tls_port = _env_port("DS_FEEDBACK_TLS_PORT", TLS_PORT)
     for family, host in ((socket.AF_INET, "127.0.0.1"), (socket.AF_INET6, "::1")):
@@ -77,16 +118,22 @@ def start(config, is_locked):
                     _notify(_BIND_NOTICE, "A feedback port is in use; blocked sites still fail fast.")
                     notified = True
                 continue
+            bound += 1
             target = _http_loop if kind == "http" else _tls_loop
             t = threading.Thread(target=target, args=(sock,), daemon=True)
             t.start()
             with _ctl:
                 _socks.append(sock)
                 _threads.append(t)
+    _bind_ok = bound > 0 and not notified
 
 
 def stop():
+    global _bind_ok, _splices
     _stop.set()
+    _bind_ok = False
+    with _splice_lock:
+        _splices = 0
     with _ctl:
         socks, threads = _socks[:], _threads[:]
         _socks.clear()
@@ -262,6 +309,197 @@ def _host_from_http(buf):
     return ""
 
 
+def _norm_host(host):
+    """Lowercase, strip a port or [v6] brackets, a trailing dot, and a leading www."""
+    if not isinstance(host, str) or not host:
+        return ""
+    h = host.strip().lower()
+    if h.startswith("["):
+        end = h.find("]")
+        if end > 1:
+            h = h[1:end]
+    elif h.count(":") == 1:
+        name, port = h.rsplit(":", 1)
+        if port.isdigit():
+            h = name
+    h = h.rstrip(".")
+    if h.startswith("www."):
+        h = h[4:]
+    return h
+
+
+def _listed(host):
+    """True when host equals, or is a subdomain of, a host in the active expansion."""
+    want = _norm_host(host)
+    if not want:
+        return False
+    for entry in hypr._current_entries():
+        if not isinstance(entry, dict):
+            continue
+        for h in entry.get("hosts") or []:
+            if not isinstance(h, str):
+                continue
+            base = _norm_host(h)
+            if base and (want == base or want.endswith("." + base)):
+                return True
+    return False
+
+
+def _original_dst(conn):
+    """(host, port) recovered from the redirect, or None when not redirected."""
+    try:
+        if conn.family == socket.AF_INET6:
+            raw = conn.getsockopt(socket.IPPROTO_IPV6, IP6T_SO_ORIGINAL_DST, 28)
+            _fam, port, _flow, addr, _scope = struct.unpack("!HHI16sI", raw)
+            if port == 0:
+                return None
+            host = socket.inet_ntop(socket.AF_INET6, addr)
+        else:
+            raw = conn.getsockopt(socket.SOL_IP, SO_ORIGINAL_DST, 16)
+            _fam, port, addr = struct.unpack("!HH4s", raw[:8])
+            if port == 0:
+                return None
+            host = socket.inet_ntop(socket.AF_INET, addr)
+        return (host, port)
+    except (OSError, struct.error, ValueError):
+        return None
+
+
+def _is_self(conn, dst):
+    try:
+        local = conn.getsockname()
+    except OSError:
+        return True
+    return dst[0] == local[0] and dst[1] == local[1]
+
+
+def _open_splice(dst, family):
+    """(socket, None) or (None, reason) where reason is 'connect' or 'range'."""
+    lo, hi = _splice_range()
+    span = hi - lo + 1
+    start = random.randrange(span)
+    wildcard = "::" if family == socket.AF_INET6 else "0.0.0.0"
+    for i in range(span):
+        port = lo + ((start + i) % span)
+        sock = socket.socket(family, socket.SOCK_STREAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((wildcard, port))
+        except OSError as e:
+            try:
+                sock.close()
+            except OSError:
+                pass
+            if e.errno in (errno.EADDRINUSE, errno.EADDRNOTAVAIL, errno.EACCES):
+                continue
+            return None, "connect"
+        try:
+            sock.settimeout(CONNECT_TIMEOUT)
+            sock.connect(dst)
+        except OSError:
+            try:
+                sock.close()
+            except OSError:
+                pass
+            return None, "connect"
+        return sock, None
+    return None, "range"
+
+
+def _claim_splice():
+    global _splices
+    with _splice_lock:
+        if _splices >= MAX_SPLICES:
+            return False
+        _splices += 1
+        return True
+
+
+def _release_splice():
+    global _splices
+    with _splice_lock:
+        _splices = max(0, _splices - 1)
+
+
+def _close_sock(sock):
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    try:
+        sock.close()
+    except OSError:
+        pass
+
+
+def _pump(client, upstream, pending):
+    try:
+        if pending:
+            upstream.sendall(pending)
+        client.settimeout(IDLE_TIMEOUT)
+        upstream.settimeout(IDLE_TIMEOUT)
+        socks = [client, upstream]
+        while socks:
+            try:
+                ready, _, _ = select.select(socks, [], [], IDLE_TIMEOUT)
+            except (OSError, ValueError):
+                return
+            if not ready:
+                return
+            for sock in ready:
+                try:
+                    data = sock.recv(65536)
+                except OSError:
+                    return
+                peer = upstream if sock is client else client
+                if not data:
+                    try:
+                        peer.shutdown(socket.SHUT_WR)
+                    except OSError:
+                        pass
+                    try:
+                        socks.remove(sock)
+                    except ValueError:
+                        pass
+                    continue
+                try:
+                    peer.sendall(data)
+                except OSError:
+                    return
+    except OSError:
+        return
+
+
+def _route(conn, buf, host):
+    """True when this connection is not the block path: it was spliced, or deliberately closed."""
+    if not _pass_through:
+        return False
+    if _listed(host):
+        return False
+    dst = _original_dst(conn)
+    if dst is None or _is_self(conn, dst):
+        return True
+    if not _claim_splice():
+        _log_limited("splice-cap", f"pass-through cap {MAX_SPLICES} reached; connection closed")
+        return True
+    try:
+        up, why = _open_splice(dst, conn.family)
+        if up is None:
+            if why == "range":
+                _log_limited("splice-cap", "pass-through source ports exhausted; connection closed")
+            else:
+                _log_limited(f"dst:{dst[0]}:{dst[1]}",
+                             f"pass-through to {dst[0]}:{dst[1]} failed")
+            return True
+        try:
+            _pump(conn, up, buf)
+        finally:
+            _close_sock(up)
+    finally:
+        _release_splice()
+    return True
+
+
 def _page(host, locked):
     safe = html.escape(host, quote=True)
     lock_note = "<p>The distraction space is locked.</p>" if locked else ""
@@ -279,9 +517,13 @@ def _page(host, locked):
 def _http_conn(conn):
     try:
         buf = _read_bounded(conn, _headers_done)
-        if not _headers_done(buf) or not _http_request_line(buf):
+        ok = _headers_done(buf) and _http_request_line(buf)
+        host = _host_from_http(buf) if ok else ""
+        if _route(conn, buf, host):
             return
-        host = _host_from_http(buf) or "this site"
+        if not ok:
+            return
+        host = host or "this site"
         try:
             locked = bool(_is_locked())
         except Exception:
@@ -298,14 +540,7 @@ def _http_conn(conn):
     except OSError:
         pass
     finally:
-        try:
-            conn.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        try:
-            conn.close()
-        except OSError:
-            pass
+        _close_sock(conn)
 
 
 def _log_limited(key, msg):
@@ -524,19 +759,14 @@ def _tls_conn(conn):
             peer_port = None
         buf = _read_bounded(conn, _tls_done)
         host = parse_sni(buf)
+        if _route(conn, buf, host or ""):
+            return
         if host:
             _maybe_banner(host, peer_port)
     except OSError:
         pass
     finally:
-        try:
-            conn.shutdown(socket.SHUT_RDWR)
-        except OSError:
-            pass
-        try:
-            conn.close()
-        except OSError:
-            pass
+        _close_sock(conn)
 
 
 def _accept_loop(sock, handler):

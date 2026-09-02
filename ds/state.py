@@ -152,6 +152,7 @@ def status():
     st = read_state() or {}
     held = st.get("held")
     ipc = st.get("notification_hold")
+    pt = st.get("pass_through")
     return {
         "locked": lk["locked"],
         "until": lk["until"],
@@ -162,6 +163,7 @@ def status():
         "hold": st.get("hold") is True,
         "held": {k: v for k, v in held.items() if isinstance(k, str) and type(v) is int} if isinstance(held, dict) else {},
         "notification_hold": ipc if ipc in ("on", "off", "unavailable") else "off",
+        "pass_through": pt if pt in ("on", "off", "unavailable") else "off",
         "updated": now_iso(),
     }
 
@@ -176,5 +178,5 @@ def cmd_status(args):
         print(st["purpose"])
     print(f"on_space={st['on_space']} site_block={st['site_block']}")
     print(f"hold={'on' if st['hold'] else 'off'} held={sum(st['held'].values())} "
-          f"notification_hold={st['notification_hold']}")
+          f"notification_hold={st['notification_hold']} pass_through={st['pass_through']}")
     return 0
