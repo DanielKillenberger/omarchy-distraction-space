@@ -10,7 +10,7 @@
   "id": "fn-11-window-rules-through-hyprctl-eval-on",
   "impl_review_rounds": {
     "fn-11-window-rules-through-hyprctl-eval-on.1": 0,
-    "fn-11-window-rules-through-hyprctl-eval-on.2": 2
+    "fn-11-window-rules-through-hyprctl-eval-on.2": 3
   },
   "next_task": 1,
   "no_plan": true,
@@ -139,6 +139,65 @@
       "task": "fn-11-window-rules-through-hyprctl-eval-on.2",
       "timestamp": "2026-09-02T09:14:20.203046Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "bb2321875f836ea9404d13500fe17a14e810632e86f010926614cd297ed92695",
+      "backend": "cursor",
+      "base_sha": "09d97578f7cc0305eb9424bd9c142a7fbc145d72",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "classification": "introduced",
+            "findingId": "finding-d7edfaf71711d0f4c41c5e8dbd73c01d",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "classification": "introduced",
+            "findingId": "finding-f615038cfdd1d80662170ab9e668ef4b",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-42564ae7b8e9838094781e992fa21913",
+            "classification": "introduced",
+            "findingId": "finding-42564ae7b8e9838094781e992fa21913",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1dce1c1a92b67872f64558b24e3e78f997256208",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1319,
+      "output_sha256": "0c99f57398da7128495df60d1422b696ddaed266f91e5bb19b1dda5be613ccce",
+      "reservation_id": "e3fe6a2fb4244c94b4db94583593b2cb",
+      "round_consumed": true,
+      "scope": "impl:fn-11-window-rules-through-hyprctl-eval-on.2",
+      "superseded_by": null,
+      "task": "fn-11-window-rules-through-hyprctl-eval-on.2",
+      "timestamp": "2026-09-02T09:22:30.784246Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -164,5 +223,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T09:14:20.205079Z"
+  "updated_at": "2026-09-02T09:22:30.786719Z"
 }

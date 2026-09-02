@@ -270,7 +270,7 @@ class HyprTests(unittest.TestCase):
         joined = self._joined()
         self.assertTrue(any(f"omarchy-ds set {expected[0]}" in j for j in joined))
         self.assertTrue(any(f"omarchy-ds disable {expected[0]}" in j for j in joined), "first rule rolled back")
-        self.assertFalse(any(f"omarchy-ds disable {expected[1]}" in j for j in joined))
+        self.assertTrue(any(f"omarchy-ds disable {expected[1]}" in j for j in joined), "failing name rolled back too")
         self.assertEqual(state.read_json(state.state_path("rules.json"), []), [])
         self.assertEqual(len([a for a in self._notifies() if "Window rules" in " ".join(a)]), 1)
 
@@ -296,8 +296,23 @@ class HyprTests(unittest.TestCase):
         self.assertEqual(len(sets_for_foo), 2, "re-set to ClassB, then restored")
         self.assertIn('class = "ClassB"', sets_for_foo[0])
         self.assertIn('class = "ClassA"', sets_for_foo[1], "previous class re-set on rollback")
-        self.assertFalse(any("omarchy-ds disable" in j for j in joined), "a pre-existing name is never disabled")
+        self.assertFalse(any(f"omarchy-ds disable {foo_name[0]}" in j for j in joined), "a pre-existing name is never disabled")
+        self.assertTrue(any(f"omarchy-ds disable {bar_name[0]}" in j for j in joined), "the failing new name is disabled")
         self.assertEqual(state.read_json(state.state_path("rules.json"), []), foo_name)
+        self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}), {foo_name[0]: "ClassA"})
+
+    def test_failing_reset_of_existing_name_is_restored(self):
+        foo_a = [{"name": "Foo", "classes": ["ClassA"]}]
+        self.assertTrue(hypr.apply_rules(foo_a))
+        foo_name, _ = hypr._rule_names(foo_a)
+        os.environ["DS_HYPR_FAIL"] = 'class = "ClassB"'
+        self.hypr_log.write_text("", encoding="utf-8")
+        self.assertFalse(hypr.apply_rules([{"name": "Foo", "classes": ["ClassB"]}]))
+        sets_for_foo = [j for j in self._joined() if f"omarchy-ds set {foo_name[0]}" in j]
+        self.assertEqual(len(sets_for_foo), 2)
+        self.assertIn('class = "ClassB"', sets_for_foo[0])
+        self.assertIn('class = "ClassA"', sets_for_foo[1], "the failing name is re-set with its recorded class")
+        self.assertFalse(any("omarchy-ds disable" in j for j in self._joined()))
         self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}), {foo_name[0]: "ClassA"})
 
     def test_pre_existing_name_without_recorded_class_is_disabled_on_rollback(self):
@@ -425,13 +440,16 @@ class HyprTests(unittest.TestCase):
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 self.assertEqual(proc.stdout.decode("utf-8"), value)
 
-    def _run_lua(self, *fragments, fail_create=False):
+    def _run_lua(self, *fragments, fail_create=False, fail_after=None):
         harness = self.box.runtime / "harness.lua"
+        limit = 0 if fail_create else (fail_after if fail_after is not None else -1)
         harness.write_text(
             "hl = {}\n"
-            f"local fail_create = {'true' if fail_create else 'false'}\n"
+            f"local fail_after = {limit}\n"
+            "local creates = 0\n"
             "hl.window_rule = function(spec)\n"
-            "  if fail_create then error('window_rule refused') end\n"
+            "  if fail_after >= 0 and creates >= fail_after then error('window_rule refused') end\n"
+            "  creates = creates + 1\n"
             "  local h = { enabled = true }\n"
             "  function h:set_enabled(v) self.enabled = v; io.write('set_enabled ', spec.name, ' ', tostring(v), '\\n') end\n"
             "  io.write('create ', spec.name, ' ', spec.match.class, ' ', spec.workspace, '\\n')\n"
@@ -464,11 +482,24 @@ class HyprTests(unittest.TestCase):
             proc.stdout.splitlines(),
             [
                 f"create {name} {NATIVE} {ws}",
-                f"set_enabled {name} false",
                 f"create {name} ^org\\.telegram\\..*$ {ws}",
-                f"set_enabled {name} false",
+                f"set_enabled {name} false",  # the old handle, retired after the new create
+                f"set_enabled {name} false",  # the explicit disable
             ],
         )
+
+    @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
+    def test_lua_failed_reset_keeps_previous_rule_live(self):
+        name = "omarchy-ds-telegram-0"
+        proc = self._run_lua(
+            hypr.set_rule_lua(name, NATIVE),
+            hypr.set_rule_lua(name, r"^org\.telegram\..*$"),
+            fail_after=1,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("window_rule refused", proc.stderr)
+        self.assertEqual(proc.stdout.splitlines(), [f"create {name} {NATIVE} {hypr.WORKSPACE_EFFECT}"],
+                         "the previous handle was not retired")
 
     @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
     def test_lua_fragment_create_error_is_not_swallowed(self):
