@@ -36,10 +36,10 @@ python3 -m unittest discover -s tests > /tmp/ds-suite.log 2>&1; tail -3 /tmp/ds-
 
 <!-- scope: both -->
 
-- **R1:** `omarchy plugin validate` and `qmllint` pass on the repository root at the tagged commit. Errors: none.
+- **R1:** `omarchy plugin validate` and `qmllint` pass on the repository root at the tagged commit. `qmllint` runs with an import directory whose `qs` entry is a symlink to `$OMARCHY_PATH/shell`, because Quickshell maps `qs.*` to the shell root and a bare `-I $OMARCHY_PATH/shell` cannot resolve `qs.Commons` or `qs.Ui`; the README's Contributing section carries that command. The one remaining warning, `Style.bar.iconSlot` missing on a QObject, is a dynamic property and is documented as noise. Errors: none.
 - **R2:** The README documents every external dependency, privilege boundary (sudoers grant, wrapper path, notification-service clone), service, and the removal path (`setup --remove`, `omarchy plugin remove`). Errors: none.
-- **R3:** The id decision is recorded in Decision Context and applied; if renamed, existing installs get a documented migration and the tests pass with the new id. Errors: none.
-- **R4:** `manifest.json` `version` matches a git tag on the submission commit, and a filled-in copy of the submission form (repository URL, category, tags, maintainer notes, checklist) is saved as `docs/marketplace-submission.md` for the human to paste. Errors: none.
+- **R3:** The id is `io.github.danielkillenberger.distraction-space` in `manifest.json`, `BarWidget.qml`'s `moduleName`, the two Hyprland snippet paths, and every README install path; the README carries a migration note for installs of the old id (`omarchy plugin remove distraction-space`, add again, re-copy the snippets, `distractions setup`). Config, state, socket, wrapper, and sudoers names stay `distraction-space` / `omarchy-distraction-space`; they never derived from the plugin id. Errors: none.
+- **R4:** `manifest.json` `version` is `2.1.0` and the conductor tags the merged submission commit `v2.1.0` on main after the PR lands (a tag cannot ride a PR); the version and a filled-in copy of the submission form (repository URL, category, tags, maintainer notes, checklist) is saved as `docs/marketplace-submission.md` for the human to paste. Errors: none.
 - **R5:** The Automated Security Baseline document has been read and each of its checks is mapped to a line in `docs/marketplace-submission.md` saying how the plugin satisfies it or why it needs a maintainer note. Errors: none.
 
 ## Boundaries
@@ -54,4 +54,6 @@ python3 -m unittest discover -s tests > /tmp/ds-suite.log 2>&1; tail -3 /tmp/ds-
 
 <!-- scope: both -->
 
-Pending user decision: keep `distraction-space` as the id or rename to a namespaced id before the first listing (renaming after listing is a breaking change for every installer).
+The user chose on 2026-09-02 to rename to `io.github.danielkillenberger.distraction-space` before the first listing, since ids are permanent marketplace identifiers and the only install so far is the author's. Rejected: keeping `distraction-space`, allowed by the validator but a bare id the marketplace guide steers away from, and unrenameable after listing.
+
+From the marketplace's own history (issues #3293 Self Control, #3756 Deeplok, #3590 GNO Recall, read 2026-09-02): the Automated Security Baseline will report the capabilities `privilege`, `sudoers-modification`, and `installer` and no findings, which is `review-required`, the same disposition two nft and hosts blockers with a sudoers or polkit grant were approved under the same day. The `manual-setup` label is expected because `omarchy plugin add` alone yields no working plugin. Validation binds to the exact HEAD at filing; GNO Recall's review was refused after a three-line merge moved HEAD, so main stays frozen from filing until `approved-and-verified`, and any needed push is followed by editing the issue to revalidate.
