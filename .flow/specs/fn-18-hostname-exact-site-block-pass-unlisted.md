@@ -82,3 +82,4 @@ Recorded by the conductor on 2026-09-02 on this machine, installed plugin at 5c2
 - `curl https://youtube.com/` failed in 0.073 s with a TLS unexpected EOF (the listed close), and `curl http://youtube.com/` served the "Can't open youtube.com on this workspace" block page.
 
 The wrapper's two new accept lines parsed and loaded on the live kernel (the listener's `replace` succeeded with them), which settles the nft syntax check the sandbox could not run.
+- Banner, confirmed by the user watching the screen: `curl https://reddit.com/` (listed) raised one "Blocked on this workspace" banner, a repeat within 30 s raised none, and `curl https://safebrowsing.google.com/` before it raised none.
