@@ -34,6 +34,9 @@ args = sys.argv[1:]
 if args == ["-f", "json", "list", "sink-inputs"]:
     print(streams.read_text() if streams.exists() else "[]")
 elif args[:1] == ["set-sink-input-mute"] and len(args) == 3:
+    if args[1] in os.environ.get("DS_PACTL_STUCK", "").split(","):
+        print("Failure: No such entity", file=sys.stderr)
+        sys.exit(1)
     items = json.loads(streams.read_text()) if streams.exists() else []
     for item in items:
         if str(item["index"]) == args[1]:
@@ -52,7 +55,7 @@ else:
     sys.exit(1)
 """
 
-_ENV_KEYS = ("DS_PACTL_LOG", "DS_PACTL_STREAMS", "DS_PACTL_EVENTS", "DS_PACTL_FAIL", "DS_SHELL_LOG", "DS_SHELL_STATE",
+_ENV_KEYS = ("DS_PACTL_LOG", "DS_PACTL_STREAMS", "DS_PACTL_EVENTS", "DS_PACTL_FAIL", "DS_PACTL_STUCK", "DS_SHELL_LOG", "DS_SHELL_STATE",
              "DS_SHELL_MISSING", "DS_BUS_LOG", "DS_BUS_LINES", "DS_BUS_EXIT", "DS_HYPR_LOG", "DS_HYPR_STATE",
              "DS_NOTIFY_LOG", "DS_NFT_LOG", "DS_SOCKET2", "GETENT_MAP", "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT")
 CUSTOM = {"name": "Foo", "hosts": ["foo.org"], "audio": {"name": ["Chromium"], "binary": ["chrome"]}}
@@ -86,6 +89,7 @@ class _Env(unittest.TestCase):
         self._orig = {k: os.environ.get(k) for k in _ENV_KEYS}
         os.environ.update(DS_PACTL_LOG=str(self.pactl_log), DS_PACTL_STREAMS=str(self.streams),
                           DS_PACTL_EVENTS=str(self.events), DS_PACTL_FAIL=str(rt / "pactl.fail"))
+        os.environ.pop("DS_PACTL_STUCK", None)
         self.box.fake_bin("pactl", PACTL)
 
     def tearDown(self):
@@ -254,16 +258,40 @@ class AudioUnitTests(_Env):
         self.assertTrue(m2.missing)
         self.assertEqual(log.call_count, 1)
 
-    def test_failing_pactl_logs_once_and_keeps_records_for_a_retry(self):
+    def test_failing_pactl_logs_once_and_release_retries_from_tick(self):
         (self.box.runtime / "pactl.fail").write_text("1")
         write_json(self.box.state_dir / "muted.json", {"3": f"100:{START}"})
+        self.streams.write_text(json.dumps([stream(3, "Telegram Desktop", "telegram-desktop", 100, muted=True)]))
         m = hold.Mute()
         with mock.patch.object(hold, "_log") as log:
             m.sync(True, self.table)
-            m.sync(False, self.table)
+            m.sync(False, self.table, now=100.0)
+            m.tick(now=100.0 + hold.RELEASE_RETRY - 0.5)
         self.assertEqual(log.call_count, 1)
         self.assertFalse(m.missing)
         self.assertEqual(self._muted(), {"3": f"100:{START}"})
+        self.assertEqual(self._streams(), {"3": True})
+        (self.box.runtime / "pactl.fail").unlink()
+        m.tick(now=100.0 + hold.RELEASE_RETRY)
+        self.assertEqual(self._streams(), {"3": False})
+        self.assertIsNone(self._muted())
+
+    def test_release_keeps_a_record_whose_unmute_failed_until_it_succeeds(self):
+        write_json(self.box.state_dir / "muted.json", {"3": f"100:{START}", "5": f"201:{START}"})
+        self.streams.write_text(json.dumps([stream(3, "Telegram Desktop", "telegram-desktop", 100, muted=True),
+                                            stream(5, "Chromium", "chrome", 201, muted=True)]))
+        os.environ["DS_PACTL_STUCK"] = "5"
+        m = hold.Mute()
+        with mock.patch.object(hold, "_log"):
+            m.sync(False, self.table, now=50.0)
+        self.assertEqual(self._streams(), {"3": False, "5": True})
+        self.assertEqual(self._muted(), {"5": f"201:{START}"})
+        os.environ.pop("DS_PACTL_STUCK")
+        m.tick(now=50.0 + hold.RELEASE_RETRY)
+        self.assertEqual(self._streams(), {"3": False, "5": False})
+        self.assertIsNone(self._muted())
+        self.assertEqual(self._calls("set-sink-input-mute"),
+                         ["set-sink-input-mute 3 0", "set-sink-input-mute 5 0", "set-sink-input-mute 5 0"])
 
 
 class MuteListenerTests(_Env):

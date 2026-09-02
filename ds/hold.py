@@ -22,6 +22,7 @@ BUSCTL = ["busctl", "--user", "monitor", "--json=short", "--match", MATCH]
 PACTL_LIST = ["pactl", "-f", "json", "list", "sink-inputs"]
 PACTL_SUBSCRIBE = ["pactl", "subscribe"]
 ANCESTORS = 8
+RELEASE_RETRY = 16.0
 PROC = Path("/proc")
 _SINK_INPUT = re.compile(r"^Event '(new|change|remove)' on sink-input #(\d+)")
 
@@ -476,13 +477,16 @@ class Mute:
     def __init__(self):
         self.active, self.table, self.owned = False, {"names": {}, "binaries": {}, "hosts": {}}, {}
         self.tail = _MuteTail(self)
-        self.missing = self.fail_noted = False
+        self.missing, self.fail_noted, self.retry_at = False, False, 0.0
 
     def fileno(self):
         return self.tail.fileno()
 
     def tick(self, now=None):
+        now = time.monotonic() if now is None else now
         self.tail.tick(now)
+        if not self.active and self.owned and now >= self.retry_at:
+            self.release(now)
 
     def _load(self) -> dict:
         raw = state.read_json(muted_path(), {})
@@ -548,7 +552,7 @@ class Mute:
             self.scan()
             self.tick(now)
         elif self.active or muted_path().exists():
-            self.release()
+            self.release(now)
 
     def scan(self):
         """Mute every attributable, still audible stream and record its identity.
@@ -595,24 +599,29 @@ class Mute:
         if rescan and self.active:
             self.scan()
 
-    def release(self):
-        """Hold ended or the listener exits: unmute recorded indexes whose identity still matches, clear the file."""
+    def release(self, now=None):
+        """Hold ended or the listener exits: unmute recorded indexes whose identity still matches.
+
+        A record whose stream could not be listed or unmuted stays in the file
+        and is retried from `tick` every RELEASE_RETRY seconds; the file clears
+        once nothing is left.
+        """
         self.active = False
         self.tail.stop()
         owned = self.owned or self._load()
         self.owned = {}
-        if not owned:
-            self._save()
-            return
-        streams = self._list()
+        streams = self._list() if owned else []
         if streams is None:
             self.owned = owned
-            return
-        for item in streams:
-            index = str(item.get("index"))
-            ident = owned.get(index)
-            if ident is not None and ident == identity(stream_pid(item)) and item.get("mute") is True:
-                self._set(index, False)
+        else:
+            for item in streams:
+                index = str(item.get("index"))
+                ident = owned.get(index)
+                if ident is not None and ident == identity(stream_pid(item)) and item.get("mute") is True \
+                        and not self._set(index, False):
+                    self.owned[index] = ident
+        if self.owned:
+            self.retry_at = (time.monotonic() if now is None else now) + RELEASE_RETRY
         self._save()
 
 
