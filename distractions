@@ -26,7 +26,18 @@ COMMANDS = {
     "reload": listener.cmd_reload,
     "setup": setup.cmd_setup,
     "senders": hold.cmd_senders,
+    "banners": state.cmd_banners,
 }
+
+
+def positive_int(value):
+    try:
+        n = int(value)
+    except ValueError:
+        n = 0
+    if n < 1:
+        raise argparse.ArgumentTypeError(f"{value!r} is not a positive integer")
+    return n
 
 
 def build_parser():
@@ -53,6 +64,8 @@ def build_parser():
         sub.add_parser(name)
     sub.add_parser("setup").add_argument("--remove", action="store_true")
     sub.add_parser("senders")
+    banners = sub.add_parser("banners")
+    banners.add_argument("--count", type=positive_int, default=20, metavar="N")
     return p
 
 
