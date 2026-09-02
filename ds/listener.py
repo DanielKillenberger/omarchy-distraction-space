@@ -109,8 +109,8 @@ def _listen():
             wait = max(0.0, last + TICK - now)
             for c in ctx.clients:
                 wait = min(wait, max(0.0, c.deadline - now))
-            bus = ctx.capture.fileno()
-            fds = [rs, r_fd] + [fd for fd in (sock2, bus) if fd is not None] + [c.sock for c in ctx.clients]
+            bus, pa = ctx.capture.fileno(), ctx.mute.fileno()
+            fds = [rs, r_fd] + [fd for fd in (sock2, bus, pa) if fd is not None] + [c.sock for c in ctx.clients]
             try:
                 ready, _, _ = select.select(fds, [], [], wait)
             except (InterruptedError, ValueError):
@@ -129,6 +129,8 @@ def _listen():
             if bus is not None and bus in ready:
                 if ctx.capture.pump(ctx.hold_on is True, ctx.hold_table()):
                     ctx.write_state()
+            if pa is not None and pa in ready:
+                ctx.mute.pump()
             if rs in ready:
                 _accept_reload(rs, ctx)
             _service_clients(ctx, ready)
@@ -146,6 +148,7 @@ def _listen():
         net.shutdown()
         ctx.capture.stop()
         ctx.release_hold()
+        ctx.mute.release()
         for c in ctx.clients:
             _close(c.sock)
         ctx.clients = []
@@ -176,7 +179,7 @@ class _Ctx:
         self.pending, self.lock, self.wake_w = None, threading.Lock(), None
         self.clients = []
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
-        self.capture = hold.Capture()
+        self.capture, self.mute = hold.Capture(), hold.Mute()
     def _note_invalid(self):
         if not self.noted:
             ui.notify("Invalid config", "Using the last saved expansion.")
@@ -201,6 +204,7 @@ class _Ctx:
         self.hold_on, self.pushed = want, keys
         if self.hold_ipc == "unavailable":
             self._note_hold()
+        self.mute.sync(want and hold.mute_on(self.cfg), hold.audio_table(self.exp.get("list") or []))
     def release_hold(self):
         if self.pushed:
             hold.push(self.pushed, False)
@@ -344,6 +348,7 @@ class _Ctx:
             self.write_state(True)
         self.space("tick")
         self.capture.tick()
+        self.mute.tick()
         self.sync_hold()
         self.write_state()
         if self.prev is not True and time.monotonic() - self.last_period >= PERIOD:

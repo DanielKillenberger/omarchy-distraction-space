@@ -1,4 +1,4 @@
-"""Notification hold: sender keys, the shell's silenced list, and the bus capture into held.jsonl."""
+"""Notification hold: sender keys, the shell's silenced list, the bus capture into held.jsonl, and the sound mute."""
 
 from __future__ import annotations
 
@@ -8,6 +8,8 @@ import re
 import subprocess
 import sys
 import time
+from pathlib import Path
+from urllib.parse import urlsplit
 
 from ds import catalog, config, state
 
@@ -17,6 +19,11 @@ BACKOFF = (1.0, 4.0, 16.0)
 IPC_TIMEOUT = 10
 MATCH = "interface='org.freedesktop.Notifications',member='Notify'"
 BUSCTL = ["busctl", "--user", "monitor", "--json=short", "--match", MATCH]
+PACTL_LIST = ["pactl", "-f", "json", "list", "sink-inputs"]
+PACTL_SUBSCRIBE = ["pactl", "subscribe"]
+ANCESTORS = 8
+PROC = Path("/proc")
+_SINK_INPUT = re.compile(r"^Event '(new|change|remove)' on sink-input #(\d+)")
 
 # catalog.pwa_class(host) is "^chrome-" + re.escape(host) + "__.*$"; the
 # expansion carries the PWA host only in that class pattern.
@@ -39,11 +46,9 @@ def normalize(value) -> str:
     return key[4:] if key.startswith("www.") else key
 
 
-def _entry_keys(entry, products):
-    """Catalog senders and the PWA host; a plain or custom hostname entry adds its hosts."""
-    if not isinstance(entry, dict):
-        return []
-    raw = [s for s in entry.get("senders") or [] if isinstance(s, str)]
+def _entry_hosts(entry, products):
+    """The PWA host; a plain or custom hostname entry adds its hosts."""
+    raw = []
     for pat in entry.get("classes") or []:
         m = _PWA_CLASS.fullmatch(pat) if isinstance(pat, str) else None
         if m:
@@ -53,6 +58,13 @@ def _entry_keys(entry, products):
     if entry.get("name") not in products:
         raw.extend(h for h in entry.get("hosts") or [] if isinstance(h, str))
     return raw
+
+
+def _entry_keys(entry, products):
+    """Catalog senders plus the entry's hosts."""
+    if not isinstance(entry, dict):
+        return []
+    return [s for s in entry.get("senders") or [] if isinstance(s, str)] + _entry_hosts(entry, products)
 
 
 def key_table(expanded) -> dict:
@@ -76,6 +88,10 @@ def effective_hold(cfg, on_space, locked) -> bool:
     if mode == "off-space":
         return on_space is False
     return mode == "locked" and bool(locked)
+
+
+def mute_on(cfg) -> bool:
+    return (cfg or {}).get("mute_sounds", config.DEFAULTS["mute_sounds"]) is True
 
 
 def _shell(*args):
@@ -213,25 +229,38 @@ def held_counts() -> dict:
     return counts
 
 
-class Capture:
-    """`busctl --user monitor` for the listener's life, restarted with backoff when it exits."""
+class _Tail:
+    """A long-running child read line by line for the listener's life, restarted with backoff when it exits."""
+
+    CMD, MISSING = (), ""
 
     def __init__(self):
         self.proc, self.buf, self.exits = None, b"", 0
-        self.next_start, self.missing, self.drop_noted = 0.0, False, False
+        self.next_start, self.missing = 0.0, False
 
     def fileno(self):
         return self.proc.stdout.fileno() if self.proc is not None else None
 
+    def wanted(self) -> bool:
+        return True
+
     def tick(self, now=None):
         now = time.monotonic() if now is None else now
         if self.proc is not None and self.proc.poll() is not None:
-            rc = self.proc.returncode
-            self.proc.stdout.close()
-            self.proc, self.buf = None, b""
-            self._backoff(now, f"busctl exited with {rc}")
-        if self.proc is None and not self.missing and now >= self.next_start:
+            self._exited(now)
+        if self.proc is None and not self.missing and self.wanted() and now >= self.next_start:
             self._start(now)
+
+    def _exited(self, now):
+        """Reap the child and schedule the restart; its pipe leaves the select set at once."""
+        proc, self.proc = self.proc, None
+        try:
+            rc = proc.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            rc = proc.wait()
+        proc.stdout.close()
+        self._backoff(now, f"{self.CMD[0]} exited with {rc}")
 
     def _backoff(self, now, why):
         delay = BACKOFF[min(self.exits, len(BACKOFF) - 1)]
@@ -239,24 +268,29 @@ class Capture:
         self.next_start = now + delay
         _log(f"{why}; restarting in {delay:g}s")
 
+    def _gone(self):
+        if not self.missing:
+            self.missing = True
+            _log(self.MISSING)
+
     def _start(self, now):
         try:
             self.proc = subprocess.Popen(
-                BUSCTL, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                list(self.CMD), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )
             os.set_blocking(self.proc.stdout.fileno(), False)
+            self.buf = b""
         except FileNotFoundError:
-            self.missing = True
-            _log("busctl missing; notification capture is off")
+            self._gone()
         except OSError as e:
             if self.proc is not None:
                 self.stop()
-            self._backoff(now, f"busctl failed to start ({e})")
+            self._backoff(now, f"{self.CMD[0]} failed to start ({e})")
 
-    def pump(self, active, table) -> int:
-        """Read what busctl has; while `active`, record every Notify the table attributes."""
+    def _lines(self):
+        """Every complete line the child has written since the last call."""
         if self.proc is None:
-            return 0
+            return []
         fd = self.proc.stdout.fileno()
         while True:
             try:
@@ -266,12 +300,44 @@ class Capture:
             except OSError:
                 chunk = b""
             if not chunk:
+                self._exited(time.monotonic())
                 break
             self.buf += chunk
-        added = 0
+        lines = []
         while b"\n" in self.buf:
             raw, self.buf = self.buf.split(b"\n", 1)
             self.exits = 0
+            lines.append(raw)
+        return lines
+
+    def stop(self):
+        proc, self.proc = self.proc, None
+        if proc is None:
+            return
+        try:
+            proc.terminate()
+            proc.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=2)
+        except OSError:
+            pass
+        proc.stdout.close()
+
+
+class Capture(_Tail):
+    """`busctl --user monitor` for the listener's life, restarted with backoff when it exits."""
+
+    CMD, MISSING = BUSCTL, "busctl missing; notification capture is off"
+
+    def __init__(self):
+        super().__init__()
+        self.drop_noted = False
+
+    def pump(self, active, table) -> int:
+        """Read what busctl has; while `active`, record every Notify the table attributes."""
+        added = 0
+        for raw in self._lines():
             if active and self._record(raw, table):
                 added += 1
         return added
@@ -295,19 +361,275 @@ class Capture:
             _log(f"cannot write {held_path()}; held records are dropped")
         return False
 
-    def stop(self):
-        proc, self.proc = self.proc, None
-        if proc is None:
-            return
+
+# --- sound mute -------------------------------------------------------------
+
+
+def audio_table(expanded) -> dict:
+    """Normalized `application.name`, `application.process.binary`, and PWA host to the list entry's name."""
+    table, products = {"names": {}, "binaries": {}, "hosts": {}}, catalog.load_catalog()
+    for entry in expanded or []:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name") or ""
+        audio = entry.get("audio") if isinstance(entry.get("audio"), dict) else {}
+        for field, key in (("name", "names"), ("binary", "binaries")):
+            for raw in audio.get(field) or []:
+                norm = normalize(raw) if isinstance(raw, str) else ""
+                if norm:
+                    table[key].setdefault(norm, name)
+        for raw in _entry_hosts(entry, products):
+            norm = normalize(raw)
+            if norm:
+                table["hosts"].setdefault(norm, name)
+    return table
+
+
+def _stat_fields(pid, proc):
+    """/proc/<pid>/stat after the comm: [0] state, [1] ppid, [19] starttime."""
+    try:
+        text = (proc / str(pid) / "stat").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    fields = text.rpartition(")")[2].split()
+    return fields if len(fields) > 19 else None
+
+
+def stream_pid(item):
+    props = item.get("properties") if isinstance(item, dict) else None
+    raw = props.get("application.process.id") if isinstance(props, dict) else None
+    try:
+        pid = int(str(raw).strip())
+    except (TypeError, ValueError):
+        return None
+    return pid if pid > 0 else None
+
+
+def identity(pid, proc=None):
+    """`pid:starttime` of a live process, or None when it cannot be read."""
+    fields = _stat_fields(pid, proc or PROC) if pid else None
+    return f"{pid}:{fields[19]}" if fields else None
+
+
+def _cmdline_host(pid, proc):
+    """The host a Chromium web-app flag names in this process's argv: `--app-id=<host>` or `--app=<url>`."""
+    try:
+        argv = (proc / str(pid) / "cmdline").read_bytes().split(b"\0")
+    except OSError:
+        return ""
+    for token in argv:
+        arg = token.decode("utf-8", "replace")
+        if arg.startswith("--app-id="):
+            return normalize(arg[9:])
+        if arg.startswith("--app="):
+            try:
+                return normalize(urlsplit(arg[6:]).hostname or "")
+            except ValueError:
+                return ""
+    return ""
+
+
+def pwa_name(pid, hosts, proc=None):
+    """The list entry whose PWA host the stream's process or one of up to ANCESTORS ancestors was launched for."""
+    proc = proc or PROC
+    for _ in range(ANCESTORS + 1):
+        if not pid or pid <= 1:
+            return None
+        host = _cmdline_host(pid, proc)
+        if host in hosts:
+            return hosts[host]
+        fields = _stat_fields(pid, proc)
         try:
-            proc.terminate()
-            proc.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=2)
-        except OSError:
+            pid = int(fields[1]) if fields else 0
+        except ValueError:
+            return None
+    return None
+
+
+def _is_browser(app, binary) -> bool:
+    return any(mark in app or mark in binary for mark in _CHROMIUM)
+
+
+def attribute_stream(item, table, proc=None):
+    """The list entry name a sink-input belongs to, or None; a bare browser stream is never a member."""
+    props = item.get("properties") if isinstance(item, dict) else None
+    if not isinstance(props, dict):
+        return None
+    app = normalize(props.get("application.name"))
+    binary = normalize(os.path.basename(str(props.get("application.process.binary") or "")))
+    if not _is_browser(app, binary):
+        name = table["names"].get(app) if app else None
+        if name is None and binary:
+            name = table["binaries"].get(binary)
+        if name is not None:
+            return name
+    return pwa_name(stream_pid(item), table["hosts"], proc)
+
+
+def muted_path():
+    return state.state_path("muted.json")
+
+
+class Mute:
+    """Mute the listed apps' streams while hold is on; unmute only what this plugin muted, by identity."""
+
+    def __init__(self):
+        self.active, self.table, self.owned = False, {"names": {}, "binaries": {}, "hosts": {}}, {}
+        self.tail = _MuteTail(self)
+        self.missing = self.fail_noted = False
+
+    def fileno(self):
+        return self.tail.fileno()
+
+    def tick(self, now=None):
+        self.tail.tick(now)
+
+    def _load(self) -> dict:
+        raw = state.read_json(muted_path(), {})
+        return {k: v for k, v in raw.items() if isinstance(k, str) and isinstance(v, str)} if isinstance(raw, dict) else {}
+
+    def _save(self):
+        try:
+            if self.owned:
+                state.write_json(muted_path(), self.owned)
+            else:
+                muted_path().unlink()
+        except FileNotFoundError:
             pass
-        proc.stdout.close()
+        except OSError as e:
+            _log(f"cannot write {muted_path()}: {e}")
+
+    def _run(self, cmd):
+        """Run one pactl command; None when it failed. A missing binary disables the feature with one line."""
+        if self.missing:
+            return None
+        try:
+            proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                  check=False, timeout=IPC_TIMEOUT)
+        except FileNotFoundError:
+            self.missing = True
+            self.tail.missing = True
+            self.tail.stop()
+            _log(self.tail.MISSING)
+            return None
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return self._fail(f"{cmd[0]}: {e}")
+        if proc.returncode != 0:
+            return self._fail((proc.stderr or "").strip() or f"{' '.join(cmd)}: exit {proc.returncode}")
+        self.fail_noted = False
+        return proc.stdout or ""
+
+    def _fail(self, why):
+        if not self.fail_noted:
+            self.fail_noted = True
+            _log(f"pactl: {why}")
+        return None
+
+    def _list(self):
+        out = self._run(PACTL_LIST)
+        if out is None:
+            return None
+        try:
+            items = json.loads(out or "[]")
+        except json.JSONDecodeError:
+            return self._fail("unexpected list output")
+        return [it for it in items if isinstance(it, dict)] if isinstance(items, list) else []
+
+    def _set(self, index, muted) -> bool:
+        return self._run(["pactl", "set-sink-input-mute", index, "1" if muted else "0"]) is not None
+
+    def sync(self, on, table, now=None):
+        """On every hold transition and list change: mute while on, release when off."""
+        self.table = table
+        if on and not self.missing:
+            if not self.active:
+                self.active = True
+                self.owned = self._load()
+            self.scan()
+            self.tick(now)
+        elif self.active or muted_path().exists():
+            self.release()
+
+    def scan(self):
+        """Mute every attributable, still audible stream and record its identity.
+
+        A record whose index is gone or now carries another identity is dropped;
+        so is one the person unmuted meanwhile, which is then left alone.
+        """
+        streams = self._list()
+        if streams is None:
+            return
+        owned = {}
+        for item in streams:
+            index = str(item.get("index"))
+            if not index.isdigit():
+                continue
+            ident = identity(stream_pid(item))
+            if self.owned.get(index) == ident and ident is not None:
+                if item.get("mute") is True:
+                    owned[index] = ident
+                continue
+            if item.get("mute") is True or ident is None:
+                continue
+            if attribute_stream(item, self.table) is not None and self._set(index, True):
+                owned[index] = ident
+        if owned != self.owned:
+            self.owned = owned
+            self._save()
+
+    def forget(self, index):
+        if self.owned.pop(index, None) is not None:
+            self._save()
+
+    def pump(self):
+        """Consume `pactl subscribe` events: a new or changed sink-input rescans, a removed one drops its record."""
+        rescan = False
+        for raw in self.tail._lines():
+            m = _SINK_INPUT.match(raw.decode("utf-8", "replace"))
+            if not m:
+                continue
+            if m.group(1) == "remove":
+                self.forget(m.group(2))
+            else:
+                rescan = True
+        if rescan and self.active:
+            self.scan()
+
+    def release(self):
+        """Hold ended or the listener exits: unmute recorded indexes whose identity still matches, clear the file."""
+        self.active = False
+        self.tail.stop()
+        owned = self.owned or self._load()
+        self.owned = {}
+        if not owned:
+            self._save()
+            return
+        streams = self._list()
+        if streams is None:
+            self.owned = owned
+            return
+        for item in streams:
+            index = str(item.get("index"))
+            ident = owned.get(index)
+            if ident is not None and ident == identity(stream_pid(item)) and item.get("mute") is True:
+                self._set(index, False)
+        self._save()
+
+
+class _MuteTail(_Tail):
+    CMD, MISSING = PACTL_SUBSCRIBE, "pactl missing; sound mute is off"
+
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+
+    def wanted(self) -> bool:
+        return self.owner.active and not self.owner.fail_noted
+
+    def _gone(self):
+        if not self.owner.missing:
+            self.owner.missing = True
+            super()._gone()
 
 
 def cmd_senders(args):
