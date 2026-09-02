@@ -124,23 +124,36 @@ On first load with no `distraction-space.json`, `list` is seeded from names in `
 
 ## Catalog
 
+### What gets moved, and what gets blocked
+
+Two independent things happen to a listed app: its windows (native app and installed web app) move to the distraction space, and its hosts are dropped from the network off-space. Every catalog product gets the first. Messaging apps skip the second, so a chat still connects while you work and only its window is kept out of sight.
+
+| | Windows moved | Network blocked off-space |
+|---|---|---|
+| Telegram, Discord, WhatsApp, Signal, Google Messages | yes | **no** |
+| X, Facebook, Instagram, Threads, Reddit, TikTok, Snapchat, YouTube, Twitch, Netflix | yes | yes |
+
+A custom entry with `hosts` is moved and blocked; a custom entry with only `class` is only moved.
+
+
 Shipped `catalog.json` maps product name to identity. Two shapes exist, native and PWA. Expansion produces `classes`, a list: the native `class` when present, plus for every host-bearing entry the automatic PWA class `^chrome-<host>__.*$` for its first host (the `pwa` host when given), so any listed site's installed web app is contained alongside the native app.
 
-Native (class plus hosts; `senders` and `audio` are carried through for fn-10):
+Native (class plus the `pwa` host; messaging apps ship `hosts: []` so they are never blocked; `senders` and `audio` are carried through for fn-10):
 
 ```json
 "Telegram": {
   "class": "org.telegram.desktop",
-  "hosts": ["web.telegram.org", "telegram.org", "t.me"],
+  "pwa": "web.telegram.org",
+  "hosts": [],
   "senders": ["Telegram Desktop", "org.telegram.desktop"],
   "audio": {"name": ["Telegram Desktop"], "binary": ["telegram-desktop", "Telegram"]}
 }
 ```
 
-PWA (`pwa` host plus `hosts`):
+PWA only (`pwa` host, empty `hosts`, so the web app is moved and nothing is blocked):
 
 ```json
-"Discord": {"pwa": "discord.com", "hosts": ["discord.com", "discordapp.com", "discord.gg"]}
+"Discord": {"pwa": "discord.com", "hosts": []}
 ```
 
 Hosts only:
