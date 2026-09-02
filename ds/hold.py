@@ -131,35 +131,59 @@ def _read_silenced():
     return seen
 
 
-def push(keys, on, retire=()) -> str:
-    """Add (on) or remove (off) the plugin's keys in the shell's silenced list.
+def owned_path():
+    return state.state_path("silenced-owned.json")
 
-    Keys the person added by hand stay; `retire` names keys pushed earlier
-    that the list no longer produces, dropped in both directions. Returns
-    `on`, `off`, or `unavailable` for `state.json.notification_hold`.
+
+def _read_owned() -> list:
+    data = state.read_json(owned_path(), [])
+    return [k for k in data if isinstance(k, str) and k] if isinstance(data, list) else []
+
+
+def _write_owned(keys) -> None:
+    try:
+        if keys:
+            state.write_json(owned_path(), list(keys))
+        else:
+            owned_path().unlink(missing_ok=True)
+    except OSError as e:
+        _log(f"silenced-owned.json: {e}")
+
+
+def push(keys, on, retire=()) -> str:
+    """Add (on) or remove (off) the plugin's sender keys in the shell's silenced list.
+
+    Only keys this plugin put there are ever removed: a key the person had
+    silenced by hand before a hold began is never touched in either direction.
+    The owned set persists in `silenced-owned.json` so a listener restart or a
+    retired key (`retire`: pushed earlier, no longer on the list) still knows
+    what to give back. Returns `on`, `off`, or `unavailable` for
+    `state.json.notification_hold`.
     """
     current = _read_silenced()
     if current is None:
         return "unavailable"
-    keys = [normalize(k) for k in keys]
-    drop = {normalize(k) for k in retire} | (set() if on else set(keys))
-    if on:
-        drop -= set(keys)
-    want = [k for k in current if k not in drop]
-    if on:
-        want.extend(k for k in keys if k and k not in want)
+    keys = [normalize(k) for k in keys if normalize(k)]
+    owned = [k for k in _read_owned() if k in current]
+    remove = [k for k in owned if k in (set(normalize(r) for r in retire) | (set() if on else set(keys)))]
+    add = [k for k in keys if k not in current] if on else []
     # One IPC call per key: `qs ipc call` parses a `[...]` argument as its own
     # list syntax, so a JSON array can never reach setSilencedSenders intact.
-    for key in [k for k in current if k not in want]:
+    for key in remove:
         out, err = _shell("unsilence", key)
         if out is None or out == "error":
             _log(f"unsilence {key}: {err or out}")
+            _write_owned(owned)
             return "unavailable"
-    for key in [k for k in want if k not in current]:
+        owned.remove(key)
+    for key in add:
         out, err = _shell("silence", key)
         if out is None or out == "error":
             _log(f"silence {key}: {err or out}")
+            _write_owned(owned)
             return "unavailable"
+        owned.append(key)
+    _write_owned(owned)
     return "on" if on else "off"
 
 

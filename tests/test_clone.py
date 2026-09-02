@@ -310,6 +310,19 @@ class CloneTests(unittest.TestCase):
         self.assertEqual(len(self._log()), calls)
         self.assertFalse(self.clone.exists())
 
+    def test_foreign_clone_is_reported_when_builtin_has_method(self):
+        shutil.copytree(self.source, self.clone)
+        before = {p.relative_to(self.clone): p.read_bytes() for p in self.clone.rglob("*") if p.is_file()}
+        self.record.unlink(missing_ok=True)
+        self._ship_upstream()
+        rc, err = self._sync()
+        self.assertEqual(rc, 0)
+        self.assertIn("not created by this plugin", err)
+        self.assertIn("silencedSenders", err)
+        self.assertEqual(self._log(), [])
+        after = {p.relative_to(self.clone): p.read_bytes() for p in self.clone.rglob("*") if p.is_file()}
+        self.assertEqual(after, before)
+
     def test_foreign_clone_is_never_touched(self):
         shutil.copytree(self.source, self.clone)
         before = {p.relative_to(self.clone): p.read_bytes() for p in self.clone.rglob("*") if p.is_file()}

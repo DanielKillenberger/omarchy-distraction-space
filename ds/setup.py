@@ -256,6 +256,9 @@ def sync_clone() -> int:
                 return 1
             _mark_changed()
             print(f"removed {path.name}: the built-in now provides silencedSenders", file=sys.stderr)
+        elif path.exists():
+            # Left alone, but it shadows a built-in that already has the method.
+            _unavailable(f"{path} was not created by this plugin and is left alone; it hides the built-in service that now provides silencedSenders")
         _unlink(_record_path())
         return 0
     if path.exists() and not ours:

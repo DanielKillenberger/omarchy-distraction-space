@@ -141,6 +141,7 @@ class HoldUnitTests(unittest.TestCase):
         self.assertIs(hold.effective_hold(None, False, False), True)
 
     def test_push_adds_and_removes_only_plugin_keys(self):
+        # "example.com" is on the plugin list AND was silenced by hand beforehand.
         self.shell_state.write_text(json.dumps(["hand added", "WWW.Example.COM"]))
         self.assertEqual(hold.push(KEYS, True), "on")
         self.assertEqual(self._silenced(), ["hand added", "example.com", *KEYS[:4]])
@@ -151,7 +152,22 @@ class HoldUnitTests(unittest.TestCase):
         self.assertEqual(hold.push(KEYS[1:], True, retire=[KEYS[0]]), "on")
         self.assertEqual(self._silenced(), ["hand added", "example.com", *KEYS[1:4]])
         self.assertEqual(hold.push(KEYS[1:], False), "off")
+        self.assertEqual(self._silenced(), ["hand added", "example.com"], "a hand-silenced key survives hold off")
+        self.assertFalse(hold.owned_path().exists())
+
+    def test_owned_keys_persist_across_a_restart(self):
+        self.shell_state.write_text(json.dumps(["hand added"]))
+        self.assertEqual(hold.push(KEYS, True), "on")
+        self.assertEqual(sorted(json.loads(hold.owned_path().read_text())), sorted(KEYS))
+        # A fresh process knows what it owns without having pushed anything this run.
+        self.assertEqual(hold.push(KEYS, False), "off")
         self.assertEqual(self._silenced(), ["hand added"])
+        # A key the person removed by hand while owned is simply not there any more.
+        self.assertEqual(hold.push(KEYS, True), "on")
+        self.shell_state.write_text(json.dumps(["hand added", *KEYS[1:]]))
+        self.assertEqual(hold.push(KEYS, False), "off")
+        self.assertEqual(self._silenced(), ["hand added"])
+        self.assertFalse(hold.owned_path().exists())
 
     def test_push_missing_method_is_unavailable_without_a_set_call(self):
         os.environ["DS_SHELL_MISSING"] = "1"
