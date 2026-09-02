@@ -21,6 +21,9 @@ Spec deviation, deliberate: the spec names `--app-id=<pwa host>`, but Omarchy's 
 Tests: `tests/test_audio.py` covers attribution (native, PWA via `--app=` ancestor and `--app-id=`, bare Chromium even when a custom entry names Chromium as audio, the eight-ancestor cap), scan/record/release with identity, a reused index with a different identity, a user-muted stream left alone, pump events (new rescans, remove forgets), EOF reaping, subscribe gated on list health, missing `pactl` once, failing `pactl` with release retry, a stuck unmute retried, and one listener-level pass through hold on/off/on/exit. Follow-up noted, not built: README documentation of `muted.json` belongs to task 4.
 
 stage: impl-review - ran [round 1 NEEDS_WORK (P1: failed release not recoverable) .. round 2 SHIP]
+
+stage: plan-sync - skipped(config: planSync.enabled != true)
+
 ## Evidence
 - Commits: 5deb73c41730cf904f45dd7293b67c35147615ef, 0eb9a1fd96cb77904390a2c1e8fcd4f9f73aed4c, 206e13eb9efa798f4d2410c2be96cb4d944e10d0
 - Tests: baseline: green via handoff (verified at 9788bdcc by fn-10-notification-hold-sound-mute-and-the.2; 204 tests), PATH=/usr/bin:$PATH python3 -m unittest tests.test_audio tests.test_hold, PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (214 tests, OK, gate receipt unittest at 206e13e)
