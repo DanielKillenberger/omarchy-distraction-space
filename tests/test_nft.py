@@ -74,8 +74,8 @@ class NftTests(unittest.TestCase):
         self.assertIn("ip daddr @omarchy_ds_v4 tcp dport 443 redirect to :28443", script)
         self.assertIn("ip6 daddr @omarchy_ds_v6 tcp dport 80 redirect to :28080", script)
         self.assertIn("ip6 daddr @omarchy_ds_v6 tcp dport 443 redirect to :28443", script)
-        self.assertIn("ip daddr @omarchy_ds_v4 tcp reject with tcp reset", script)
-        self.assertIn("ip6 daddr @omarchy_ds_v6 tcp reject with tcp reset", script)
+        self.assertIn("ip daddr @omarchy_ds_v4 meta l4proto tcp reject with tcp reset", script)
+        self.assertIn("ip6 daddr @omarchy_ds_v6 meta l4proto tcp reject with tcp reset", script)
         self.assertIn("ip daddr @omarchy_ds_v4 reject\n", script)
         self.assertIn("ip6 daddr @omarchy_ds_v6 reject\n", script)
         self.assertNotIn(" drop\n", script)
@@ -84,7 +84,7 @@ class NftTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         logged = self.stdin_log()
         self.assertIn("redirect to :28080", logged)
-        self.assertIn("reject with tcp reset", logged)
+        self.assertIn("meta l4proto tcp reject with tcp reset", logged)
 
     def test_empty_sets_render_table_that_matches_nothing(self):
         script = self.nft.render_table([], [])
