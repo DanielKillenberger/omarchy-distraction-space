@@ -17,9 +17,11 @@ Implement `ds/listener.py`, replacing the wave 1 stub: single-instance flock, co
 - Shutdown (SIGTERM) with a hanging fake `getent` in flight exits within 3 s, leaving no child process.
 - Lock expiry is observed within one tick and writes state, notifies, runs the `unlock` hook once; an observed enter and leave each run their hook exactly once.
 ## Done summary
-TBD
+`ds/listener.py` is the one long-running process: single-instance flock, config load with the `expansion.json` fallback (rewritten after every successful load or reload, invalid-config notice once per run), `hypr.apply_rules` and a scan of existing clients, one select loop over Hyprland socket2, the reload socket, resolver results, and a one-second tick. Workspace transitions are driven from parsed socket2 events in order with tick reconciliation (`None` from hyprctl is unknown), and the listener alone runs the `enter`/`leave` hooks and the expiry `unlock` hook. Network sync is generation-tagged: one running job, a rerun flag that coalesces overlapping requests, stale-generation drop, an `on_space` recheck on the main loop right before `net.apply`, flush on entering the space, failed batches keeping current enforcement, and reload clients held non-blockingly (buffer cap, deadline budgeted for an active batch plus one coalesced follow-up) until their generation is applied so `ok` means applied. Feedback servers follow `nudges.block_page`; SIGTERM shuts down through `net.shutdown()` so a hanging resolver never blocks exit. `listen` and `reload` are real. Implemented by cursor-agent (cursor-grok-4.6-high) in an isolated worktree; the conductor committed and integrated.
 
+stage: impl-review - ran [round 1 NEEDS_WORK (7 findings fixed in 440d92c), round 2 NEEDS_WORK (2 fixed in b19463f), round 3 NEEDS_WORK (1 fixed in e3a6df3), round 4 SHIP] (model: gpt-5.6-sol-high via cursor)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 5fa1547de752f7373369e583120f40e25646f4e8, 440d92cc57a8357ed496d1b6805a3e57e61c0269, b19463fd5acaa670aaea4a97c15e08095fdec76e, e3a6df3d5d0c21c6d7332191dd1ae1faf90120b4
+- Tests: python3 -m unittest discover tests
 - PRs:
