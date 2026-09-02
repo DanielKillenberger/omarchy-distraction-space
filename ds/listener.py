@@ -202,6 +202,7 @@ class _Ctx:
     def request(self, reason):
         self.gen += 1
         self.latest, self.reason = self.gen, reason
+        self._adopt_waiters(self.latest)
         if self.busy:
             self.rerun = True
             return
@@ -263,6 +264,10 @@ class _Ctx:
             self._launch(self.latest, self.reason)
         else:
             self.rerun = False
+    def _adopt_waiters(self, gen):
+        for c in self.clients:
+            if isinstance(c.gen, int):
+                c.gen = gen
     def _reply_waiters(self, gen, ok):
         msg = b"ok\n" if ok else b"error\n"
         for c in self.clients:
@@ -292,6 +297,7 @@ class _Ctx:
             ui.notify("Lock ended", purpose or "")
             lock.run_hook("unlock", _env("unlock", purpose or ""))
             self.write_state(True)
+        self.space("tick")
         if self.prev is not True and time.monotonic() - self.last_period >= PERIOD:
             self.last_period = time.monotonic()
             self.request("periodic")

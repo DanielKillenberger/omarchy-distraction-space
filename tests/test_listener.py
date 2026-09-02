@@ -678,6 +678,64 @@ class ListenerTests(unittest.TestCase):
         self.assertEqual(text.count("Invalid config"), 1)
         self.assertGreaterEqual(text.count("Reload failed"), 2)
 
+    def test_tick_reconciles_lock_and_missed_workspace(self):
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("on_space") is False, 4), self._state())
+        self.conn.close()
+        self.conn = None
+        self.sock2.close()
+        self.sock2 = None
+        try:
+            self.sock2_path.unlink()
+        except OSError:
+            pass
+        self._workspace("distraction", 5)
+        self.assertTrue(_wait(lambda: self._hooks().count("enter") == 1, 3), self._hooks())
+        self.assertTrue(_wait(
+            lambda: (self._state() or {}).get("on_space") is True
+            and (self._state() or {}).get("site_block") == "off",
+            3,
+        ), self._state())
+        self.assertFalse((self._state() or {}).get("locked"))
+        r = self.box.run("lock", "25", "deep", "work")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("locked") is True, 3), self._state())
+        st = self._state()
+        self.assertEqual(st["purpose"], "deep work")
+        self.assertTrue(st["on_space"])
+        self.assertEqual(st["site_block"], "off")
+
+    def test_coalesced_reload_waiters_complete_together(self):
+        os.environ["GETENT_GATE"] = str(self.gate)
+        self.gate.write_text("1", encoding="utf-8")
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        n_before = self._nft().count("replace ds")
+        self.gate.unlink()
+        got = []
+
+        def go():
+            got.append(self._reload("reload", timeout=16))
+
+        t1 = threading.Thread(target=go, daemon=True)
+        t2 = threading.Thread(target=go, daemon=True)
+        t1.start()
+        time.sleep(0.3)
+        t2.start()
+        time.sleep(0.4)
+        self.assertEqual(got, [])
+        self.assertEqual(self._nft().count("replace ds"), n_before)
+        self.gate.write_text("1", encoding="utf-8")
+        t1.join(timeout=12)
+        t2.join(timeout=12)
+        self.assertFalse(t1.is_alive())
+        self.assertFalse(t2.is_alive())
+        self.assertEqual(sorted(got), [b"ok", b"ok"])
+        self.assertGreater(self._nft().count("replace ds"), n_before)
+
 
 if __name__ == "__main__":
     unittest.main()
