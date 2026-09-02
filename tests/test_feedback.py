@@ -130,7 +130,7 @@ class _Clock:
         return self.t
 
 
-def _write_proc(root, tcp_rows=None, tcp6_rows=None, fds=None, ppid=None):
+def _write_proc(root, tcp_rows=None, tcp6_rows=None, fds=None, ppid=None, exe=None):
     root = Path(root)
     net = root / "net"
     net.mkdir(parents=True, exist_ok=True)
@@ -156,6 +156,8 @@ def _write_proc(root, tcp_rows=None, tcp6_rows=None, fds=None, ppid=None):
     for pid, parent in (ppid or {}).items():
         all_pids.add(int(pid))
         all_pids.add(int(parent))
+    for pid in (exe or {}):
+        all_pids.add(int(pid))
     for pid in all_pids:
         if pid <= 0:
             continue
@@ -172,6 +174,16 @@ def _write_proc(root, tcp_rows=None, tcp6_rows=None, fds=None, ppid=None):
             except OSError:
                 pass
             os.symlink(f"socket:[{inode}]", link)
+    for pid, target in (exe or {}).items():
+        pid = int(pid)
+        if pid <= 0:
+            continue
+        link = root / str(pid) / "exe"
+        try:
+            link.unlink()
+        except OSError:
+            pass
+        os.symlink(target, link)
 
 
 def _http_get(host: str | None, addr: str = "127.0.0.1") -> bytes:
@@ -265,6 +277,12 @@ class FeedbackTests(unittest.TestCase):
 
     def _banners(self):
         return [n for n in self.notices if n[0] == "Blocked on this workspace"]
+
+    def _prov_lines(self):
+        path = state.state_path("log")
+        if not path.exists():
+            return []
+        return [line for line in path.read_text(encoding="utf-8").splitlines() if " banner: " in line]
 
     def _start(self, is_locked=None, config=CFG):
         if is_locked is None:
@@ -1035,6 +1053,216 @@ class FeedbackTests(unittest.TestCase):
         self.assertEqual(len(banners), 1)
         self.assertIn("youtube.com opens in the distraction space", banners[0][1])
 
+    def test_r1_provenance_shown_line(self):
+        hypr.apply_rules([expand_entry("X")])
+        uid = os.getuid()
+        helper, browser = 4001, 4000
+        port, inode = 40500, 14001
+        self._hypr_clients([self._client("0x10", "google-chrome", "1", pid=browser)])
+        _write_proc(
+            self.proc_root,
+            tcp_rows=[(port, inode, uid)],
+            fds={helper: [inode]},
+            ppid={helper: browser, browser: 1},
+            exe={helper: "/usr/lib/chromium/chromium"},
+        )
+        feedback._maybe_banner("api.x.com", peer_port=port)
+        self.assertEqual(len(self._banners()), 1)
+        lines = self._prov_lines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(
+            lines[0].split(" ", 1)[1],
+            f"banner: host=api.x.com entry=X port={port} pid={helper} "
+            "exe=chromium class=google-chrome ws=1 decision=shown",
+        )
+
+    def test_r1_provenance_debounced_line(self):
+        hypr.apply_rules([expand_entry("X")])
+        clock = _Clock(100.0)
+        with patch("ds.feedback.time.monotonic", clock):
+            feedback._maybe_banner("x.com")
+            feedback._maybe_banner("api.x.com", peer_port=40001)
+        lines = self._prov_lines()
+        self.assertEqual(len(lines), 2)
+        self.assertEqual(
+            lines[0].split(" ", 1)[1],
+            "banner: host=x.com entry=X port=- pid=- exe=- class=- ws=- decision=unattributed",
+        )
+        self.assertEqual(
+            lines[1].split(" ", 1)[1],
+            "banner: host=api.x.com entry=X port=40001 pid=- exe=- class=- ws=- decision=debounced",
+        )
+        self.assertEqual(len(self._banners()), 1)
+
+    def test_r1_provenance_on_space_line(self):
+        hypr.apply_rules([expand_entry("X")])
+        uid = os.getuid()
+        helper, browser = 4101, 4100
+        port, inode = 40510, 14002
+        self._hypr_clients(
+            [self._client("0x11", "google-chrome", hypr.SPACE, pid=browser)]
+        )
+        _write_proc(
+            self.proc_root,
+            tcp_rows=[(port, inode, uid)],
+            fds={helper: [inode]},
+            ppid={helper: browser, browser: 1},
+            exe={helper: "/usr/lib/chromium/chromium"},
+        )
+        feedback._maybe_banner("api.x.com", peer_port=port)
+        self.assertEqual(self._banners(), [])
+        lines = self._prov_lines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(
+            lines[0].split(" ", 1)[1],
+            f"banner: host=api.x.com entry=X port={port} pid={helper} "
+            "exe=chromium class=google-chrome ws=distraction decision=on-space",
+        )
+
+    def test_r1_provenance_entry_on_space_line(self):
+        hypr.apply_rules([expand_entry("X")])
+        uid = os.getuid()
+        helper, browser = 4201, 4200
+        port, inode = 40520, 14003
+        x_class = "chrome-x.com__-Default"
+        _write_proc(
+            self.proc_root,
+            tcp_rows=[(port, inode, uid)],
+            fds={helper: [inode]},
+            ppid={helper: browser, browser: 1},
+        )
+        self._hypr_clients(
+            [
+                self._client("0xa", x_class, hypr.SPACE, pid=browser),
+                self._client("0xb", "google-chrome", "1", pid=browser),
+            ]
+        )
+        feedback._maybe_banner("api.x.com", peer_port=port)
+        self.assertEqual(self._banners(), [])
+        lines = self._prov_lines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(
+            lines[0].split(" ", 1)[1],
+            f"banner: host=api.x.com entry=X port={port} pid={helper} "
+            f"exe=- class={x_class} ws=distraction decision=entry-on-space",
+        )
+
+    def test_r1_provenance_unattributed_lines(self):
+        uid = os.getuid()
+
+        def reset_log():
+            path = state.state_path("log")
+            if path.exists() and path.is_file():
+                path.write_text("", encoding="utf-8")
+
+        with self.subTest("missing_port"):
+            self._clear_banners()
+            hypr._reset_for_tests()
+            reset_log()
+            port, inode = 40110, 13001
+            _write_proc(
+                self.proc_root,
+                fds={2400: [inode]},
+                ppid={2400: 1},
+            )
+            feedback._maybe_banner("gone.example", peer_port=port)
+            self.assertEqual(len(self._banners()), 1)
+            lines = self._prov_lines()
+            self.assertEqual(len(lines), 1)
+            self.assertEqual(
+                lines[0].split(" ", 1)[1],
+                f"banner: host=gone.example entry=- port={port} "
+                "pid=- exe=- class=- ws=- decision=unattributed",
+            )
+
+        with self.subTest("pid_no_owner"):
+            self._clear_banners()
+            hypr._reset_for_tests()
+            reset_log()
+            pid = 2500
+            port, inode = 40120, 13002
+            self._hypr_clients(
+                [self._client("0xfff", "google-chrome", "1", pid=9999)]
+            )
+            _write_proc(
+                self.proc_root,
+                tcp_rows=[(port, inode, uid)],
+                fds={pid: [inode]},
+                ppid={pid: 1},
+                exe={pid: "/usr/bin/firefox"},
+            )
+            feedback._maybe_banner("walk.example", peer_port=port)
+            self.assertEqual(len(self._banners()), 1)
+            lines = self._prov_lines()
+            self.assertEqual(len(lines), 1)
+            self.assertEqual(
+                lines[0].split(" ", 1)[1],
+                f"banner: host=walk.example entry=- port={port} "
+                f"pid={pid} exe=firefox class=- ws=- decision=unattributed",
+            )
+
+        with self.subTest("hyprctl_fail"):
+            self._clear_banners()
+            hypr._reset_for_tests()
+            reset_log()
+            os.environ["DS_HYPR_FAIL"] = "clients"
+            try:
+                feedback._maybe_banner("fail.example", peer_port=1)
+                self.assertEqual(len(self._banners()), 1)
+                lines = self._prov_lines()
+                self.assertEqual(len(lines), 1)
+                self.assertEqual(
+                    lines[0].split(" ", 1)[1],
+                    "banner: host=fail.example entry=- port=1 "
+                    "pid=- exe=- class=- ws=- decision=unattributed",
+                )
+            finally:
+                os.environ.pop("DS_HYPR_FAIL", None)
+
+    def test_r2_provenance_rate_limit_per_host(self):
+        self._start()
+        hello = make_client_hello("burst.example")
+        clock = _Clock(1000.0)
+        with patch("ds.feedback.time.monotonic", clock):
+            for _ in range(21):
+                _exchange("127.0.0.1", TLS_PORT, hello, timeout=2.0)
+            lines = [line.split(" ", 1)[1] for line in self._prov_lines()]
+            self.assertEqual(len(lines), 20)
+            for line in lines:
+                self.assertNotIn(" dropped=", line)
+            self.assertEqual(len(self._banners()), 1)
+            clock.t = 1061.0
+            _exchange("127.0.0.1", TLS_PORT, hello, timeout=2.0)
+            lines = [line.split(" ", 1)[1] for line in self._prov_lines()]
+            self.assertEqual(len(self._banners()), 2)
+            self.assertEqual(len(lines), 21)
+            self.assertRegex(
+                lines[-1],
+                r"^banner: host=burst\.example entry=- port=\d+ pid=- "
+                r"exe=- class=- ws=- decision=unattributed dropped=1$",
+            )
+
+    def test_r5_provenance_hostname_only(self):
+        self._start()
+        payload = (
+            make_client_hello("x.com")
+            + b"GET /watch?v=abc&list=xyz HTTP/1.1\r\nHost: x.com\r\n\r\n"
+        )
+        _exchange("127.0.0.1", TLS_PORT, payload, timeout=2.0)
+        lines = self._prov_lines()
+        self.assertEqual(len(lines), 1)
+        line = lines[0]
+        self.assertIn("host=x.com", line)
+        self.assertNotIn("/", line)
+        self.assertNotIn("?", line)
+
+    def test_r1_provenance_unwritable_log_keeps_banner(self):
+        path = state.state_path("log")
+        if path.is_file():
+            path.unlink()
+        path.mkdir(parents=True, exist_ok=True)
+        feedback._maybe_banner("x.com")
+        self.assertEqual(len(self._banners()), 1)
 
 
 if __name__ == "__main__":

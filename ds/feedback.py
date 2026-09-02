@@ -6,6 +6,7 @@ import errno
 import html
 import os
 import random
+import re
 import select
 import socket
 import struct
@@ -20,6 +21,8 @@ TLS_PORT = 28443
 READ_TIMEOUT = 2.0
 READ_CAP = 16384
 BANNER_DEBOUNCE_S = 30
+PROVENANCE_PER_MIN = 20
+_PROVENANCE_WINDOW_S = 60
 # Above the default net.ipv4.ip_local_port_range ceiling (60999), so an ordinary
 # outbound connection never draws an exempt source port by chance.
 SPLICE_PORT_MIN = 61000
@@ -35,6 +38,7 @@ _stop = threading.Event()
 _ctl = threading.Lock()
 _banner_lock = threading.Lock()
 _banner_at: dict[str, float] = {}
+_prov_at: dict[str, list] = {}  # host -> [window_start, lines_in_window, dropped]
 _log_at: dict[str, float] = {}
 _socks: list[socket.socket] = []
 _threads: list[threading.Thread] = []
@@ -147,6 +151,7 @@ def stop():
         _socks.clear()
         _threads.clear()
         _banner_at.clear()
+        _prov_at.clear()
         _log_at.clear()
     for sock in socks:
         try:
@@ -615,8 +620,9 @@ def _log_limited(key, msg):
     hypr._log(msg)
 
 
-def _banner_identity(host):
-    entry = _entry_for_host(host)
+def _banner_identity(host, entry=None):
+    if entry is None:
+        entry = _entry_for_host(host)
     if isinstance(entry, dict):
         name = entry.get("name")
         if isinstance(name, str) and name:
@@ -754,63 +760,127 @@ def _walk_to_hypr_owner(start_pid, clients):
     return None
 
 
-def _origin_on_space(peer_port, host):
-    if peer_port is None:
-        return False
+def _field(v):
+    if v is None:
+        return "-"
+    s = re.sub(r"\s+", "_", str(v))
+    return s or "-"
+
+
+def _exe_of(pid):
     try:
-        return _origin_on_space_inner(peer_port, host)
+        name = os.path.basename(os.readlink(_proc_root() / str(pid) / "exe"))
+    except (OSError, TypeError, ValueError):
+        return None
+    return name or None
+
+
+def _attribute(peer_port, entry):
+    """Attribute the connection; never raises. Returns a dict with keys
+    pid, exe, klass, ws (None when unknown) and reason (None, "on-space", or "entry-on-space")."""
+    attr = {"pid": None, "exe": None, "klass": None, "ws": None, "reason": None}
+    if peer_port is None:
+        return attr
+    try:
+        _attribute_inner(peer_port, entry, attr)
     except Exception as e:
         _log_limited("proc", f"origin attribution: {e}")
-        return False
+    return attr
 
 
-def _origin_on_space_inner(peer_port, host):
+def _attribute_inner(peer_port, entry, attr):
     clients = hypr.clients_cached()
     if clients is None:
         _log_limited("clients", "hyprctl clients unavailable; banner shown")
-        return False
+        return
     inode = _inode_for_port(peer_port)
     if inode is None:
-        return False
+        return
     pid = _pid_for_inode(inode)
     if pid is None:
-        return False
+        return
+    attr["pid"] = pid
+    attr["exe"] = _exe_of(pid)
     owner = _walk_to_hypr_owner(pid, clients)
     if owner is None:
-        return False
+        return
     owner_clients = _pid_clients(owner, clients)
     if not owner_clients:
-        return False
+        return
+    first = owner_clients[0]
+    attr["klass"] = first.get("class")
+    ws = first.get("workspace")
+    attr["ws"] = ws.get("name") if isinstance(ws, dict) else None
     on_space = all(
         isinstance(c.get("workspace"), dict) and c["workspace"].get("name") == hypr.SPACE
         for c in owner_clients
     )
     if on_space:
-        return True
-    entry = _entry_for_host(host)
+        attr["reason"] = "on-space"
+        return
     if entry is None:
-        return False
+        return
     if not any(hypr._class_matches(entry, c.get("class") or "") for c in owner_clients):
-        return False
-    return hypr.entry_clients_on_space(entry, clients)
+        return
+    if hypr.entry_clients_on_space(entry, clients):
+        attr["reason"] = "entry-on-space"
+
+
+def _provenance(host, entry, peer_port, decision, attr=None):
+    """Append one banner-decision line to the state log, at most PROVENANCE_PER_MIN per host per minute."""
+    host_s = _field(host)
+    now = time.monotonic()
+    with _banner_lock:
+        rec = _prov_at.get(host_s)
+        if rec is None or now - rec[0] >= _PROVENANCE_WINDOW_S:
+            rec = [now, 0, rec[2] if rec is not None else 0]
+            _prov_at[host_s] = rec
+        if rec[1] >= PROVENANCE_PER_MIN:
+            rec[2] += 1
+            return
+        rec[1] += 1
+        dropped = rec[2]
+        rec[2] = 0
+    attr = attr or {}
+    entry_name = entry.get("name") if isinstance(entry, dict) else None
+    line = (
+        f"banner: host={host_s} entry={_field(entry_name)} "
+        f"port={_field(peer_port)} pid={_field(attr.get('pid'))} "
+        f"exe={_field(attr.get('exe'))} class={_field(attr.get('klass'))} "
+        f"ws={_field(attr.get('ws'))} decision={decision}"
+    )
+    if dropped > 0:
+        line += f" dropped={dropped}"
+    hypr._log(line)
 
 
 def _maybe_banner(host, peer_port=None):
     now = time.monotonic()
-    key, name = _banner_identity(host)
+    entry = _entry_for_host(host)
+    key, name = _banner_identity(host, entry)
     with _banner_lock:
         last = _banner_at.get(key)
-        if last is not None and now - last < BANNER_DEBOUNCE_S:
-            return
-    if _origin_on_space(peer_port, host):
+        debounced = last is not None and now - last < BANNER_DEBOUNCE_S
+    if debounced:
+        _provenance(host, entry, peer_port, "debounced")
+        return
+    attr = _attribute(peer_port, entry)
+    if attr["reason"]:
+        _provenance(host, entry, peer_port, attr["reason"], attr)
         return
     now = time.monotonic()
     with _banner_lock:
         last = _banner_at.get(key)
         if last is not None and now - last < BANNER_DEBOUNCE_S:
-            return
-        _banner_at[key] = now
+            debounced = True
+        else:
+            debounced = False
+            _banner_at[key] = now
+    if debounced:
+        _provenance(host, entry, peer_port, "debounced")
+        return
     _notify("Blocked on this workspace", f"{name} opens in the distraction space — Super+Ctrl+Shift+D.")
+    _provenance(host, entry, peer_port, "shown" if attr["klass"] is not None else "unattributed", attr)
 
 
 def _tls_conn(conn):
