@@ -245,6 +245,7 @@ def apply(addresses):
         if not addrs:
             proc = subprocess.run(
                 ["sudo", "-n", wrapper, "flush", "ds"],
+                stdin=subprocess.DEVNULL,  # the wrapper reads stdin to EOF; never hand it ours
                 capture_output=True,
                 text=True,
             )
