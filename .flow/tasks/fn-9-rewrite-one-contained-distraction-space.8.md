@@ -16,8 +16,8 @@ Delete `focus_block.py`, `focus_dns.py`, `NotificationFilter.qml`, `PingCapture.
 - Migration on the copied old files yields the expected `list` and `log`.
 
 ## Done summary
-TBD
-
+Blocked:
+NEEDS_HUMAN: R14 line cap. The cutover work is complete and committed on worktree branch `wt/fn-9.8` (fd761e5; patch at `/tmp/flow-handover/fn-9/fn-9.8-cutover.patch` and in the run notes dir), with every test green except `test_tree.test_non_test_python_under_line_cap`: non-test Python is 3,290 lines against the spec's 2,000. Options: raise the cap in R14 and `LINE_CAP` (3,500 fits the reviewed code), drop the cap, or commission a trim task that reopens reviewed modules. After the decision, cherry-pick fd761e5 onto the branch, adjust `LINE_CAP` if chosen, run the suite, and complete the task.
 ## Evidence
 - Commits:
 - Tests:
