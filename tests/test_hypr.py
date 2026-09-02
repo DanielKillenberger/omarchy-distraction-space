@@ -482,15 +482,16 @@ class HyprTests(unittest.TestCase):
             proc.stdout.splitlines(),
             [
                 f"create {name} {NATIVE} {ws}",
+                f"set_enabled {name} false",  # the old handle, retired before the new create
                 f"create {name} ^org\\.telegram\\..*$ {ws}",
-                f"set_enabled {name} false",  # the old handle, retired after the new create
                 f"set_enabled {name} false",  # the explicit disable
             ],
         )
 
     @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
-    def test_lua_failed_reset_keeps_previous_rule_live(self):
+    def test_lua_failed_reset_retires_old_handle_then_python_rollback_restores(self):
         name = "omarchy-ds-telegram-0"
+        ws = hypr.WORKSPACE_EFFECT
         proc = self._run_lua(
             hypr.set_rule_lua(name, NATIVE),
             hypr.set_rule_lua(name, r"^org\.telegram\..*$"),
@@ -498,10 +499,15 @@ class HyprTests(unittest.TestCase):
         )
         self.assertNotEqual(proc.returncode, 0)
         self.assertIn("window_rule refused", proc.stderr)
-        self.assertEqual(proc.stdout.splitlines(), [f"create {name} {NATIVE} {hypr.WORKSPACE_EFFECT}"],
-                         "the previous handle was not retired")
-
-    @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
+        self.assertEqual(
+            proc.stdout.splitlines(),
+            [f"create {name} {NATIVE} {ws}", f"set_enabled {name} false"],
+            "the old handle is retired before the failing create; apply_rules re-sets it",
+        )
+        # The recovery fragment apply_rules sends creates the recorded class again.
+        proc = self._run_lua(hypr.set_rule_lua(name, NATIVE))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.splitlines(), [f"create {name} {NATIVE} {ws}"])
     def test_lua_fragment_create_error_is_not_swallowed(self):
         proc = self._run_lua(hypr.set_rule_lua("omarchy-ds-telegram-0", NATIVE), fail_create=True)
         self.assertNotEqual(proc.returncode, 0)

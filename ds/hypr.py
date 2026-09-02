@@ -133,12 +133,14 @@ def lua_string(value):
 
 
 def set_rule_lua(name, klass, workspace=WORKSPACE_EFFECT):
-    """Lua for `hyprctl eval`: create the rule, then retire any previous handle under `name`.
+    """Lua for `hyprctl eval`: retire any previous handle under `name`, then create the rule.
 
     `hyprctl keyword` refuses on the Lua config parser (exit 0, message on stdout), so
     rules go through `hl.window_rule`. Handles live in a Lua global table so a later
-    disable or re-apply can reach them. The create runs first: when it errors, the
-    previous rule is still live and eval exits nonzero with nothing changed.
+    disable or re-apply can reach them. The old handle is disabled first so two rules
+    never share a name (whether Hyprland replaces or duplicates by name is unverified).
+    A create error propagates so eval exits nonzero; `apply_rules` then re-sets the
+    name from its recorded class.
     """
     key = lua_string(name)
     # The first line never starts with "-": hyprctl parses a leading "--" as a flag.
@@ -147,10 +149,10 @@ def set_rule_lua(name, klass, workspace=WORKSPACE_EFFECT):
             f"local rules = {RULE_HANDLES} or {{}}  -- omarchy-ds set {name}",
             f"{RULE_HANDLES} = rules",
             f"local old = rules[{key}]",
+            "if old ~= nil then pcall(function() old:set_enabled(false) end) end",
             "local rule = hl.window_rule({ "
             f"name = {key}, match = {{ class = {lua_string(klass)} }}, workspace = {lua_string(workspace)}"
             " })",
-            "if old ~= nil then pcall(function() old:set_enabled(false) end) end",
             f"rules[{key}] = rule",
         ]
     )
@@ -235,9 +237,8 @@ def _rollback_created(created, old_specs):
 
     Names that existed before are re-set with their recorded class; names this batch
     brought into being are disabled. `created` includes the name whose create just
-    failed: a Lua-level failure leaves its previous rule live (the create runs before
-    the old handle is retired), a transport-level failure may have left nothing, and
-    the re-set or disable covers both. Both registries stay untouched so the next apply
+    failed: the fragment retires the old handle before creating, so a Lua-level
+    failure leaves that name with no live rule until this re-set puts it back. Both registries stay untouched so the next apply
     retries the whole set. A name with no recorded class (registry written before
     rule-specs.json existed) is disabled.
     """
