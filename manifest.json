@@ -1,24 +1,22 @@
 {
   "schemaVersion": 1,
   "id": "distraction-space",
-  "name": "Focus mode",
-  "version": "1.3.0",
+  "name": "Distraction space",
+  "version": "2.0.0",
   "author": "Daniel Killenberger",
   "license": "MIT",
-  "description": "Plugin-owned distraction list with exclusive windows, always-on off-space site block, and a conscious-choice intercept banner. Focus mode start popup, session timer, and a closing window; mutes those apps while focused and shows one grouped count after you leave.",
+  "description": "One named Hyprland workspace for listed apps and sites. Listed windows open only there. Listed sites do not load anywhere else. A lock makes the space unreachable.",
   "homepage": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "repository": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "kinds": [
-    "bar-widget",
-    "service"
+    "bar-widget"
   ],
   "entryPoints": {
-    "barWidget": "BarWidget.qml",
-    "service": "NotificationFilter.qml"
+    "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Focus mode",
-    "description": "Owned distraction list, always-on off-space site block, and intercept banner. Focus mode start popup, session timer, and a closing window after you leave. Mutes its notifications and shows a grouped count.",
+    "displayName": "Distraction space",
+    "description": "Eye glyph for the named distraction workspace. Left click locks or unlocks, right click opens the menu, middle click toggles the space.",
     "category": "Status",
     "allowMultiple": false,
     "defaultSection": "center"
