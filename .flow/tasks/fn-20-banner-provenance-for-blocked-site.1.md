@@ -30,7 +30,10 @@ Cherry-picked onto the spec branch as 24817c8792e59c8491c29cf20aece53bad7d342f (
 stage: wave-dispatch - ran [2 tasks, native worktrees, disjoint Touches, no join collision] (implementer: grok-4.6 via the CLI bridge, reviewed and committed by the worker)
 stage: impl-review - ran [round 1 NEEDS_WORK, round 2 SHIP] (model: gpt-5.6-sol-high via cursor)
 stage: plan-sync - skipped(config: planSync.enabled != true)
+
+Completion review (cursor, gpt-5.6-sol-high) round 1 NEEDS_WORK: the log write ran on the handler path. Fixed in 707959e with a bounded queue and a daemon writer plus a stalled-writer test; round 2 SHIP.
+stage: completion-review - ran [round 1 NEEDS_WORK, round 2 SHIP] (model: gpt-5.6-sol-high via cursor)
 ## Evidence
-- Commits: 24817c8792e59c8491c29cf20aece53bad7d342f, f7cc5c0b5118af80dbd4af53dce4f9017422f221
-- Tests: PATH=/usr/bin:$PATH python3 -m unittest tests.test_feedback, PATH=/usr/bin:$PATH python3 -m unittest discover -s tests, quiesce at f7cc5c0: unittest 274 OK
+- Commits: 24817c8792e59c8491c29cf20aece53bad7d342f, f7cc5c0b5118af80dbd4af53dce4f9017422f221, 707959ee9403718b3b7b1b3acd69214da95391af
+- Tests: PATH=/usr/bin:$PATH python3 -m unittest tests.test_feedback, PATH=/usr/bin:$PATH python3 -m unittest discover -s tests, quiesce at f7cc5c0: unittest 274 OK, completion-review fix at 707959e: unittest 275 OK (receipt .flow/tmp/green-receipts/707959ee-unittest.json)
 - PRs:
