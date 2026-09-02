@@ -10,7 +10,7 @@
   "priority": null,
   "spec": "fn-9-rewrite-one-contained-distraction-space",
   "spec_path": ".flow/tasks/fn-9-rewrite-one-contained-distraction-space.8.md",
-  "status": "todo",
+  "status": "done",
   "title": "Cutover: deletions, hypr snippets, manifest, README, migration check",
-  "updated_at": "2026-09-02T07:27:32.461550Z"
+  "updated_at": "2026-09-02T07:28:20.620Z"
 }
