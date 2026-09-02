@@ -68,6 +68,10 @@ def _cfg(**summary_over):
     return cfg
 
 
+def _auto(**summary_over):
+    return _cfg(command="auto", **summary_over)
+
+
 def _iso(delta_s: float) -> str:
     return (datetime.now(timezone.utc) + timedelta(seconds=delta_s)).replace(microsecond=0).isoformat()
 
@@ -96,8 +100,18 @@ class SummaryUnitTests(_Env):
         os.environ["DS_AGENT_LOG"] = str(self.agent_log)
         # Only the sandbox's fakes resolve: /usr/bin carries python3 for their shebang and no agent CLI.
         os.environ["PATH"] = f"{self.box.bin}{os.pathsep}/usr/bin"
-        for name in ("claude", "grok"):
+        for name in ("claude", "grok", "codex"):
             self.box.fake_bin(name, AGENT)
+        self._choose("claude")
+
+    def _choose(self, name):
+        """What `omarchy default agent` leaves behind; None removes the choice."""
+        path = summary.agent_path()
+        if name is None:
+            path.unlink(missing_ok=True)
+            return
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(name + "\n", encoding="utf-8")
 
     def _asked(self):
         return [json.loads(ln) for ln in self.agent_log.read_text(encoding="utf-8").splitlines()] \
@@ -107,20 +121,38 @@ class SummaryUnitTests(_Env):
         p = self.box.state_dir / "log"
         return p.read_text(encoding="utf-8") if p.exists() else ""
 
-    def test_resolve_auto_prefers_claude_then_grok_then_count(self):
-        self.assertEqual(summary.resolve_command(_cfg()), ["claude", "-p", "--output-format", "text"])
-        (self.box.bin / "claude").unlink()
-        self.assertEqual(summary.resolve_command(_cfg()), ["grok", "-p"])
-        (self.box.bin / "grok").unlink()
+    def test_resolve_auto_follows_the_omarchy_default_agent(self):
+        self.assertEqual(DEFAULTS["summary"]["command"], "off")
         self.assertIsNone(summary.resolve_command(_cfg()))
-        self.box.fake_bin("claude", AGENT)
+        self.assertIsNone(summary.resolve_command(None))
         self.assertIsNone(summary.resolve_command(_cfg(command="off")))
         self.assertEqual(summary.resolve_command(_cfg(command=["agent", "--x"])), ["agent", "--x"])
-        self.assertEqual(summary.resolve_command(None), ["claude", "-p", "--output-format", "text"])
+        self.assertEqual(self._log_text(), "")
+        cases = [
+            ("grok", "grok", ["grok", "-p"], None),
+            ("claude", "claude", ["claude", "-p", "--output-format", "text"], None),
+            ("codex", "codex", ["codex", "exec", "-s", "read-only", "--skip-git-repo-check", "-"], None),
+            ("unsupported", "pi", None, "'pi' has no headless one-shot form"),
+            ("no file", None, None, "no Omarchy default agent chosen"),
+            ("no binary", "gemini", None, "'gemini' is not on PATH"),
+        ]
+        for name, agent, argv, log_bit in cases:
+            with self.subTest(case=name):
+                self._choose(agent)
+                before = self._log_text()
+                self.assertEqual(summary.resolve_command(_auto()), argv)
+                tail = self._log_text()[len(before):]
+                if log_bit is None:
+                    self.assertEqual(tail, "")
+                else:
+                    self.assertEqual(tail.count("\n"), 1, tail)
+                    self.assertIn("summary: ", tail)
+                    self.assertIn(log_bit, tail)
+                    self.assertIn("showing the count", tail)
 
     def test_body_sends_prompt_on_stdin_and_clips_the_reply(self):
         os.environ["DS_AGENT_REPLY"] = "Alice asked about lunch,\n  twice.  \n"
-        self.assertEqual(summary.body(RECORDS, _cfg()), "Alice asked about lunch, twice.")
+        self.assertEqual(summary.body(RECORDS, _auto()), "Alice asked about lunch, twice.")
         asked = self._asked()
         self.assertEqual(len(asked), 1)
         self.assertEqual(asked[0]["argv"][1:], ["-p", "--output-format", "text"])
@@ -135,7 +167,7 @@ class SummaryUnitTests(_Env):
         self.assertEqual(self._asked()[-1]["argv"][1:], ["--flag"])
         # A reply that fills the read cap exactly is still a reply, clipped; only what fits the cap is read.
         os.environ["DS_AGENT_REPLY"] = "y" * summary.READ_CAP
-        self.assertEqual(summary.body(RECORDS, _cfg()), "y" * summary.CLIP)
+        self.assertEqual(summary.body(RECORDS, _auto()), "y" * summary.CLIP)
 
     def test_a_flooding_agent_is_cut_off_at_the_read_cap(self):
         os.environ["DS_AGENT_FLOOD"] = "1"
@@ -144,14 +176,14 @@ class SummaryUnitTests(_Env):
             # Twenty-six megabytes are offered; the pipe closes at the cap and the fake exits 0 on the broken pipe.
             self.assertEqual(summary.ask(["claude", "-p"], "prompt", 10), "x" * summary.CLIP)
         self.assertLess(time.monotonic() - t0, 5.0)
-        self.assertEqual(summary.body(RECORDS, _cfg(timeout_seconds=10)), "x" * summary.CLIP)
+        self.assertEqual(summary.body(RECORDS, _auto(timeout_seconds=10)), "x" * summary.CLIP)
 
     def test_failure_timeout_empty_off_and_missing_fall_back_to_the_grouped_count(self):
         cases = [
-            ("exit 1", {"DS_AGENT_RC": "1"}, _cfg(), "summary: claude exited 1"),
-            ("timeout", {"DS_AGENT_SLEEP": "5"}, _cfg(timeout_seconds=1), "summary: claude timed out after 1s"),
-            ("empty", {"DS_AGENT_REPLY": " \n"}, _cfg(), None),
-            ("off", {}, _cfg(command="off"), None),
+            ("exit 1", {"DS_AGENT_RC": "1"}, _auto(), "summary: claude exited 1"),
+            ("timeout", {"DS_AGENT_SLEEP": "5"}, _auto(timeout_seconds=1), "summary: claude timed out after 1s"),
+            ("empty", {"DS_AGENT_REPLY": " \n"}, _auto(), None),
+            ("off", {}, _cfg(), None),
             ("missing", {}, _cfg(command=[str(self.box.bin / "no-such-agent")]), "no-such-agent"),
         ]
         for name, env, cfg, log_bit in cases:
@@ -247,6 +279,9 @@ class SummaryListenerTests(_Env):
                           ("sudo", SUDO), ("omarchy-notification-send", NOTIFY), ("pactl", QUIET_STUB),
                           ("claude", AGENT)):
             self.box.fake_bin(name, src)
+        agent = self.box.config / "omarchy" / "defaults" / "agent"
+        agent.parent.mkdir(parents=True, exist_ok=True)
+        agent.write_text("claude\n", encoding="utf-8")
         self.hook_py = self.box.bin / "ds-hook.py"
         self.hook_py.write_text("#!/usr/bin/env python3\n" + HOOK_ENV, encoding="utf-8")
         self.hook_py.chmod(0o755)
@@ -325,7 +360,7 @@ class SummaryListenerTests(_Env):
 
     def test_entering_the_space_shows_the_agent_line_once_hands_counts_to_the_hook_and_clears(self):
         os.environ["DS_AGENT_REPLY"] = "Alice asked twice; nothing urgent."
-        self._write_cfg()
+        self._write_cfg(command="auto")
         self._start()
         self._hold({"Telegram": 2, "Discord": 1})
         self._go("distraction", 5)
@@ -348,7 +383,7 @@ class SummaryListenerTests(_Env):
         self.assertEqual(len(self._notices()), 1)
 
     def test_manual_unlock_and_expiry_each_summarize_once_with_the_count_fallback(self):
-        self._write_cfg(command="off")
+        self._write_cfg()
         write_json(self.box.state_dir / "lock.json",
                    {"locked": True, "since": _iso(-60), "until": _iso(3600), "purpose": "deep work"})
         self._start()

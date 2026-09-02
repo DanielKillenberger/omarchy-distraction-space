@@ -25,7 +25,7 @@ DEFAULTS = {
     "hold_notifications": "off-space",
     "mute_sounds": True,
     "lock": {"default_minutes": 25, "ask_purpose": True, "reason_min_chars": 50},
-    "summary": {"command": "auto", "timeout_seconds": 60},
+    "summary": {"command": "off", "timeout_seconds": 60},
     "hooks": {"lock": [], "unlock": [], "enter": [], "leave": []},
     "log": "~/.local/state/omarchy/distraction-space/log",
 }
@@ -39,14 +39,14 @@ class Busy(Exception):
     pass
 
 
-def _omarchy_dir() -> Path:
+def omarchy_dir() -> Path:
     raw = os.environ.get("XDG_CONFIG_HOME")
     base = Path(raw) if raw else Path.home() / ".config"
     return base / "omarchy"
 
 
 def config_path() -> Path:
-    return _omarchy_dir() / "distraction-space.json"
+    return omarchy_dir() / "distraction-space.json"
 
 
 def _bool(v):
@@ -221,11 +221,11 @@ def _legacy_sources():
     items = []
     found = False
     log = None
-    app_data = _read_json(_omarchy_dir() / "app-list.json")
+    app_data = _read_json(omarchy_dir() / "app-list.json")
     if isinstance(app_data, list):
         found = True
         items.extend(app_data)
-    focus_data = _read_json(_omarchy_dir() / "focus.json")
+    focus_data = _read_json(omarchy_dir() / "focus.json")
     if isinstance(focus_data, dict):
         raw_log = focus_data.get("log")
         if isinstance(raw_log, str) and raw_log:
