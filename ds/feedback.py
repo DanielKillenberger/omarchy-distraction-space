@@ -20,8 +20,10 @@ TLS_PORT = 28443
 READ_TIMEOUT = 2.0
 READ_CAP = 16384
 BANNER_DEBOUNCE_S = 30
-SPLICE_PORT_MIN = 60000
-SPLICE_PORT_MAX = 60999
+# Above the default net.ipv4.ip_local_port_range ceiling (60999), so an ordinary
+# outbound connection never draws an exempt source port by chance.
+SPLICE_PORT_MIN = 61000
+SPLICE_PORT_MAX = 61999
 MAX_SPLICES = 256
 CONNECT_TIMEOUT = 5.0
 IDLE_TIMEOUT = 120.0

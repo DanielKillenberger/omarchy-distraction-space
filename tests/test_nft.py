@@ -93,8 +93,8 @@ class NftTests(unittest.TestCase):
         ]
         nat_body = script[script.index("chain output_nat {") :]
         first_rules = (
-            "\n    meta nfproto ipv4 tcp sport 60000-60999 accept"
-            "\n    meta nfproto ipv6 tcp sport 60000-60999 accept\n"
+            "\n    meta nfproto ipv4 tcp sport 61000-61999 accept"
+            "\n    meta nfproto ipv6 tcp sport 61000-61999 accept\n"
         )
         for body, type_line, chain in (
             (
@@ -114,12 +114,12 @@ class NftTests(unittest.TestCase):
         families = (
             (
                 "ipv4",
-                "meta nfproto ipv4 tcp sport 60000-60999 accept",
+                "meta nfproto ipv4 tcp sport 61000-61999 accept",
                 "ip daddr @omarchy_ds_v4",
             ),
             (
                 "ipv6",
-                "meta nfproto ipv6 tcp sport 60000-60999 accept",
+                "meta nfproto ipv6 tcp sport 61000-61999 accept",
                 "ip6 daddr @omarchy_ds_v6",
             ),
         )

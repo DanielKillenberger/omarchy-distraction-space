@@ -20,8 +20,10 @@ SET4 = "omarchy_ds_v4"
 SET6 = "omarchy_ds_v6"
 HTTP_PORT = 28080
 TLS_PORT = 28443
-SPLICE_PORT_LO = 60000
-SPLICE_PORT_HI = 60999
+# Above the default net.ipv4.ip_local_port_range ceiling (60999), so an ordinary
+# outbound connection never draws an exempt source port by chance.
+SPLICE_PORT_LO = 61000
+SPLICE_PORT_HI = 61999
 
 
 def _fail(message: str, code: int = 2) -> None:

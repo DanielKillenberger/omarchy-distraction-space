@@ -46,7 +46,7 @@ def _free_port_pair(avoid=()):
             base = probe.getsockname()[1]
         finally:
             probe.close()
-        if any(60000 <= base + off <= 60999 for off in (0, 1)):
+        if any(61000 <= base + off <= 61999 for off in (0, 1)):
             continue
         if base in avoid or base + 1 in avoid:
             continue
@@ -725,8 +725,8 @@ class FeedbackTests(unittest.TestCase):
                 self.assertFalse(feedback._listed(host))
 
     def test_r3_splice_binds_source_port_in_range(self):
-        self.assertEqual(feedback.SPLICE_PORT_MIN, 60000)
-        self.assertEqual(feedback.SPLICE_PORT_MAX, 60999)
+        self.assertEqual(feedback.SPLICE_PORT_MIN, 61000)
+        self.assertEqual(feedback.SPLICE_PORT_MAX, 61999)
         lo, hi = _free_port_pair(avoid=(HTTP_PORT, TLS_PORT))
         dest, rec = self._fake_dest()
         req = b"GET / HTTP/1.1\r\nHost: other.example\r\n\r\n"
