@@ -1,0 +1,72 @@
+{
+  "branch_name": "fn-14-nft-wrapper-valid-tcp-reset-rule",
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-02T11:09:58.684196Z",
+  "created_at": "2026-09-02T11:05:42.541142Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
+  "depends_on_epics": [],
+  "id": "fn-14-nft-wrapper-valid-tcp-reset-rule",
+  "impl_review_rounds": {
+    "fn-14-nft-wrapper-valid-tcp-reset-rule.1": 0
+  },
+  "next_task": 1,
+  "no_plan": true,
+  "plan_review_rounds": 0,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "4414ea8ec72efb36e83be96b2a809b74ffd8b50b6b0f77894990c1b7a9a10e2c",
+      "backend": "cursor",
+      "base_sha": "dab32492f1e1fa14c6c38536786aa7323c170caa",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "e0fd4986c7df90eecae59ac9db617f8eda3ca9e6",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 479,
+      "output_sha256": "de0f3bfe993e0f4f736f6196f1168a5b399c435aba5399967882121c8b576fbf",
+      "reservation_id": "9abeebae7a394215b1a1f585de24c53b",
+      "round_consumed": true,
+      "scope": "impl:fn-14-nft-wrapper-valid-tcp-reset-rule.1",
+      "superseded_by": null,
+      "task": "fn-14-nft-wrapper-valid-tcp-reset-rule.1",
+      "timestamp": "2026-09-02T11:09:57.717457Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-14-nft-wrapper-valid-tcp-reset-rule.1": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-14-nft-wrapper-valid-tcp-reset-rule.1": 0
+  },
+  "spec_path": ".flow/specs/fn-14-nft-wrapper-valid-tcp-reset-rule.md",
+  "status": "done",
+  "title": "nft wrapper: valid TCP reset rule",
+  "tracker": {
+    "baseHashFlow": null,
+    "baseHashTracker": null,
+    "depRelations": [],
+    "id": null,
+    "identifier": null,
+    "lastSyncedAt": null,
+    "mergeBaseFlow": null,
+    "mergeBaseTracker": null,
+    "url": null
+  },
+  "updated_at": "2026-09-02T11:10:40.959145Z"
+}

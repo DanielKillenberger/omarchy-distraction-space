@@ -6,6 +6,7 @@
   "depends_on": [],
   "id": "fn-10-notification-hold-sound-mute-and-the.1",
   "priority": null,
+  "review": "cursor:gpt-5.6-sol-high",
   "spec": "fn-10-notification-hold-sound-mute-and-the",
   "spec_path": ".flow/tasks/fn-10-notification-hold-sound-mute-and-the.1.md",
   "status": "todo",
