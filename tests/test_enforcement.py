@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from importlib.util import module_from_spec, spec_from_loader
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+LUA = shutil.which("lua5.4") or shutil.which("lua") or shutil.which("luajit")
 
 HYPRCTL_SRC = r"""#!/usr/bin/env python3
 import json, os, sys
@@ -32,7 +34,11 @@ if len(sys.argv) >= 3 and sys.argv[1] == "-j":
     print((root / f"{sys.argv[2]}.json").read_text())
     raise SystemExit(0)
 if sys.argv[1:2] == ["keyword"]:
-    (root / "keywords.log").open("a").write(sys.argv[2] + "\n")
+    print("keyword can't work with non-legacy parsers. Use eval.")
+    raise SystemExit(1)
+if sys.argv[1:2] == ["eval"]:
+    (root / "eval.log").open("a").write(json.dumps(sys.argv[2]) + "\n")
+    print("ok")
     raise SystemExit(0)
 if sys.argv[1:2] == ["dispatch"]:
     (root / "dispatch.log").open("a").write(" ".join(sys.argv[2:]) + "\n")
@@ -128,11 +134,23 @@ class EnforcementTests(unittest.TestCase):
     def write_list(self, rows: list[dict]) -> None:
         self.user.write_text(json.dumps(rows))
 
-    def keywords(self) -> list[str]:
-        path = self.hypr / "keywords.log"
+    def evals(self) -> list[str]:
+        path = self.hypr / "eval.log"
         if not path.exists():
             return []
-        return path.read_text().splitlines()
+        return [json.loads(line) for line in path.read_text().splitlines() if line]
+
+    def clear_evals(self) -> None:
+        (self.hypr / "eval.log").write_text("")
+
+    def set_marker(self, name: str) -> str:
+        return f"hl.window_rule({{ name = {self.mod.lua_string(name)}"
+
+    def disable_marker(self, name: str) -> str:
+        return f"rules[{self.mod.lua_string(name)}] = nil"
+
+    def disables(self, fragments: list[str]) -> list[str]:
+        return [f for f in fragments if "hl.window_rule(" not in f]
 
     def dispatches(self) -> list[str]:
         path = self.hypr / "dispatch.log"
@@ -191,31 +209,32 @@ class EnforcementTests(unittest.TestCase):
         self.write_list([self.telegram_row(), self.discord_row()])
         self.mod.bootstrap_enforcement()
         self.wait_net()
-        keys = self.keywords()
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:match:class" in k for k in keys))
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:workspace name:distraction silent" in k for k in keys))
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:enable true" in k for k in keys))
-        self.assertTrue(any("windowrule[omarchy-ds-discord]:enable true" in k for k in keys))
-        (self.hypr / "keywords.log").write_text("")
+        keys = self.evals()
+        telegram = [k for k in keys if self.set_marker("omarchy-ds-telegram") in k]
+        self.assertEqual(len(telegram), 1)
+        self.assertIn('class = "org.telegram.desktop"', telegram[0])
+        self.assertIn('workspace = "name:distraction silent"', telegram[0])
+        self.assertTrue(any(self.set_marker("omarchy-ds-discord") in k for k in keys))
+        self.assertEqual(self.disables(keys), [])
+        self.clear_evals()
         self.write_list([self.telegram_row()])
         self.mod.bootstrap_enforcement()
         self.wait_net()
-        keys = self.keywords()
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:enable true" in k for k in keys))
-        self.assertTrue(any("windowrule[omarchy-ds-discord]:enable false" in k for k in keys))
+        keys = self.evals()
+        self.assertTrue(any(self.set_marker("omarchy-ds-telegram") in k for k in keys))
+        self.assertTrue(any(self.disable_marker("omarchy-ds-discord") in k for k in keys))
 
     def test_remove_then_readd_enables_again(self):
         self.write_list([self.telegram_row()])
         self.mod.bootstrap_enforcement()
         self.write_list([])
         self.mod.bootstrap_enforcement()
-        (self.hypr / "keywords.log").write_text("")
+        self.clear_evals()
         self.write_list([self.telegram_row()])
         self.mod.bootstrap_enforcement()
         self.wait_net()
-        keys = self.keywords()
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:enable true" in k for k in keys))
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:match:class" in k for k in keys))
+        keys = self.evals()
+        self.assertTrue(any(self.set_marker("omarchy-ds-telegram") in k for k in keys))
 
     def test_existing_client_moved_on_start(self):
         self.write_list([self.telegram_row()])
@@ -245,14 +264,13 @@ class EnforcementTests(unittest.TestCase):
         self.write_list([self.telegram_row()])
         self.mod.bootstrap_enforcement()
         self.wait_net()
-        (self.hypr / "keywords.log").write_text("")
+        self.clear_evals()
         self.user.write_text("{not-json")
         self.mod.bootstrap_enforcement()
         self.wait_net()
-        keys = self.keywords()
-        self.assertFalse(any("enable false" in k for k in keys))
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:enable true" in k for k in keys))
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:match:class" in k for k in keys))
+        keys = self.evals()
+        self.assertEqual(self.disables(keys), [])
+        self.assertTrue(any(self.set_marker("omarchy-ds-telegram") in k for k in keys))
         self.assertTrue(self.notes)
 
     def test_corrupt_without_last_good_expand_does_not_flush(self):
@@ -268,7 +286,7 @@ class EnforcementTests(unittest.TestCase):
         self.write_list([self.telegram_row(), self.site_row()])
         self.mod.bootstrap_enforcement()
         self.wait_net()
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:enable true" in k for k in self.keywords()))
+        self.assertTrue(any(self.set_marker("omarchy-ds-telegram") in k for k in self.evals()))
         self.assertFalse(self.nft_log.exists())
         self.assertTrue(any("unavailable" in (note[1] if len(note) > 1 else "") for note in self.notes))
 
@@ -312,7 +330,7 @@ class EnforcementTests(unittest.TestCase):
         self.mod.bootstrap_enforcement()
         self.wait_net()
         self.write_list([self.telegram_row(), self.discord_row()])
-        self.fail_on("windowrule[omarchy-ds-discord]:match:class")
+        self.fail_on(self.set_marker("omarchy-ds-discord"))
         left, right = socket.socketpair()
         thread = threading.Thread(target=self.mod.handle_reload_conn, args=(left,))
         thread.start()
@@ -389,8 +407,8 @@ class EnforcementTests(unittest.TestCase):
         }
         self.mod.save_rule_registry(self.mod.rules_last_good_path(), last_good)
         self.mod.bootstrap_enforcement()
-        keys = self.keywords()
-        self.assertTrue(any("windowrule[omarchy-ds-discord]:enable false" in k for k in keys))
+        keys = self.evals()
+        self.assertTrue(any(self.disable_marker("omarchy-ds-discord") in k for k in keys))
         listed = [" ".join(args) for args in self.hypr_args()]
         self.assertFalse(any("windowrule" in line and "-j" in line for line in listed))
         self.assertFalse(any(args[:1] == ["clients"] and "rules" in args for args in self.hypr_args()))
@@ -408,7 +426,7 @@ class EnforcementTests(unittest.TestCase):
         self.write_list([])
         self.mod.bootstrap_enforcement()
         self.wait_net()
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:enable false" in k for k in self.keywords()))
+        self.assertTrue(any(self.disable_marker("omarchy-ds-telegram") in k for k in self.evals()))
         self.assertEqual(self.wrapper_calls()[-1]["argv"], ["flush", "ds"])
 
     def test_restart_from_pending_without_rule_enumeration(self):
@@ -431,8 +449,8 @@ class EnforcementTests(unittest.TestCase):
         self.mod.save_rule_registry(self.mod.rules_pending_path(), pending)
         self.write_list([self.telegram_row()])
         self.mod.bootstrap_enforcement()
-        keys = self.keywords()
-        self.assertTrue(any("windowrule[omarchy-ds-orphan]:enable false" in k for k in keys))
+        keys = self.evals()
+        self.assertTrue(any(self.disable_marker("omarchy-ds-orphan") in k for k in keys))
         self.assertFalse(any("enumerat" in " ".join(args).lower() for args in self.hypr_args()))
         self.assertFalse(any(args[:1] == ["windowrules"] for args in self.hypr_args()))
 
@@ -695,7 +713,7 @@ class EnforcementTests(unittest.TestCase):
             },
         )
         self.write_list([self.telegram_row()])
-        self.fail_on("windowrule[omarchy-ds-telegram]:match:class")
+        self.fail_on(self.set_marker("omarchy-ds-telegram"))
         self.write_hypr("clients", [self.client("org.telegram.desktop", "1")])
         self.mod.bootstrap_enforcement()
         self.wait_net()
@@ -725,7 +743,7 @@ class EnforcementTests(unittest.TestCase):
         }
         self.mod.save_rule_registry(self.mod.rules_pending_path(), pending)
         self.write_list([self.telegram_row(), self.discord_row()])
-        self.fail_on("windowrule[omarchy-ds-discord]:match:class")
+        self.fail_on(self.set_marker("omarchy-ds-discord"))
         self.mod.bootstrap_enforcement()
         kept = self.mod.load_rule_registry(self.mod.rules_pending_path())
         self.assertIn("omarchy-ds-orphan", kept)
@@ -841,7 +859,7 @@ class EnforcementTests(unittest.TestCase):
         self.wait_net()
         self.assertEqual(self.mod.load_last_good_expand()[0]["name"], "Telegram")
         self.write_list([self.telegram_row(), self.discord_row()])
-        self.fail_on("windowrule[omarchy-ds-discord]:match:class")
+        self.fail_on(self.set_marker("omarchy-ds-discord"))
         left, right = socket.socketpair()
         thread = threading.Thread(target=self.mod.handle_reload_conn, args=(left,))
         thread.start()
@@ -867,15 +885,15 @@ class EnforcementTests(unittest.TestCase):
         self.mod.bootstrap_enforcement()
         self.wait_net()
         self.write_list([self.telegram_row(), self.discord_row()])
-        self.fail_on("windowrule[omarchy-ds-discord]:match:class")
-        (self.hypr / "keywords.log").write_text("")
+        self.fail_on(self.set_marker("omarchy-ds-discord"))
+        self.clear_evals()
         self.mod.bootstrap_enforcement()
-        keys = self.keywords()
-        self.assertTrue(any("windowrule[omarchy-ds-discord]:enable false" in k for k in keys))
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:match:class" in k for k in keys))
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:enable true" in k for k in keys))
-        self.assertFalse(any("windowrule[omarchy-ds-telegram]:enable false" in k for k in keys))
+        keys = self.evals()
+        self.assertTrue(any(self.disable_marker("omarchy-ds-discord") in k for k in keys))
+        self.assertTrue(any(self.set_marker("omarchy-ds-telegram") in k for k in keys))
+        self.assertFalse(any(self.disable_marker("omarchy-ds-telegram") in k for k in keys))
         self.assertTrue(self.notes)
+        self.assertNotIn("omarchy-ds-discord", self.mod.load_rule_registry(self.mod.rules_last_good_path()))
 
     def test_openwindow_on_space_does_not_notify(self):
         self.write_list([self.telegram_row()])
@@ -892,16 +910,146 @@ class EnforcementTests(unittest.TestCase):
         self.mod.bootstrap_enforcement()
         self.wait_net()
         self.write_list([self.telegram_row()])
-        self.fail_on("windowrule[omarchy-ds-discord]:enable false")
-        (self.hypr / "keywords.log").write_text("")
+        self.fail_on(self.disable_marker("omarchy-ds-discord"))
+        self.clear_evals()
         self.mod.bootstrap_enforcement()
         self.wait_net()
-        keys = self.keywords()
-        self.assertTrue(any("windowrule[omarchy-ds-telegram]:enable true" in k for k in keys))
+        keys = self.evals()
+        self.assertTrue(any(self.set_marker("omarchy-ds-telegram") in k for k in keys))
         last = self.mod.load_rule_registry(self.mod.rules_last_good_path())
         self.assertIn("omarchy-ds-telegram", last)
         self.assertIn("omarchy-ds-discord", last)
         self.assertTrue(self.notes)
+
+    def test_keyword_path_is_gone_and_refused_by_double(self):
+        self.assertNotIn('"keyword"', (ROOT / "distractions").read_text())
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.mod.hyprctl("keyword", "windowrule[x]:enable false")
+
+    def test_eval_failure_raises_inside_set_named_rule(self):
+        self.fail_on(self.set_marker("omarchy-ds-telegram"))
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.mod.set_named_rule("omarchy-ds-telegram", "org.telegram.desktop", self.mod.WORKSPACE_EFFECT, True)
+
+    @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
+    def test_lua_string_round_trips_through_lua(self):
+        cases = [
+            "org.telegram.desktop",
+            r"^chrome-discord\.com__.*$",
+            'quote"inside',
+            "apos'trophe",
+            "long]]bracket",
+            "new\nline\ttab",
+            "ctl\x019\x7f",
+            "back\\slash\\",
+        ]
+        for value in cases:
+            with self.subTest(value=value):
+                proc = subprocess.run([LUA, "-e", f"io.write({self.mod.lua_string(value)})"], capture_output=True)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout.decode("utf-8"), value)
+
+    def run_lua_fragments(self, *fragments: str, fail_create: bool = False) -> subprocess.CompletedProcess:
+        harness = self.root / "harness.lua"
+        harness.write_text(
+            "hl = {}\n"
+            f"local fail_create = {'true' if fail_create else 'false'}\n"
+            "hl.window_rule = function(spec)\n"
+            "  if fail_create then error('window_rule refused') end\n"
+            "  local h = { enabled = true }\n"
+            "  function h:set_enabled(v) self.enabled = v; io.write('set_enabled ', spec.name, ' ', tostring(v), '\\n') end\n"
+            "  io.write('create ', spec.name, ' ', spec.match.class, ' ', spec.workspace, '\\n')\n"
+            "  return h\n"
+            "end\n"
+            "for i = 1, #arg do dofile(arg[i]) end\n"
+        )
+        paths = []
+        for index, fragment in enumerate(fragments):
+            path = self.root / f"fragment{index}.lua"
+            path.write_text(fragment)
+            paths.append(str(path))
+        return subprocess.run([LUA, str(harness), *paths], capture_output=True, text=True)
+
+    @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
+    def test_lua_fragments_disable_old_handle_and_noop_when_missing(self):
+        name = "omarchy-ds-telegram"
+        ws = self.mod.WORKSPACE_EFFECT
+        proc = self.run_lua_fragments(
+            self.mod.disable_rule_lua(name),
+            self.mod.set_rule_lua(name, "org.telegram.desktop", ws, True),
+            self.mod.set_rule_lua(name, r"^org\.telegram\..*$", ws, True),
+            self.mod.disable_rule_lua(name),
+            self.mod.disable_rule_lua(name),
+            self.mod.disable_rule_lua("omarchy-ds-never"),
+            self.mod.set_rule_lua("omarchy-ds-off", "off.app", ws, False),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            proc.stdout.splitlines(),
+            [
+                f"create {name} org.telegram.desktop {ws}",
+                f"set_enabled {name} false",
+                f"create {name} ^org\\.telegram\\..*$ {ws}",
+                f"set_enabled {name} false",
+                f"create omarchy-ds-off off.app {ws}",
+                "set_enabled omarchy-ds-off false",
+            ],
+        )
+
+    @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
+    def test_lua_fragment_create_error_is_not_swallowed(self):
+        proc = self.run_lua_fragments(
+            self.mod.set_rule_lua("omarchy-ds-telegram", "org.telegram.desktop", self.mod.WORKSPACE_EFFECT, True),
+            fail_create=True,
+        )
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("window_rule refused", proc.stderr)
+
+    def test_configreloaded_reapplies_rules_and_rescans(self):
+        self.write_list([self.telegram_row()])
+        self.mod.bootstrap_enforcement()
+        self.wait_net()
+        self.clear_evals()
+        self.write_hypr("clients", [self.client("org.telegram.desktop", "1")])
+        self.mod.process_socket2_line("configreloaded>>")
+        keys = self.evals()
+        self.assertTrue(any(self.set_marker("omarchy-ds-telegram") in k for k in keys))
+        self.assertTrue(
+            any("movetoworkspacesilent name:distraction,address:0xabc" in line for line in self.dispatches())
+        )
+        self.assertFalse(self.notes)
+        self.assertIn("omarchy-ds-telegram", self.mod.load_rule_registry(self.mod.rules_last_good_path()))
+
+    def test_configreloaded_apply_failure_notifies_and_keeps_listener(self):
+        self.write_list([self.telegram_row()])
+        self.mod.bootstrap_enforcement()
+        self.wait_net()
+        self.fail_on(self.set_marker("omarchy-ds-telegram"))
+        self.mod.process_socket2_line("configreloaded>>")
+        self.assertTrue(any("rolled back" in (note[1] if len(note) > 1 else "") for note in self.notes))
+        self.assertEqual(self.mod._active_expand[0]["name"], "Telegram")
+        self.assertIn("omarchy-ds-telegram", self.mod.load_rule_registry(self.mod.rules_last_good_path()))
+        self.write_hypr("clients", [self.client("org.telegram.desktop", "1")])
+        self.mod.process_socket2_line("openwindow>>0xabc,1,org.telegram.desktop,Telegram")
+        self.assertTrue(
+            any("movetoworkspacesilent name:distraction,address:0xabc" in line for line in self.dispatches())
+        )
+
+    def test_configreloaded_waits_for_reload_lock(self):
+        self.write_list([self.telegram_row()])
+        self.mod.bootstrap_enforcement()
+        self.wait_net()
+        self.clear_evals()
+        self.mod._reload_lock.acquire()
+        thread = threading.Thread(target=self.mod.process_socket2_line, args=("configreloaded>>",))
+        thread.start()
+        thread.join(timeout=0.3)
+        self.assertTrue(thread.is_alive())
+        self.assertEqual(self.evals(), [])
+        self.mod._reload_lock.release()
+        thread.join(timeout=4)
+        self.assertFalse(thread.is_alive())
+        self.assertTrue(any(self.set_marker("omarchy-ds-telegram") in k for k in self.evals()))
 
     def test_windows_lua_dropped_membership_lines(self):
         text = (ROOT / "hypr/windows.lua").read_text()

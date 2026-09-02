@@ -1480,14 +1480,60 @@ def desired_rule_map(expanded: list[dict]) -> dict[str, dict]:
     return out
 
 
+RULE_HANDLES = "_G.omarchy_ds_rules"
+
+
+def lua_string(value: str) -> str:
+    """Double-quoted Lua literal for any Python string (regex patterns included)."""
+    out = ['"']
+    for ch in value:
+        code = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif code < 32 or code == 127:
+            out.append(f"\\{code:03d}")
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
+def set_rule_lua(name: str, klass: str, workspace: str, enabled: bool) -> str:
+    key = lua_string(name)
+    lines = [
+        f"local rules = {RULE_HANDLES} or {{}}",
+        f"{RULE_HANDLES} = rules",
+        f"local old = rules[{key}]",
+        "if old ~= nil then pcall(function() old:set_enabled(false) end) end",
+        "local rule = hl.window_rule({ "
+        f"name = {key}, match = {{ class = {lua_string(klass)} }}, workspace = {lua_string(workspace)}"
+        " })",
+        f"rules[{key}] = rule",
+    ]
+    if not enabled:
+        lines.append("rule:set_enabled(false)")
+    return "\n".join(lines)
+
+
+def disable_rule_lua(name: str) -> str:
+    key = lua_string(name)
+    return "\n".join(
+        [
+            f"local rules = {RULE_HANDLES}",
+            f"local rule = rules and rules[{key}]",
+            f"if rule ~= nil then rules[{key}] = nil; pcall(function() rule:set_enabled(false) end) end",
+        ]
+    )
+
+
 def set_named_rule(name: str, klass: str, workspace: str, enabled: bool) -> None:
-    hyprctl("keyword", f"windowrule[{name}]:match:class {klass}")
-    hyprctl("keyword", f"windowrule[{name}]:workspace {workspace}")
-    hyprctl("keyword", f"windowrule[{name}]:enable {'true' if enabled else 'false'}")
+    hyprctl("eval", set_rule_lua(name, klass, workspace, enabled))
 
 
 def disable_named_rule(name: str) -> None:
-    hyprctl("keyword", f"windowrule[{name}]:enable false")
+    hyprctl("eval", disable_rule_lua(name))
 
 
 def rollback_named_rule_batch(
@@ -1690,6 +1736,8 @@ def process_socket2_line(line: str) -> None:
             handle_movewindow(payload.split(",", 1)[0])
         elif event in {"workspace", "workspacev2"}:
             sync_network_to_workspace()
+        elif event == "configreloaded":
+            handle_configreloaded()
     except (subprocess.CalledProcessError, json.JSONDecodeError, OSError):
         return
 
@@ -1999,6 +2047,15 @@ def bootstrap_enforcement() -> None:
     if status == "corrupt" and not expanded:
         return
     sync_network_to_workspace()
+
+
+def handle_configreloaded() -> None:
+    """A Hyprland config reload drops eval-created rules; put the active set back."""
+    with _reload_lock:
+        with _state_lock:
+            expanded = list(_active_expand)
+        apply_enforcement(expanded, mutate_rules=True)
+        scan_existing_clients(notify_banner=False)
 
 
 def handle_reload_conn(conn: socket.socket) -> None:
