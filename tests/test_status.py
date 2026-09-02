@@ -24,6 +24,9 @@ STATUS_KEYS = {
     "on_space",
     "site_block",
     "listener_pid",
+    "hold",
+    "held",
+    "notification_hold",
     "updated",
 }
 
@@ -68,6 +71,9 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(data["purpose"], "")
         self.assertEqual(data["site_block"], "off")
         self.assertIsNone(data["listener_pid"])
+        self.assertFalse(data["hold"])
+        self.assertEqual(data["held"], {})
+        self.assertEqual(data["notification_hold"], "off")
 
     def test_status_json_off_space(self):
         box = self._box()
@@ -153,14 +159,25 @@ class StatusTests(unittest.TestCase):
                     "on_space": False,
                     "site_block": "on",
                     "listener_pid": 2147483647,
+                    "hold": True,
+                    "held": {"Telegram": 3, "Discord": "many", "X": True},
+                    "notification_hold": "unavailable",
                     "updated": _iso(-1),
                 }
             ),
             encoding="utf-8",
         )
-        data = json.loads(box.run("status", "--json").stdout)
+        r = box.run("status", "--json")
+        data = json.loads(r.stdout)
+        self.assertEqual(set(data), STATUS_KEYS)
         self.assertEqual(data["site_block"], "on")
         self.assertIsNone(data["listener_pid"])
+        self.assertTrue(data["hold"])
+        self.assertEqual(data["held"], {"Telegram": 3})
+        self.assertEqual(data["notification_hold"], "unavailable")
+        r = box.run("status")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("hold=on held=3 notification_hold=unavailable", r.stdout)
 
     def test_stubbed_commands_exit_2_not_yet(self):
         box = self._box()

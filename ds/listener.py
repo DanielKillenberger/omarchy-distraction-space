@@ -1,6 +1,7 @@
-"""Event listener: socket2, network, feedback, lock tick, reload, state."""
+"""Event listener: socket2, network, feedback, lock tick, notification hold, reload, state."""
 
 import fcntl
+import json
 import os
 import re
 import select
@@ -10,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-from ds import catalog, config, feedback, hypr, lock, net, state, ui
+from ds import catalog, config, feedback, hold, hypr, lock, net, setup, state, summary, ui
 
 TICK, PERIOD, _APPLY = 1.0, 30.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
 CLIENT_CAP = 256
@@ -95,6 +96,8 @@ def _listen():
     rs = sock2 = None
     try:
         ctx.boot("start")
+        _clone_check()
+        ctx.capture.tick()
         rs = _bind_reload()
         sock2 = _connect_socket2()
         ctx.last_period = time.monotonic()
@@ -107,7 +110,8 @@ def _listen():
             wait = max(0.0, last + TICK - now)
             for c in ctx.clients:
                 wait = min(wait, max(0.0, c.deadline - now))
-            fds = [rs, r_fd] + ([sock2] if sock2 is not None else []) + [c.sock for c in ctx.clients]
+            bus, pa = ctx.capture.fileno(), ctx.mute.fileno()
+            fds = [rs, r_fd] + [fd for fd in (sock2, bus, pa) if fd is not None] + [c.sock for c in ctx.clients]
             try:
                 ready, _, _ = select.select(fds, [], [], wait)
             except (InterruptedError, ValueError):
@@ -123,6 +127,11 @@ def _listen():
                 chunk, buf, sock2 = _recv_sock2(sock2, buf)
                 for raw in chunk:
                     ctx.event(raw)
+            if bus is not None and bus in ready:
+                if ctx.capture.pump(ctx.hold_on is True, ctx.hold_table()):
+                    ctx.write_state()
+            if pa is not None and pa in ready:
+                ctx.mute.pump()
             if rs in ready:
                 _accept_reload(rs, ctx)
             _service_clients(ctx, ready)
@@ -138,6 +147,9 @@ def _listen():
         signal.signal(signal.SIGINT, prev[1])
         feedback.stop()
         net.shutdown()
+        ctx.capture.stop()
+        ctx.release_hold()
+        ctx.mute.release()
         for c in ctx.clients:
             _close(c.sock)
         ctx.clients = []
@@ -167,6 +179,8 @@ class _Ctx:
         self.last_period = time.monotonic()
         self.pending, self.lock, self.wake_w = None, threading.Lock(), None
         self.clients = []
+        self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
+        self.capture, self.mute = hold.Capture(), hold.Mute()
     def _note_invalid(self):
         if not self.noted:
             ui.notify("Invalid config", "Using the last saved expansion.")
@@ -175,6 +189,35 @@ class _Ctx:
         if not self.resolve_noted:
             ui.notify("Network update failed", "Keeping the current site block.")
             self.resolve_noted = True
+    def _note_hold(self):
+        if not self.hold_noted:
+            ui.notify("Notification hold unavailable", "The shell lacks silencedSenders. Run: distractions setup")
+            self.hold_noted = True
+    def hold_table(self):
+        return hold.key_table(self.exp.get("list") or [])
+    def sync_hold(self, force=False):
+        """Push the plugin's sender keys on every change of effective hold or of the keys."""
+        want = hold.effective_hold(self.cfg, self.prev, lock.is_locked())
+        keys = list(self.hold_table())
+        if not force and want == self.hold_on and keys == self.pushed:
+            return
+        self.hold_ipc = hold.push(keys, want, retire=[k for k in self.pushed if k not in keys])
+        self.hold_on, self.pushed = want, keys
+        if self.hold_ipc == "unavailable":
+            self._note_hold()
+        self.mute.sync(want and hold.mute_on(self.cfg), hold.audio_table(self.exp.get("list") or []))
+    def release_hold(self):
+        if self.pushed:
+            hold.push(self.pushed, False)
+    def summarize(self):
+        """A boundary this listener marks (a lock expired, the space was entered): claim the records, start the notice.
+
+        Returns the per-app counts for the hook of the same boundary. A manual
+        `distractions unlock` is the command's boundary; it claims and notifies itself.
+        """
+        records = summary.take()
+        summary.start(records, self.cfg)
+        return summary.counts(records)
     def boot(self, reason):
         cfg = _read_cfg()
         if cfg is None:
@@ -195,6 +238,7 @@ class _Ctx:
             here = hypr.on_space()
             if here is not None and self.prev is None:
                 self.prev = here
+        self.sync_hold(force=True)
         if self.prev is True:
             self.flush(reason)
             self.write_state(True)
@@ -310,9 +354,13 @@ class _Ctx:
         if lock.expire_if_due():
             purpose = raw.get("purpose") if isinstance(raw, dict) else ""
             ui.notify("Lock ended", purpose or "")
-            lock.run_hook("unlock", _env("unlock", purpose or ""))
+            lock.run_hook("unlock", _env("unlock", purpose or "", self.summarize()))
             self.write_state(True)
         self.space("tick")
+        self.capture.tick()
+        self.mute.tick()
+        self.sync_hold()
+        self.write_state()
         if self.prev is not True and time.monotonic() - self.last_period >= PERIOD:
             self.last_period = time.monotonic()
             self.request("periodic")
@@ -326,7 +374,7 @@ class _Ctx:
             self.write_state()
             return
         if here is True and prev is not True:
-            lock.run_hook("enter", _env("enter"))
+            lock.run_hook("enter", _env("enter", held=self.summarize()))
             self.flush()
         elif here is False and prev is True:
             lock.run_hook("leave", _env("leave"))
@@ -334,6 +382,7 @@ class _Ctx:
         elif here is False and reason == "workspace":
             self.request("workspace")
         self.prev = here
+        self.sync_hold()
         self.write_state()
     def reload(self):
         cfg = _read_cfg()
@@ -355,13 +404,21 @@ class _Ctx:
             "locked": bool(lk.get("locked")), "until": lk.get("until"),
             "purpose": lk.get("purpose") or "", "on_space": self.prev,
             "site_block": net.site_block, "listener_pid": os.getpid(),
+            "hold": self.hold_on is True, "held": hold.held_counts(), "notification_hold": self.hold_ipc,
             "updated": state.now_iso(),
         }
-        key = (obj["locked"], obj["until"], obj["purpose"], obj["on_space"], obj["site_block"])
+        key = (obj["locked"], obj["until"], obj["purpose"], obj["on_space"], obj["site_block"],
+               obj["hold"], obj["notification_hold"], tuple(sorted(obj["held"].items())))
         if not force and key == self.last_state:
             return
         self.last_state = key
         state.write_state(obj)
+def _clone_check():
+    """Notice only: a stale notification-service clone is re-cloned by `setup`, never here."""
+    why = setup.clone_drift()
+    if why:
+        ui.notify("Notification hold needs setup", f"{why[0].upper()}{why[1:]}. Run: distractions setup")
+
 def _read_cfg():
     if not config.config_path().exists():
         return None
@@ -393,10 +450,10 @@ def _hosts(exp):
                 out.append(host)
     return out
 
-def _env(event, purpose=None):
+def _env(event, purpose=None, held=None):
     lk = state.read_lock()
     return {"DS_EVENT": event, "DS_PURPOSE": purpose if purpose is not None else (lk.get("purpose") or ""),
-            "DS_MINUTES": "", "DS_REASON": "", "DS_HELD": "{}"}
+            "DS_MINUTES": "", "DS_REASON": "", "DS_HELD": json.dumps(held or {})}
 
 def _scan(entries):
     try:

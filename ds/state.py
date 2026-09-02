@@ -149,14 +149,19 @@ def listener_pid():
 
 def status():
     lk = read_lock()
-    st = read_state()
+    st = read_state() or {}
+    held = st.get("held")
+    ipc = st.get("notification_hold")
     return {
         "locked": lk["locked"],
         "until": lk["until"],
         "purpose": lk["purpose"],
         "on_space": hypr.on_space(),
-        "site_block": st.get("site_block", "off") if st else "off",
+        "site_block": st.get("site_block", "off"),
         "listener_pid": listener_pid(),
+        "hold": st.get("hold") is True,
+        "held": {k: v for k, v in held.items() if isinstance(k, str) and type(v) is int} if isinstance(held, dict) else {},
+        "notification_hold": ipc if ipc in ("on", "off", "unavailable") else "off",
         "updated": now_iso(),
     }
 
@@ -170,4 +175,6 @@ def cmd_status(args):
     if st["purpose"]:
         print(st["purpose"])
     print(f"on_space={st['on_space']} site_block={st['site_block']}")
+    print(f"hold={'on' if st['hold'] else 'off'} held={sum(st['held'].values())} "
+          f"notification_hold={st['notification_hold']}")
     return 0

@@ -108,6 +108,31 @@ with p.open("a", encoding="utf-8") as f:
     f.write(os.environ.get("DS_EVENT", "") + "\n")
 """
 
+# Quiet stand-ins so no listener test reaches the real shell IPC, bus monitor, or PulseAudio.
+SHELL_STUB = r"""
+import sys
+args = sys.argv[1:]
+if args[:2] == ["notifications", "silencedSenders"]:
+    print("[]")
+elif args[:2] in (["notifications", "silence"], ["notifications", "unsilence"]) and len(args) == 3:
+    print("[]")
+else:
+    print("Function not found.")
+    sys.exit(1)
+"""
+
+QUIET_STUB = r"""
+import os, sys, time
+args = sys.argv[1:]
+if args == ["-f", "json", "list", "sink-inputs"]:
+    print("[]")
+elif args[:1] == ["set-sink-input-mute"]:
+    pass
+else:
+    while os.getppid() != 1:
+        time.sleep(0.5)
+"""
+
 _ENV_KEYS = (
     "DS_HYPR_LOG", "DS_NOTIFY_LOG", "DS_NFT_LOG", "GETENT_LOG", "DS_HOOK_LOG",
     "DS_HYPR_STATE", "DS_SOCKET2", "GETENT_MAP", "GETENT_GATE", "DS_HYPR_FAIL",
@@ -189,6 +214,9 @@ class ListenerTests(unittest.TestCase):
         self.box.fake_bin("getent", GETENT)
         self.box.fake_bin("sudo", SUDO)
         self.box.fake_bin("omarchy-notification-send", NOTIFY)
+        self.box.fake_bin("omarchy-shell", SHELL_STUB)
+        self.box.fake_bin("busctl", QUIET_STUB)
+        self.box.fake_bin("pactl", QUIET_STUB)
         self.hook_py = self.box.bin / "ds-hook.py"
         self.hook_py.write_text("#!/usr/bin/env python3\n" + HOOK, encoding="utf-8")
         self.hook_py.chmod(0o755)
