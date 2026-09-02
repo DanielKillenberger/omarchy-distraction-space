@@ -9,7 +9,8 @@
   "depends_on_epics": [],
   "id": "fn-15-blocked-site-banners-only-for-off-space",
   "impl_review_rounds": {
-    "fn-15-blocked-site-banners-only-for-off-space.1": 0
+    "fn-15-blocked-site-banners-only-for-off-space.1": 0,
+    "fn-15-blocked-site-banners-only-for-off-space.2": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -41,15 +42,43 @@
       "task": "fn-15-blocked-site-banners-only-for-off-space.1",
       "timestamp": "2026-09-02T13:26:39.993500Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "2f6f47a098bda1b5f6853fb99114e86fa17e878d54ab6947c54fb89467dafc0e",
+      "backend": "host",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "58ef49cedfd98ea3e63972da61d59ca5537d9de8",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 2879,
+      "output_sha256": "83f5ff4b5ab9d77a89e9d13adf3105cce4a071024ff4906b15a2c6151ce66d70",
+      "reservation_id": "97f1ff7c24f94a04b067eaea2e23d047",
+      "round_consumed": true,
+      "scope": "impl:fn-15-blocked-site-banners-only-for-off-space.2",
+      "superseded_by": null,
+      "task": "fn-15-blocked-site-banners-only-for-off-space.2",
+      "timestamp": "2026-09-02T13:37:03.656280Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
-    "impl:fn-15-blocked-site-banners-only-for-off-space.1": 1
+    "impl:fn-15-blocked-site-banners-only-for-off-space.1": 1,
+    "impl:fn-15-blocked-site-banners-only-for-off-space.2": 1
   },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
-    "impl:fn-15-blocked-site-banners-only-for-off-space.1": 0
+    "impl:fn-15-blocked-site-banners-only-for-off-space.1": 0,
+    "impl:fn-15-blocked-site-banners-only-for-off-space.2": 0
   },
   "spec_path": ".flow/specs/fn-15-blocked-site-banners-only-for-off-space.md",
   "status": "open",
@@ -65,5 +94,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T13:26:40.473448Z"
+  "updated_at": "2026-09-02T13:37:04.088998Z"
 }
