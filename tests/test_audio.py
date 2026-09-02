@@ -365,7 +365,7 @@ class MuteListenerTests(_Env):
         with self.events.open("a") as f:
             f.write("Event 'new' on sink-input #3\nEvent 'new' on sink-input #4\n")
         self.assertTrue(_wait(lambda: self._streams() == {"3": True, "4": False}, 5), self._streams())
-        self.assertEqual(self._muted(), {"3": me})
+        self.assertTrue(_wait(lambda: self._muted() == {"3": me}, 3), self._muted())
         self._go("distraction", 5)
         self.assertTrue(_wait(lambda: self._streams() == {"3": False, "4": False}, 5), self._streams())
         self.assertTrue(_wait(lambda: self._muted() is None, 3))
@@ -373,7 +373,7 @@ class MuteListenerTests(_Env):
             (Path(f"/proc/{pid}/cmdline").read_bytes().find(b"subscribe") < 0) for pid in _kids(self.proc.pid)), 3))
         self._go("2", 2)
         self.assertTrue(_wait(lambda: self._streams() == {"3": True, "4": False}, 5), self._streams())
-        self.assertEqual(self._muted(), {"3": me})
+        self.assertTrue(_wait(lambda: self._muted() == {"3": me}, 3), self._muted())
         err = self._stop()
         self.assertEqual(self._streams(), {"3": False, "4": False}, err)
         self.assertIsNone(self._muted())
