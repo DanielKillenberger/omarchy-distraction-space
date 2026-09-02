@@ -736,6 +736,27 @@ class ListenerTests(unittest.TestCase):
         self.assertEqual(sorted(got), [b"ok", b"ok"])
         self.assertGreater(self._nft().count("replace ds"), n_before)
 
+    def test_adopted_waiter_survives_two_deadline_batches(self):
+        bd = 0.8
+        os.environ["GETENT_GATE"] = str(self.gate)
+        self._cfg()
+        self._start(extra_env=self.box.batch_deadline_env(bd))
+        self.assertTrue(_wait(lambda: bool(self._getent_hosts()), 4))
+        got = []
+
+        def go():
+            got.append(self._reload("reload", timeout=2 * bd + 6))
+
+        t = threading.Thread(target=go, daemon=True)
+        t.start()
+        time.sleep(0.15)
+        self.assertEqual(got, [])
+        self._workspace("2", 2)
+        self._send("workspacev2>>2,2")
+        t.join(timeout=2 * bd + 8)
+        self.assertFalse(t.is_alive())
+        self.assertEqual(got, [b"ok"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -147,6 +147,18 @@ class Sandbox:
             raise RuntimeError("config lock holder did not acquire")
         return holder
 
+    def batch_deadline_env(self, seconds: float) -> dict[str, str]:
+        site = self.runtime / "pysite"
+        site.mkdir(exist_ok=True)
+        (site / "sitecustomize.py").write_text(
+            "import sys\n"
+            f"sys.path.insert(0, {str(ROOT)!r})\n"
+            "from ds import net\n"
+            f"net.BATCH_DEADLINE = {float(seconds)!r}\n",
+            encoding="utf-8",
+        )
+        return {"PYTHONPATH": str(site)}
+
     def wait_file(self, path, timeout: float = 5.0) -> Path:
         path = Path(path)
         deadline = time.monotonic() + timeout

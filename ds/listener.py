@@ -14,7 +14,10 @@ from ds import catalog, config, feedback, hypr, lock, net, state, ui
 
 TICK, PERIOD, _APPLY = 1.0, 30.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
 CLIENT_CAP = 256
-RELOAD_WAIT = net.BATCH_DEADLINE + 5
+
+
+def _reload_wait():
+    return 2 * net.BATCH_DEADLINE + 5
 
 
 def cmd_listen(args): return run()
@@ -23,7 +26,7 @@ def cmd_reload(args):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connected = False
     try:
-        sock.settimeout(RELOAD_WAIT)
+        sock.settimeout(_reload_wait())
         sock.connect(str(state.runtime_path("distraction-space.sock")))
         connected = True
         sock.sendall(b"reload\n")
@@ -153,7 +156,7 @@ class _Client:
     __slots__ = ("sock", "buf", "deadline", "gen")
     def __init__(self, sock):
         self.sock, self.buf, self.gen = sock, b"", None
-        self.deadline = time.monotonic() + RELOAD_WAIT
+        self.deadline = time.monotonic() + _reload_wait()
 
 class _Ctx:
     def __init__(self):
@@ -209,6 +212,11 @@ class _Ctx:
         self._launch(self.gen, reason)
     def _launch(self, gen, reason):
         self.busy = True
+        now = time.monotonic()
+        window = net.BATCH_DEADLINE + 5
+        for c in self.clients:
+            if c.gen == gen:
+                c.deadline = now + window
         hosts, keep, wake = _hosts(self.exp), self.exp.get("keep_reachable") or [], self.wake_w
         def work():
             failed = False
@@ -265,9 +273,12 @@ class _Ctx:
         else:
             self.rerun = False
     def _adopt_waiters(self, gen):
+        now = time.monotonic()
+        deadline = now + net.BATCH_DEADLINE + 5
         for c in self.clients:
             if isinstance(c.gen, int):
                 c.gen = gen
+                c.deadline = deadline
     def _reply_waiters(self, gen, ok):
         msg = b"ok\n" if ok else b"error\n"
         for c in self.clients:
@@ -498,6 +509,7 @@ def _dispatch_client(c, ctx, verb):
         c.gen = "done"
         return
     c.gen = result
+    c.deadline = time.monotonic() + _reload_wait()
 
 def _read_client(c, ctx):
     try:
