@@ -14,7 +14,8 @@ WRAPPER_DEFAULT = "/usr/local/libexec/omarchy-distraction-space/distractions-nft
 SUDOERS_DEFAULT = "/etc/sudoers.d/omarchy-distraction-space"
 
 
-def _wrapper_dest() -> Path:
+def wrapper_dest() -> Path:
+    """Installed wrapper path; the sudoers grant names exactly this path."""
     return Path(os.environ.get("DS_WRAPPER_DEST", WRAPPER_DEFAULT))
 
 
@@ -86,7 +87,7 @@ def _rescan() -> int:
 
 
 def install():
-    wrapper = _wrapper_dest()
+    wrapper = wrapper_dest()
     sudoers = _sudoers_dest()
     if _writable_ancestor(wrapper) or _writable_ancestor(sudoers):
         print("refusing user-writable destination chain", file=sys.stderr)
@@ -135,8 +136,10 @@ def install():
 
 
 def remove():
+    wrapper = wrapper_dest()
+    sudoers = _sudoers_dest()
     proc = subprocess.run(
-        ["sudo", "-n", "distractions-nft", "flush", "ds"],
+        ["sudo", "-n", str(wrapper), "flush", "ds"],
         capture_output=True,
         text=True,
         check=False,
@@ -144,8 +147,6 @@ def remove():
     if not _flush_ok(proc):
         print((proc.stderr or "nft flush failed").strip() or "nft flush failed", file=sys.stderr)
         return 1
-    wrapper = _wrapper_dest()
-    sudoers = _sudoers_dest()
     proc = subprocess.run(
         ["sudo", "rm", "-f", str(wrapper), str(sudoers)],
         check=False,

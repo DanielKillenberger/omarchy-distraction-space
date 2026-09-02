@@ -128,8 +128,14 @@ def valid_list_entry(entry):
 
 
 def parse_add_entry(s):
-    if valid_list_entry(s):
-        return s
+    entry = s
+    if isinstance(s, str) and s.lstrip().startswith("{"):
+        try:
+            entry = json.loads(s)
+        except json.JSONDecodeError:
+            raise Invalid(f"list: invalid entry {s!r}") from None
+    if valid_list_entry(entry):
+        return entry
     raise Invalid(f"list: invalid entry {s!r}")
 
 

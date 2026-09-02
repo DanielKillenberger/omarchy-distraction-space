@@ -283,7 +283,7 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.wrapper.exists())
         self.assertFalse(self.sudoers.exists())
         lines = self._sudo_lines()
-        self.assertTrue(any("flush ds" in ln or ln.endswith("flush ds") for ln in lines))
+        self.assertTrue(any(ln.endswith(f"{self.wrapper} flush ds") for ln in lines))
         self.assertTrue(any(ln.startswith("rm ") for ln in lines))
         self.assertTrue(self._rescan_text().strip().endswith("shell rescanPlugins"))
         self.assertLess(self._rescan_text().find("rescanPlugins"), len(self._rescan_text()))

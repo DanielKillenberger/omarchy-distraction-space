@@ -337,6 +337,39 @@ class ConfigTests(unittest.TestCase):
         self.assertIn("senders", by_name["Telegram"])
         self.assertIn("audio", by_name["Telegram"])
 
+    def test_list_add_json_object_entry(self):
+        self.assertEqual(self.box.run("config", "get", "list").returncode, 0)
+        obj = {"name": "Slack", "class": "^Slack$", "hosts": ["slack.com", "app.slack.com"]}
+        r = self.box.run("list", "add", json.dumps(obj))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.box.run("list", "add", json.dumps({"name": "Slack", "class": "^Other$"}))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.box.run("list", "add", '  {"name": "Work", "hosts": ["work.example"]}')
+        self.assertEqual(r.returncode, 0, r.stderr)
+        listed = self.box.run("list").stdout.splitlines()
+        self.assertEqual(listed.count("Slack"), 1)
+        self.assertIn("Work", listed)
+        stored = json.loads(self.box.config_file.read_text(encoding="utf-8"))["list"]
+        self.assertIn(obj, stored)
+        self.assertIn({"name": "Work", "hosts": ["work.example"]}, stored)
+        by_name = {e["name"]: e for e in json.loads(self.box.run("list", "expand").stdout)}
+        self.assertEqual(by_name["Slack"]["classes"], ["^Slack$", "^chrome-slack\\.com__.*$"])
+        self.assertEqual(by_name["Slack"]["hosts"], ["slack.com", "app.slack.com"])
+        before = self.box.config_file.read_bytes()
+        for bad in (
+            '{"name": "Bad"}',
+            '{"name": "", "class": "^X$"}',
+            '{"name": "Bad", "class": "(unclosed"}',
+            '{"name": "Bad", "hosts": ["nodot"]}',
+            '{not json',
+            '{"name": "Bad", "class": "^X$"} trailing',
+        ):
+            with self.subTest(bad=bad):
+                r = self.box.run("list", "add", bad)
+                self.assertEqual(r.returncode, 1, r.stdout)
+                self.assertIn("list", r.stderr)
+                self.assertEqual(self.box.config_file.read_bytes(), before)
+
     def test_invalid_class_regex_refused_file_unchanged(self):
         self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
         before = self.box.config_file.read_bytes()

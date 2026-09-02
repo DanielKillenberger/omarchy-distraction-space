@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-9-rewrite-one-contained-distraction-space",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "needs_work",
+  "completion_reviewed_at": "2026-09-02T07:34:31.954632Z",
   "created_at": "2026-09-01T19:22:26.321593Z",
   "default_impl": null,
   "default_review": null,
@@ -10,15 +10,15 @@
   "id": "fn-9-rewrite-one-contained-distraction-space",
   "impl_review_rounds": {
     "fn-9-rewrite-one-contained-distraction-space.1": 0,
-    "fn-9-rewrite-one-contained-distraction-space.4": 0,
     "fn-9-rewrite-one-contained-distraction-space.2": 1,
     "fn-9-rewrite-one-contained-distraction-space.3": 2,
+    "fn-9-rewrite-one-contained-distraction-space.4": 0,
     "fn-9-rewrite-one-contained-distraction-space.5": 1,
     "fn-9-rewrite-one-contained-distraction-space.6": 1,
     "fn-9-rewrite-one-contained-distraction-space.7": 3
   },
   "next_task": 1,
-  "plan_review_rounds": 0,
+  "plan_review_rounds": 1,
   "plan_review_status": "ship",
   "plan_reviewed_at": "2026-09-01T21:21:54.207090Z",
   "ready": true,
@@ -1706,6 +1706,57 @@
       "task": "fn-9-rewrite-one-contained-distraction-space.7",
       "timestamp": "2026-09-02T01:12:46.288676Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "fbf3e306cbf5565384f5486f7468e7d983e6a398a2968dd33c9812215a3bb3b0",
+      "backend": "cursor",
+      "base_sha": "6ae5284886e31abf1d7189a0e259402807bbf9e9",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ba782d0f943ca715e2abf4aa98ba2651",
+            "classification": "introduced",
+            "findingId": "finding-ba782d0f943ca715e2abf4aa98ba2651",
+            "firstSeenThisRound": true,
+            "severity": "P0",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-4890e25a9c8ccae17d81dcf6506ab187",
+            "classification": "introduced",
+            "findingId": "finding-4890e25a9c8ccae17d81dcf6506ab187",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "8f351309243708202f0162926faeebf753a4ed4c",
+      "head_sha_observed": true,
+      "kind": "completion",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 5376,
+      "output_sha256": "50fcd1fca7a5681dd7a3d37c3ee1b2879bcc109d654d921ed0953d558c4f2de6",
+      "reservation_id": "e8398970a4d94f34a22fe20660f1afd7",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-02T07:34:31.951277Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -1719,6 +1770,7 @@
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "completion": 0,
     "impl:fn-9-rewrite-one-contained-distraction-space.1": 0,
     "impl:fn-9-rewrite-one-contained-distraction-space.2": 0,
     "impl:fn-9-rewrite-one-contained-distraction-space.5": 0,
@@ -1740,5 +1792,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T21:21:54.207741Z"
+  "updated_at": "2026-09-02T07:34:31.954998Z"
 }

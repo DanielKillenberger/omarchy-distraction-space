@@ -10,7 +10,7 @@ import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
-from ds import config, state
+from ds import config, setup, state
 
 BATCH_DEADLINE = 10.0
 RESOLVE_TIMEOUT = 2.0
@@ -240,10 +240,11 @@ def finish_batch(batch, outcome):
 def apply(addresses):
     global site_block
     addrs = [a for a in (addresses or []) if a]
+    wrapper = str(setup.wrapper_dest())
     try:
         if not addrs:
             proc = subprocess.run(
-                ["sudo", "-n", "distractions-nft", "flush", "ds"],
+                ["sudo", "-n", wrapper, "flush", "ds"],
                 capture_output=True,
                 text=True,
             )
@@ -251,7 +252,7 @@ def apply(addresses):
             site_block = "off" if ok else "unavailable"
         else:
             proc = subprocess.run(
-                ["sudo", "-n", "distractions-nft", "replace", "ds"],
+                ["sudo", "-n", wrapper, "replace", "ds"],
                 input="\n".join(addrs) + "\n",
                 capture_output=True,
                 text=True,

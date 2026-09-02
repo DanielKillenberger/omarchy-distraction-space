@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
-from ds import net, state
+from ds import net, setup, state
 
 GETENT = r"""
 import json, os, sys, time
@@ -150,7 +150,7 @@ class NetTests(unittest.TestCase):
         result = net.apply(addrs)
         self.assertEqual(result, "off")
         text = self.nft_log.read_text(encoding="utf-8")
-        self.assertIn("flush ds", text)
+        self.assertIn(f"{setup.wrapper_dest()} flush ds", text)
         self.assertNotIn("replace ds", text)
         self.assertEqual(net.site_block, "off")
 
@@ -242,7 +242,8 @@ class NetTests(unittest.TestCase):
         self.assertEqual(net.apply(addrs), "on")
         self.assertEqual(net.site_block, "on")
         text = self.nft_log.read_text(encoding="utf-8")
-        self.assertIn("replace ds", text)
+        self.assertIn(f"{setup.wrapper_dest()} replace ds", text)
+        self.assertTrue(str(setup.wrapper_dest()).startswith("/"))
         self.assertIn("203.0.113.4", text)
         os.environ["DS_NFT_FAIL"] = "1"
         self.assertEqual(net.apply(["203.0.113.4"]), "unavailable")
