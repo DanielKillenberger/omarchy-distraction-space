@@ -374,7 +374,7 @@ def _release(fh):
 def _go_to_space():
     try:
         r = subprocess.run(
-            ["hyprctl", "dispatch", "workspace", f"name:{hypr.SPACE}"],
+            ["hyprctl", "dispatch", hypr.focus_workspace_lua(hypr.SPACE)],
             capture_output=True,
             text=True,
             timeout=5,

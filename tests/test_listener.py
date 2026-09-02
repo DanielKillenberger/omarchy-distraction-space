@@ -649,7 +649,7 @@ class ListenerTests(unittest.TestCase):
         self.hypr_log.write_text("", encoding="utf-8")
         self._send("configreloaded>>")
         self.assertTrue(_wait(lambda: self._evals("omarchy-ds set") == boot_sets, 4), self._evals("omarchy-ds set"))
-        self.assertTrue(_wait(lambda: "movetoworkspacesilent" in self.hypr_log.read_text(encoding="utf-8"), 4))
+        self.assertTrue(_wait(lambda: "hl.dsp.window.move" in self.hypr_log.read_text(encoding="utf-8"), 4))
         self.assertIn("0xbeef", self.hypr_log.read_text(encoding="utf-8"))
         self.assertIsNone(self.proc.poll(), self._err())
         self.assertEqual(self._hooks(), [])
