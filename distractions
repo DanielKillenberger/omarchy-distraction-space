@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ds import catalog, config, hypr, listener, lock, setup, state, ui
+from ds import catalog, config, hold, hypr, listener, lock, setup, state, ui
 
 COMMANDS = {
     "status": state.cmd_status,
@@ -25,6 +25,7 @@ COMMANDS = {
     "listen": listener.cmd_listen,
     "reload": listener.cmd_reload,
     "setup": setup.cmd_setup,
+    "senders": hold.cmd_senders,
 }
 
 
@@ -51,6 +52,7 @@ def build_parser():
     for name in ("enter", "leave", "toggle", "next", "prev", "menu", "listen", "reload"):
         sub.add_parser(name)
     sub.add_parser("setup").add_argument("--remove", action="store_true")
+    sub.add_parser("senders")
     return p
 
 

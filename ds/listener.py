@@ -1,4 +1,4 @@
-"""Event listener: socket2, network, feedback, lock tick, reload, state."""
+"""Event listener: socket2, network, feedback, lock tick, notification hold, reload, state."""
 
 import fcntl
 import os
@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from ds import catalog, config, feedback, hypr, lock, net, setup, state, ui
+from ds import catalog, config, feedback, hold, hypr, lock, net, setup, state, ui
 
 TICK, PERIOD, _APPLY = 1.0, 30.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
 CLIENT_CAP = 256
@@ -96,6 +96,7 @@ def _listen():
     try:
         ctx.boot("start")
         _clone_check()
+        ctx.capture.tick()
         rs = _bind_reload()
         sock2 = _connect_socket2()
         ctx.last_period = time.monotonic()
@@ -108,7 +109,8 @@ def _listen():
             wait = max(0.0, last + TICK - now)
             for c in ctx.clients:
                 wait = min(wait, max(0.0, c.deadline - now))
-            fds = [rs, r_fd] + ([sock2] if sock2 is not None else []) + [c.sock for c in ctx.clients]
+            bus = ctx.capture.fileno()
+            fds = [rs, r_fd] + [fd for fd in (sock2, bus) if fd is not None] + [c.sock for c in ctx.clients]
             try:
                 ready, _, _ = select.select(fds, [], [], wait)
             except (InterruptedError, ValueError):
@@ -124,6 +126,9 @@ def _listen():
                 chunk, buf, sock2 = _recv_sock2(sock2, buf)
                 for raw in chunk:
                     ctx.event(raw)
+            if bus is not None and bus in ready:
+                if ctx.capture.pump(ctx.hold_on is True, ctx.hold_table()):
+                    ctx.write_state()
             if rs in ready:
                 _accept_reload(rs, ctx)
             _service_clients(ctx, ready)
@@ -139,6 +144,8 @@ def _listen():
         signal.signal(signal.SIGINT, prev[1])
         feedback.stop()
         net.shutdown()
+        ctx.capture.stop()
+        ctx.release_hold()
         for c in ctx.clients:
             _close(c.sock)
         ctx.clients = []
@@ -168,6 +175,8 @@ class _Ctx:
         self.last_period = time.monotonic()
         self.pending, self.lock, self.wake_w = None, threading.Lock(), None
         self.clients = []
+        self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
+        self.capture = hold.Capture()
     def _note_invalid(self):
         if not self.noted:
             ui.notify("Invalid config", "Using the last saved expansion.")
@@ -176,6 +185,25 @@ class _Ctx:
         if not self.resolve_noted:
             ui.notify("Network update failed", "Keeping the current site block.")
             self.resolve_noted = True
+    def _note_hold(self):
+        if not self.hold_noted:
+            ui.notify("Notification hold unavailable", "The shell lacks silencedSenders. Run: distractions setup")
+            self.hold_noted = True
+    def hold_table(self):
+        return hold.key_table(self.exp.get("list") or [])
+    def sync_hold(self, force=False):
+        """Push the plugin's sender keys on every change of effective hold or of the keys."""
+        want = hold.effective_hold(self.cfg, self.prev, lock.is_locked())
+        keys = list(self.hold_table())
+        if not force and want == self.hold_on and keys == self.pushed:
+            return
+        self.hold_ipc = hold.push(keys, want, retire=[k for k in self.pushed if k not in keys])
+        self.hold_on, self.pushed = want, keys
+        if self.hold_ipc == "unavailable":
+            self._note_hold()
+    def release_hold(self):
+        if self.pushed:
+            hold.push(self.pushed, False)
     def boot(self, reason):
         cfg = _read_cfg()
         if cfg is None:
@@ -196,6 +224,7 @@ class _Ctx:
             here = hypr.on_space()
             if here is not None and self.prev is None:
                 self.prev = here
+        self.sync_hold(force=True)
         if self.prev is True:
             self.flush(reason)
             self.write_state(True)
@@ -314,6 +343,9 @@ class _Ctx:
             lock.run_hook("unlock", _env("unlock", purpose or ""))
             self.write_state(True)
         self.space("tick")
+        self.capture.tick()
+        self.sync_hold()
+        self.write_state()
         if self.prev is not True and time.monotonic() - self.last_period >= PERIOD:
             self.last_period = time.monotonic()
             self.request("periodic")
@@ -335,6 +367,7 @@ class _Ctx:
         elif here is False and reason == "workspace":
             self.request("workspace")
         self.prev = here
+        self.sync_hold()
         self.write_state()
     def reload(self):
         cfg = _read_cfg()
@@ -356,9 +389,11 @@ class _Ctx:
             "locked": bool(lk.get("locked")), "until": lk.get("until"),
             "purpose": lk.get("purpose") or "", "on_space": self.prev,
             "site_block": net.site_block, "listener_pid": os.getpid(),
+            "hold": self.hold_on is True, "held": hold.held_counts(), "notification_hold": self.hold_ipc,
             "updated": state.now_iso(),
         }
-        key = (obj["locked"], obj["until"], obj["purpose"], obj["on_space"], obj["site_block"])
+        key = (obj["locked"], obj["until"], obj["purpose"], obj["on_space"], obj["site_block"],
+               obj["hold"], obj["notification_hold"], tuple(sorted(obj["held"].items())))
         if not force and key == self.last_state:
             return
         self.last_state = key
