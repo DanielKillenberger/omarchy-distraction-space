@@ -147,6 +147,15 @@ class Sandbox:
             raise RuntimeError("config lock holder did not acquire")
         return holder
 
+    def wait_file(self, path, timeout: float = 5.0) -> Path:
+        path = Path(path)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if path.exists():
+                return path
+            time.sleep(0.02)
+        raise TimeoutError(f"timed out waiting for {path}")
+
     @property
     def config_file(self) -> Path:
         return self.config / "omarchy" / "distraction-space.json"
