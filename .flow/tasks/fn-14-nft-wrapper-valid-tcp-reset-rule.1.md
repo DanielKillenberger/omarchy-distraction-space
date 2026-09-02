@@ -10,9 +10,11 @@ TBD
 Every R-ID in the parent spec's ## Acceptance Criteria is satisfied; judge this task against the spec's criteria directly.
 
 ## Done summary
-TBD
+The TCP reset rules now read `meta l4proto tcp reject with tcp reset`. Live proof recorded by the conductor after install (R2).
 
+stage: impl-review - ran (model: gpt-5.6-sol-high via cursor backend; SHIP)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: e0fd498
+- Tests: python3 -m unittest discover -s tests
 - PRs:
