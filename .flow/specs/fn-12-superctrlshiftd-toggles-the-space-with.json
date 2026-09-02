@@ -85,7 +85,7 @@
     "impl:fn-12-superctrlshiftd-toggles-the-space-with.1": 0
   },
   "spec_path": ".flow/specs/fn-12-superctrlshiftd-toggles-the-space-with.md",
-  "status": "open",
+  "status": "done",
   "title": "Super+Ctrl+Shift+D toggles the space with no confirm",
   "tracker": {
     "baseHashFlow": null,
@@ -98,5 +98,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T10:22:16.979953Z"
+  "updated_at": "2026-09-02T10:26:36.110667Z"
 }
