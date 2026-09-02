@@ -264,7 +264,7 @@
     "impl:fn-20-banner-provenance-for-blocked-site.2": 0
   },
   "spec_path": ".flow/specs/fn-20-banner-provenance-for-blocked-site.md",
-  "status": "open",
+  "status": "done",
   "title": "Banner provenance for blocked-site notices",
   "tracker": {
     "baseHashFlow": null,
@@ -277,5 +277,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T21:09:33.306858Z"
+  "updated_at": "2026-09-02T21:11:40.072229Z"
 }
