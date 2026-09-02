@@ -180,3 +180,21 @@ def cmd_status(args):
     print(f"hold={'on' if st['hold'] else 'off'} held={sum(st['held'].values())} "
           f"notification_hold={st['notification_hold']} pass_through={st['pass_through']}")
     return 0
+
+
+def cmd_banners(args):
+    try:
+        text = state_path("log").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return 0
+    lines = []
+    for line in text.splitlines():
+        if not line:
+            continue
+        rest = line.split(" ", 1)
+        if len(rest) == 2 and rest[1].startswith("banner: "):
+            lines.append(line)
+    for line in reversed(lines[-args.count:]):
+        print(line)
+    return 0
+

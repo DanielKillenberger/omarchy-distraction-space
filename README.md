@@ -135,6 +135,7 @@ With no config file, the first load seeds `list` from your existing `~/.config/o
 | `config path` / `get` / `set` / `edit` | Read and write the config file. `set` validates before it writes. |
 | `menu` | The full menu: lock, enter or leave, edit the list, settings. |
 | `senders` | The sender keys the hold pushes into the shell's silenced list. |
+| `banners [--count N]` | The newest banner provenance lines from the state log, 20 by default. |
 | `listen` | The listener. Autostart runs one per session; a second one exits 0 immediately. |
 | `reload` | Ask the running listener to re-read the config. |
 | `setup [--remove]` | Install or remove the privileged wrapper and the patched notification-service clone. |
