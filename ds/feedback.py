@@ -788,53 +788,61 @@ def _attribute(peer_port, entry):
     return attr
 
 
+def _client_on_space(c):
+    ws = c.get("workspace")
+    return isinstance(ws, dict) and ws.get("name") == hypr.SPACE
+
+
+def _record_client(attr, c):
+    attr["klass"] = c.get("class")
+    ws = c.get("workspace")
+    attr["ws"] = ws.get("name") if isinstance(ws, dict) else None
+
+
 def _attribute_inner(peer_port, entry, attr):
+    # The process side first, so a Hyprland failure still leaves pid and exe on the line.
+    inode = _inode_for_port(peer_port)
+    pid = _pid_for_inode(inode) if inode is not None else None
+    if pid is not None:
+        attr["pid"] = pid
+        attr["exe"] = _exe_of(pid)
     clients = hypr.clients_cached()
     if clients is None:
         _log_limited("clients", "hyprctl clients unavailable; banner shown")
         return
-    inode = _inode_for_port(peer_port)
-    if inode is None:
-        return
-    pid = _pid_for_inode(inode)
     if pid is None:
         return
-    attr["pid"] = pid
-    attr["exe"] = _exe_of(pid)
     owner = _walk_to_hypr_owner(pid, clients)
     if owner is None:
         return
     owner_clients = _pid_clients(owner, clients)
     if not owner_clients:
         return
-    first = owner_clients[0]
-    attr["klass"] = first.get("class")
-    ws = first.get("workspace")
-    attr["ws"] = ws.get("name") if isinstance(ws, dict) else None
-    on_space = all(
-        isinstance(c.get("workspace"), dict) and c["workspace"].get("name") == hypr.SPACE
-        for c in owner_clients
-    )
-    if on_space:
+    _record_client(attr, owner_clients[0])
+    if all(_client_on_space(c) for c in owner_clients):
         attr["reason"] = "on-space"
         return
     if entry is None:
         return
-    if not any(hypr._class_matches(entry, c.get("class") or "") for c in owner_clients):
+    matching = [c for c in owner_clients if hypr._class_matches(entry, c.get("class") or "")]
+    if not matching:
         return
     if hypr.entry_clients_on_space(entry, clients):
         attr["reason"] = "entry-on-space"
+        # The line names the client that justified the decision, not whichever came first.
+        _record_client(attr, next((c for c in matching if _client_on_space(c)), matching[0]))
 
 
 def _provenance(host, entry, peer_port, decision, attr=None):
     """Append one banner-decision line to the state log, at most PROVENANCE_PER_MIN per host per minute."""
     host_s = _field(host)
+    key = host_s.lower()  # hostnames are case-insensitive; the limit is per host, not per spelling
     now = time.monotonic()
     with _banner_lock:
-        rec = _prov_at.get(host_s)
+        rec = _prov_at.get(key)
         if rec is None or now - rec[0] >= _PROVENANCE_WINDOW_S:
             rec = [now, 0, rec[2] if rec is not None else 0]
-            _prov_at[host_s] = rec
+            _prov_at[key] = rec
         if rec[1] >= PROVENANCE_PER_MIN:
             rec[2] += 1
             return

@@ -1147,6 +1147,62 @@ class FeedbackTests(unittest.TestCase):
             f"exe=- class={x_class} ws=distraction decision=entry-on-space",
         )
 
+    def test_r1_provenance_keeps_pid_when_hyprctl_fails(self):
+        os.environ["DS_HYPR_FAIL"] = "clients"
+        hypr._reset_for_tests()
+        hypr.apply_rules([expand_entry("X")])
+        uid = os.getuid()
+        port, inode, pid = 40530, 14010, 4300
+        _write_proc(self.proc_root, tcp_rows=[(port, inode, uid)], fds={pid: [inode]}, ppid={pid: 1})
+        feedback._maybe_banner("x.com", peer_port=port)
+        self.assertEqual(len(self._banners()), 1)
+        lines = self._prov_lines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(
+            lines[0].split(" ", 1)[1],
+            f"banner: host=x.com entry=X port={port} pid={pid} exe=- class=- ws=- decision=unattributed",
+        )
+
+    def test_r1_provenance_entry_on_space_names_the_justifying_client(self):
+        hypr.apply_rules([expand_entry("X")])
+        uid = os.getuid()
+        helper, browser = 4201, 4200
+        port, inode = 40521, 14004
+        x_class = "chrome-x.com__-Default"
+        _write_proc(
+            self.proc_root,
+            tcp_rows=[(port, inode, uid)],
+            fds={helper: [inode]},
+            ppid={helper: browser, browser: 1},
+        )
+        # The off-space window comes first; the line must still name the X window on the space.
+        self._hypr_clients(
+            [
+                self._client("0xb", "google-chrome", "1", pid=browser),
+                self._client("0xa", x_class, hypr.SPACE, pid=browser),
+            ]
+        )
+        feedback._maybe_banner("api.x.com", peer_port=port)
+        self.assertEqual(self._banners(), [])
+        lines = self._prov_lines()
+        self.assertEqual(len(lines), 1)
+        self.assertIn(f"class={x_class} ws=distraction decision=entry-on-space", lines[0])
+
+    def test_r2_provenance_rate_limit_ignores_hostname_case(self):
+        self._start()
+        clock = _Clock(3000.0)
+        with patch("ds.feedback.time.monotonic", clock):
+            for i in range(22):
+                sni = "Mixed.Example" if i % 2 else "mixed.example"
+                _exchange("127.0.0.1", TLS_PORT, make_client_hello(sni), timeout=2.0)
+            lines = [line.split(" ", 1)[1] for line in self._prov_lines()]
+            self.assertEqual(len(lines), 20)
+            clock.t = 3061.0
+            _exchange("127.0.0.1", TLS_PORT, make_client_hello("MIXED.example"), timeout=2.0)
+            lines = [line.split(" ", 1)[1] for line in self._prov_lines()]
+            self.assertEqual(len(lines), 21)
+            self.assertTrue(lines[-1].endswith("decision=unattributed dropped=2"), lines[-1])
+
     def test_r1_provenance_unattributed_lines(self):
         uid = os.getuid()
 
