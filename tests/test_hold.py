@@ -239,6 +239,7 @@ class HoldListenerTests(unittest.TestCase):
             self.box.fake_bin(name, src)
         cfg = json.loads(json.dumps(DEFAULTS))
         cfg["list"], cfg["nudges"] = LIST, {"app_banner": False, "block_page": False}
+        cfg["summary"]["command"] = "off"  # the summary is test_summary's; `auto` would reach a real agent CLI
         self.box.config_file.write_text(json.dumps(cfg), encoding="utf-8")
         self._workspace("1", 1)
         self.proc = None
@@ -323,9 +324,11 @@ class HoldListenerTests(unittest.TestCase):
         self.assertTrue(_wait(lambda: self._silenced() == ["hand added"], 5), self._silenced())
         self.assertTrue(_wait(lambda: self._state().get("hold") is False, 3), self._state())
         self.assertEqual(self._state().get("notification_hold"), "off")
+        # Entering the space hands the two records to the summary; a ping on the space is not recorded.
+        self.assertTrue(_wait(lambda: self._state().get("held") == {}, 3), self._state())
         self._emit(notify_line("Telegram Desktop", "telegram", "Alice", "on space"))
         time.sleep(0.4)
-        self.assertEqual(len(self._held()), 2)
+        self.assertEqual(len(self._held()), 0)
         self._go("2", 2)
         self.assertTrue(_wait(lambda: self._silenced() == ["hand added", *KEYS], 5), self._silenced())
         self._stop()

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import copy
 import fcntl
+import json
 import os
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from ds import config, hypr, state, ui
+from ds import config, hold, hypr, state, ui
 from ds.config import DEFAULTS
 
 _alive = []
@@ -61,21 +62,23 @@ def unlock(reason):
 
     def _do():
         if not is_locked():
-            return ("noop", None)
+            return ("noop", None, None)
         n = _reason_min()
         if n and len(reason) < n:
-            return ("short", n)
+            return ("short", n, None)
         purpose = state.read_lock().get("purpose") or ""
         try:
             _append_log(
                 f"{state.now_iso()} unlock purpose={_one_line(purpose)} reason={_one_line(reason)}"
             )
         except OSError:
-            return ("log", None)
+            return ("log", None, None)
+        # Counted before the write: the listener consumes the records once it sees the lock end.
+        held = hold.held_counts()
         state.write_lock(False, None, "")
-        return ("ok", purpose)
+        return ("ok", purpose, held)
 
-    kind, extra = _with_lockfile(_do)
+    kind, extra, held = _with_lockfile(_do)
     if kind == "short":
         _notify("Reason too short", f"Write at least {extra} characters.")
         print(f"unlock needs at least {extra} characters", file=sys.stderr)
@@ -89,7 +92,7 @@ def unlock(reason):
             "DS_PURPOSE": extra,
             "DS_MINUTES": "",
             "DS_REASON": reason,
-            "DS_HELD": "{}",
+            "DS_HELD": json.dumps(held),
         })
     return 0
 

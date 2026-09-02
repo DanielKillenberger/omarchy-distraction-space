@@ -1,6 +1,7 @@
 """Event listener: socket2, network, feedback, lock tick, notification hold, reload, state."""
 
 import fcntl
+import json
 import os
 import re
 import select
@@ -10,7 +11,7 @@ import threading
 import time
 from pathlib import Path
 
-from ds import catalog, config, feedback, hold, hypr, lock, net, setup, state, ui
+from ds import catalog, config, feedback, hold, hypr, lock, net, setup, state, summary, ui
 
 TICK, PERIOD, _APPLY = 1.0, 30.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
 CLIENT_CAP = 256
@@ -179,7 +180,7 @@ class _Ctx:
         self.pending, self.lock, self.wake_w = None, threading.Lock(), None
         self.clients = []
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
-        self.capture, self.mute = hold.Capture(), hold.Mute()
+        self.capture, self.mute, self.locked = hold.Capture(), hold.Mute(), None
     def _note_invalid(self):
         if not self.noted:
             ui.notify("Invalid config", "Using the last saved expansion.")
@@ -208,6 +209,14 @@ class _Ctx:
     def release_hold(self):
         if self.pushed:
             hold.push(self.pushed, False)
+    def summarize(self):
+        """A hold boundary (a lock ended, the space was entered): consume the held records and start the notice.
+
+        Returns the per-app counts for the hook that marks the same boundary.
+        """
+        records = summary.take()
+        summary.start(records, self.cfg)
+        return summary.counts(records)
     def boot(self, reason):
         cfg = _read_cfg()
         if cfg is None:
@@ -228,6 +237,8 @@ class _Ctx:
             here = hypr.on_space()
             if here is not None and self.prev is None:
                 self.prev = here
+        if self.locked is None:
+            self.locked = lock.is_locked()
         self.sync_hold(force=True)
         if self.prev is True:
             self.flush(reason)
@@ -341,11 +352,17 @@ class _Ctx:
             self.space("workspace", name)
     def tick(self):
         raw = state.read_json(state.state_path("lock.json"), None)
-        if lock.expire_if_due():
+        locked = lock.is_locked()
+        expired = lock.expire_if_due()
+        # A lock ends by expiry (observed here, the listener runs the hook) or by
+        # `distractions unlock` (the command ran the hook); the notice is ours both ways.
+        held = self.summarize() if expired or (self.locked is True and not locked) else None
+        if expired:
             purpose = raw.get("purpose") if isinstance(raw, dict) else ""
             ui.notify("Lock ended", purpose or "")
-            lock.run_hook("unlock", _env("unlock", purpose or ""))
+            lock.run_hook("unlock", _env("unlock", purpose or "", held))
             self.write_state(True)
+        self.locked = locked
         self.space("tick")
         self.capture.tick()
         self.mute.tick()
@@ -364,7 +381,7 @@ class _Ctx:
             self.write_state()
             return
         if here is True and prev is not True:
-            lock.run_hook("enter", _env("enter"))
+            lock.run_hook("enter", _env("enter", held=self.summarize()))
             self.flush()
         elif here is False and prev is True:
             lock.run_hook("leave", _env("leave"))
@@ -440,10 +457,10 @@ def _hosts(exp):
                 out.append(host)
     return out
 
-def _env(event, purpose=None):
+def _env(event, purpose=None, held=None):
     lk = state.read_lock()
     return {"DS_EVENT": event, "DS_PURPOSE": purpose if purpose is not None else (lk.get("purpose") or ""),
-            "DS_MINUTES": "", "DS_REASON": "", "DS_HELD": "{}"}
+            "DS_MINUTES": "", "DS_REASON": "", "DS_HELD": json.dumps(held or {})}
 
 def _scan(entries):
     try:
