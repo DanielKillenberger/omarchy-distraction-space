@@ -5,7 +5,7 @@
   "version": "2.0.0",
   "author": "Daniel Killenberger",
   "license": "MIT",
-  "description": "One named Hyprland workspace for listed apps and sites. Listed windows open only there. Listed sites do not load anywhere else. A lock makes the space unreachable.",
+  "description": "One named Hyprland workspace for the apps and sites that take your attention. Listed windows open only there, listed sites do not load anywhere else, and their notifications wait until you come back.",
   "homepage": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "repository": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "kinds": [
