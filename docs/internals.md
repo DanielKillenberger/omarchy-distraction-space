@@ -8,7 +8,7 @@ The [README](../README.md) covers installing and operating the plugin. This page
 
 ## Window containment
 
-`hyprctl keyword` refuses on Omarchy 4's Lua config parser, exiting 0 with the refusal on stdout, so rules go through `hyprctl eval` with `hl.window_rule`. Each expanded class gets one named rule, `omarchy-ds-<slug>-<n>`, and the names go into `rules.json`. The eval snippet keeps the rule handles in a Lua global table, so a later disable or re-apply can reach the exact handle. It disables the old handle under a name before creating the new one, because whether Hyprland replaces or duplicates a rule by name is unverified.
+`hyprctl keyword` refuses on Omarchy 4's Lua config parser, exiting 0 with the refusal on stdout, so rules go through `hyprctl eval` with `hl.window_rule`. Each expanded class gets one named rule, `omarchy-ds-<slug>-<digest>-<n>`, where `<digest>` is the first 8 hex characters of the SHA-1 of the entry name, and the names go into `rules.json`. The eval snippet keeps the rule handles in a Lua global table, so a later disable or re-apply can reach the exact handle. It disables the old handle under a name before creating the new one, because whether Hyprland replaces or duplicates a rule by name is unverified.
 
 Hyprland drops every eval-created rule on a config reload. The listener watches socket2 for `configreloaded` and re-applies the whole set from `rules.json` and the cached expansion. The socket2 `openwindow` and `movewindow` events are the safety net. A listed client found off the space is moved with `hl.dsp.window.move` and `follow = false`, so focus stays where you put it.
 
@@ -26,7 +26,7 @@ The listener re-resolves listed hosts on start, on every workspace change off th
 
 The addresses go to `sudo -n /usr/local/libexec/omarchy-distraction-space/distractions-nft replace ds`, one per line on stdin. That path is the one the sudoers grant names, so the wrapper is the only privileged surface. Entering the space sends `flush ds` instead. The wrapper owns table `inet omarchy_ds` with sets `omarchy_ds_v4` and `omarchy_ds_v6`, a filter output chain that rejects set members (TCP reset for TCP, ICMP unreachable otherwise), and a nat output chain that redirects TCP 80 to 28080 and TCP 443 to 28443.
 
-Port 28080 serves the block page, naming the site from the Host header and adding the lock note while a lock is active. Port 28443 reads the ClientHello, takes the SNI, and closes without writing anything. Both paths fire the off-space banner at most once per catalog entry per 30 seconds, and `ds/feedback.py` suppresses the banner when the fetching window is on the space.
+Port 28080 serves the block page, naming the site from the Host header and adding the lock note while a lock is active. Port 28443 reads the ClientHello, takes the SNI, and closes without writing anything. Only the 28443 path raises the "Blocked on this workspace" banner, because the block page is its own feedback on 80. `_maybe_banner` in `ds/feedback.py` debounces it to once per catalog entry per 30 seconds and drops it when the fetching window is on the space, which it decides from the connection's peer port.
 
 ## Notification-service clone lifecycle
 

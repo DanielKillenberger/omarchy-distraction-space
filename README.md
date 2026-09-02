@@ -2,9 +2,9 @@
 
 One named Hyprland workspace for the apps and sites that take your attention, and a plugin that keeps them there.
 
-![The Omarchy bar with the distraction-space eye glyph and one held notification behind it](preview.png)
+![The Omarchy bar showing the distraction-space eye glyph with one held notification, and the "While you were away" notice summarizing what was held](preview.png)
 
-You list Telegram, X, YouTube, and whatever else pulls you off task. Their windows open on the workspace `name:distraction` and get moved back when they land anywhere else. Their sites stop resolving to a reachable address while you work elsewhere, so the tab you opened out of habit gets a block page instead of the feed. Their notifications and their sounds wait, the bar shows how many are waiting, and when you come back one line from your own agent tells you whether any of them needed you. Lock the space for 25 minutes and it refuses to open until the timer runs out or you type 50 characters saying why you are leaving early.
+You list Telegram, X, YouTube, and whatever else pulls you off task. Their windows open on the workspace `name:distraction` and get moved back when they land anywhere else. Their sites stop resolving to a reachable address while you work elsewhere, so the tab you opened out of habit gets a block page instead of the feed. Their notifications wait while their sounds stay muted, the bar shows how many are waiting, and when you come back one line from your own agent tells you whether any of them needed you. Lock the space for 25 minutes and it refuses to open until the timer runs out or you type 50 characters saying why you are leaving early.
 
 ## Install
 
@@ -42,7 +42,7 @@ Autostart owns the long-running listener. To start it now without logging out:
 
 **Listed sites stop loading off the space.** Every 30 seconds while you are off the space, the listener resolves each listed host and drops the addresses into the nftables sets `omarchy_ds_v4` and `omarchy_ds_v6`. The wrapper rejects traffic to a member address with a TCP reset, redirects port 80 to a block page on 28080 that names the site you tried to reach, and redirects port 443 to 28443, where the plugin reads the SNI from the ClientHello and closes the connection. Entering the space flushes the sets, so the same sites load normally once you are there.
 
-**A banner names what you reached for.** A blocked fetch raises one notification titled "Blocked on this workspace"; a listed window opening off the space raises one that starts with the app's name. Both name Super+Ctrl+Shift+D as the way in, and both fire at most once per catalog entry per 30 seconds. The blocked-fetch banner fires only for fetches from windows outside the space, so a page you left open on the space keeps working without nagging you. `nudges.app_banner` and `nudges.block_page` turn each off.
+**A banner names what you reached for.** A listed window that opens off the space raises one notification starting with the app's name. A blocked HTTPS fetch raises one titled "Blocked on this workspace", built from the host in the SNI. HTTP gets the block page instead of a banner. Both banners name Super+Ctrl+Shift+D as the way in and fire at most once per catalog entry per 30 seconds, and the blocked-fetch one fires only for fetches from windows outside the space, so a page you left open on the space keeps working without nagging you. `nudges.app_banner` turns off the window banner, and `nudges.block_page` turns off the block page and the HTTPS banner together.
 
 **Notifications wait, with a visible count.** While the hold is in effect, the listener pushes each listed app's sender keys into the notification service's per-sender silenced list, one IPC call per key. Those apps write to history and pop no banner. Each held ping goes into `held.jsonl`, the running total shows after the eye glyph in the bar, and the listener removes only the keys it added. `hold_notifications` chooses when the hold applies: `off-space` (the default), `locked`, or `never`.
 
@@ -93,7 +93,7 @@ Two separate things happen to a listed app. Its windows move to the distraction 
 | `list` | the 15 defaults | Catalog name, hostname, `class=<regex>`, or an object with `name` plus `class` or `hosts` |
 | `keep_reachable` | `[]` | Hosts whose addresses stay out of the block, even when a listed site shares one |
 | `nudges.app_banner` | `true` | The banner when a listed app opens off the space |
-| `nudges.block_page` | `true` | The block page on port 80 |
+| `nudges.block_page` | `true` | The block page on port 80, and the banner for a blocked HTTPS fetch |
 | `hold_notifications` | `"off-space"` | When the hold applies: `off-space`, `locked`, or `never` |
 | `mute_sounds` | `true` | Mute listed apps' audio streams during the hold |
 | `lock.default_minutes` | `25` | The duration the lock menu offers first |
@@ -132,13 +132,11 @@ State file shapes, the listener loop, the network generation counter, the clone 
 
 ## Contributing
 
-The test suite is offline and takes about 80 seconds.
-
 ```bash
-python3 -m unittest discover -s tests
+PATH=/usr/bin:$PATH python3 -m unittest discover -s tests
 ```
 
-`tests/harness.py` gives every test its own temporary XDG root and replaces `hyprctl`, `getent`, `busctl`, `pactl`, and the nft wrapper with fakes, so a test run never touches your session, your config, or your firewall. Keep it that way in a pull request.
+239 tests, offline, about 80 seconds. `tests/harness.py` gives every test its own temporary XDG root and puts fake `hyprctl`, `getent`, `busctl`, `pactl`, and nft binaries at the front of `PATH`, so a run never touches your session, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, 20 of the 27 cases in `tests/test_hypr.py` fail here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request.
 
 ## License
 
