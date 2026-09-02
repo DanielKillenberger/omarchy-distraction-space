@@ -337,7 +337,7 @@
     "impl:fn-18-hostname-exact-site-block-pass-unlisted.2": 0
   },
   "spec_path": ".flow/specs/fn-18-hostname-exact-site-block-pass-unlisted.md",
-  "status": "open",
+  "status": "done",
   "title": "Hostname-exact site block: pass unlisted connections through",
   "tracker": {
     "baseHashFlow": null,
@@ -350,5 +350,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T15:18:12.441169Z"
+  "updated_at": "2026-09-02T15:42:25.067372Z"
 }
