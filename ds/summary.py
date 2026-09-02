@@ -17,7 +17,15 @@ TITLE = "While you were away"
 CLIP = 800
 # What is read from the command at most: stdout past this is not a one-liner, stderr past this is not a reason.
 READ_CAP, ERR_CAP = 64 * 1024, 4 * 1024
-AUTO = (["claude", "-p", "--output-format", "text"], ["grok", "-p"])
+# The headless one-shot form of each Omarchy default agent: the prompt on stdin, the answer on stdout.
+AGENTS = {
+    "grok": ["grok", "-p"],
+    "claude": ["claude", "-p", "--output-format", "text"],
+    "codex": ["codex", "exec", "-s", "read-only", "--skip-git-repo-check", "-"],
+    "gemini": ["gemini", "-p"],
+    "opencode": ["opencode", "run"],
+    "copilot": ["copilot", "-p"],
+}
 PROMPT = (
     "The desktop notifications below were held while the person was focused. Each line is one JSON object "
     "with the app, the title, and the body. In one or two plain sentences, in the second person, tell them "
@@ -41,10 +49,36 @@ def settings(cfg) -> dict:
     return {**config.DEFAULTS["summary"], **(raw if isinstance(raw, dict) else {})}
 
 
+def agent_path():
+    """Where `omarchy default agent` records the person's choice."""
+    return config.omarchy_dir() / "defaults" / "agent"
+
+
+def default_agent():
+    """The argv for the Omarchy default agent, or None with one log line saying why the count is shown."""
+    path = agent_path()
+    try:
+        name = path.read_text(encoding="utf-8").strip()
+    except FileNotFoundError:
+        _log(f"no Omarchy default agent chosen ({path}); showing the count")
+        return None
+    except (OSError, UnicodeDecodeError) as e:
+        _log(f"cannot read {path}: {e}; showing the count")
+        return None
+    argv = AGENTS.get(name)
+    if argv is None:
+        _log(f"Omarchy default agent {name!r} has no headless one-shot form; showing the count")
+        return None
+    if not shutil.which(argv[0]):
+        _log(f"Omarchy default agent {name!r} is not on PATH; showing the count")
+        return None
+    return list(argv)
+
+
 def resolve_command(cfg):
     """The argv to ask, or None for the grouped count.
 
-    `auto` takes claude, then grok, whichever PATH has first; `off` never
+    `auto` is the agent chosen with `omarchy default agent`; `off` never
     asks; a custom argv is used as given.
     """
     cmd = settings(cfg).get("command")
@@ -52,10 +86,7 @@ def resolve_command(cfg):
         return list(cmd)
     if cmd != "auto":
         return None
-    for argv in AUTO:
-        if shutil.which(argv[0]):
-            return list(argv)
-    return None
+    return default_agent()
 
 
 def take() -> list:

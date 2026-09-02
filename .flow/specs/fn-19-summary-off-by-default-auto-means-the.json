@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-19-summary-off-by-default-auto-means-the",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-02T15:59:03.598729Z",
   "created_at": "2026-09-02T14:35:25.158330Z",
   "default_impl": null,
   "default_review": null,
@@ -10,12 +10,110 @@
     "fn-18-hostname-exact-site-block-pass-unlisted"
   ],
   "id": "fn-19-summary-off-by-default-auto-means-the",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-19-summary-off-by-default-auto-means-the.1": 0
+  },
   "next_task": 1,
   "no_plan": true,
   "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "569dbdb6109c6d74a945ba9fd290f2e494d8bef997abe0674e8c080473b3bc2d",
+      "backend": "cursor",
+      "base_sha": "5995bd4a0c661097d0bf06887d7ca9d525cf6e64",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-cc9c94b1a44cccfcb8ff1ba1075eb467",
+            "classification": "introduced",
+            "findingId": "finding-cc9c94b1a44cccfcb8ff1ba1075eb467",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "8c5bc594c02b30d2b6078c61d8ce9793709e85ba",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 980,
+      "output_sha256": "d3df4749242c96611480e75ea80f01747f3ba9ac736fd1f9301d27fd5159f7c1",
+      "reservation_id": "4c05b17fbb4e41e2b6375096894dbc48",
+      "round_consumed": true,
+      "scope": "impl:fn-19-summary-off-by-default-auto-means-the.1",
+      "superseded_by": null,
+      "task": "fn-19-summary-off-by-default-auto-means-the.1",
+      "timestamp": "2026-09-02T15:55:45.041584Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "e45828e953f61f3f24c99eddbbc6c389b4afe39e18440ec21dcdc47f72f81f11",
+      "backend": "cursor",
+      "base_sha": "5995bd4a0c661097d0bf06887d7ca9d525cf6e64",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-cc9c94b1a44cccfcb8ff1ba1075eb467",
+            "classification": "introduced",
+            "findingId": "finding-cc9c94b1a44cccfcb8ff1ba1075eb467",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "151ac955ffd76afadc07799d2fc22ccd3d495009",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 578,
+      "output_sha256": "4f81564c56bd6a3dbb436198a95d23255e094c9df5bcbb749972b72213b47a48",
+      "reservation_id": "d310f2b0da8549569012c28fe487a51f",
+      "round_consumed": true,
+      "scope": "impl:fn-19-summary-off-by-default-auto-means-the.1",
+      "superseded_by": null,
+      "task": "fn-19-summary-off-by-default-auto-means-the.1",
+      "timestamp": "2026-09-02T15:57:11.689971Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-19-summary-off-by-default-auto-means-the.1": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-19-summary-off-by-default-auto-means-the.1": 0
+  },
   "spec_path": ".flow/specs/fn-19-summary-off-by-default-auto-means-the.md",
   "status": "open",
   "title": "Summary off by default; auto means the Omarchy default agent",
@@ -30,5 +128,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T14:35:26.662843Z"
+  "updated_at": "2026-09-02T15:59:03.598741Z"
 }

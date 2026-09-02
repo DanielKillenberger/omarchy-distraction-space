@@ -46,7 +46,7 @@ Autostart owns the long-running listener. To start it now without logging out:
 
 **Notifications wait, with a visible count.** While the hold is in effect, the listener pushes each listed app's sender keys into the notification service's per-sender silenced list, one IPC call per key. Those apps write to history and pop no banner. Each held ping goes into `held.jsonl`, the running total shows after the eye glyph in the bar, and the listener removes only the keys it added. `hold_notifications` chooses when the hold applies: `off-space` (the default), `locked`, or `never`.
 
-**One line when you come back.** Entering the space or ending a lock shows a single notification titled "While you were away". Its body comes from `claude -p`, or `grok -p`, or a per-app count when neither is on PATH, within `summary.timeout_seconds` (60 by default). A `claude -p` reply took about 7 seconds when this was measured. Zero held notifications show nothing at all.
+**One line when you come back.** Entering the space or ending a lock shows a single notification titled "While you were away". By default its body is the per-app count, and nothing you were sent leaves the machine. Set `summary.command` to `auto` and the body comes from the agent you chose with `omarchy default agent` (`~/.config/omarchy/defaults/agent`), run once with the held records on stdin: `grok -p`, `claude -p --output-format text`, `codex exec -s read-only --skip-git-repo-check -`, `gemini -p`, `opencode run`, or `copilot -p`. pi, omp, and crush have no such one-shot form, so they, no chosen agent, and an agent missing from PATH show the count and write one line to the log. The agent gets `summary.timeout_seconds` (60 by default) before the count takes over; a `claude -p` reply took about 7 seconds when this was measured. Zero held notifications show nothing at all.
 
 **Sounds of listed apps mute.** With `mute_sounds` on, the listener mutes the PulseAudio streams of listed apps for the length of the hold, matching the catalog's audio identity against `application.name` and `application.process.binary`. It records what it muted as sink-input index plus `pid:starttime`, and unmutes only a stream whose identity still matches, so a stream you muted yourself stays muted.
 
@@ -101,7 +101,7 @@ Two separate things happen to a listed app. Its windows move to the distraction 
 | `lock.default_minutes` | `25` | The duration the lock menu offers first |
 | `lock.ask_purpose` | `true` | Ask what the locked time is for |
 | `lock.reason_min_chars` | `50` | Characters required to unlock early; `0` unlocks with no prompt |
-| `summary.command` | `"auto"` | `auto`, `off`, or an argv array that reads the held records on stdin |
+| `summary.command` | `"off"` | `off`, `auto` (the agent from `omarchy default agent`), or an argv array that reads the held records on stdin |
 | `summary.timeout_seconds` | `60` | How long that command gets before the per-app count takes over |
 | `hooks.lock` / `unlock` / `enter` / `leave` | `[]` | Argv arrays run detached with `DS_EVENT`, `DS_PURPOSE`, `DS_MINUTES`, `DS_REASON`, `DS_HELD` |
 | `log` | `~/.local/state/omarchy/distraction-space/log` | Where lock reasons, hook output, and network batches go |
