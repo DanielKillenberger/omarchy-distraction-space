@@ -10,6 +10,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
@@ -124,6 +125,7 @@ class HoldUnitTests(unittest.TestCase):
         self.assertEqual(table["web.telegram.org"], "Telegram")
         self.assertEqual(table["example.com"], "example.com")
         self.assertEqual(table["foo.org"], "Foo")
+        self.assertEqual(hold.sender_keys(catalog.expand({"list": ["X", "Facebook"]})), ["x.com", "facebook.com"])
 
     def test_effective_hold_table(self):
         cases = [
@@ -151,6 +153,20 @@ class HoldUnitTests(unittest.TestCase):
         os.environ["DS_SHELL_MISSING"] = "1"
         self.assertEqual(hold.push(KEYS, True), "unavailable")
         self.assertEqual(self._calls(), ["notifications silencedSenders"])
+        with mock.patch.object(hold.subprocess, "run", side_effect=PermissionError("denied")):
+            self.assertEqual(hold.push(KEYS, True), "unavailable")
+
+    def test_capture_start_failure_backs_off_instead_of_raising(self):
+        cap = hold.Capture()
+        with mock.patch.object(hold.subprocess, "Popen", side_effect=PermissionError("denied")):
+            cap.tick(now=100.0)
+            self.assertIsNone(cap.proc)
+            self.assertFalse(cap.missing)
+            self.assertEqual(cap.next_start, 101.0)
+            cap.tick(now=100.5)
+            cap.tick(now=101.0)
+        self.assertIsNone(cap.proc)
+        self.assertEqual(cap.next_start, 105.0)
 
     def test_attribute_native_chromium_and_unmatched(self):
         table = hold.key_table(catalog.expand({"list": LIST}))

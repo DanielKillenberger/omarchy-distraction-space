@@ -39,7 +39,8 @@ def normalize(value) -> str:
     return key[4:] if key.startswith("www.") else key
 
 
-def _entry_keys(entry):
+def _entry_keys(entry, products):
+    """Catalog senders and the PWA host; a plain or custom hostname entry adds its hosts."""
     if not isinstance(entry, dict):
         return []
     raw = [s for s in entry.get("senders") or [] if isinstance(s, str)]
@@ -49,15 +50,16 @@ def _entry_keys(entry):
             host = _UNESCAPE.sub(r"\1", m.group(1))
             if catalog.is_hostname(host):
                 raw.append(host)
-    raw.extend(h for h in entry.get("hosts") or [] if isinstance(h, str))
+    if entry.get("name") not in products:
+        raw.extend(h for h in entry.get("hosts") or [] if isinstance(h, str))
     return raw
 
 
 def key_table(expanded) -> dict:
     """Normalized sender key to the list entry's name; the first entry naming a key keeps it."""
-    table = {}
+    table, products = {}, catalog.load_catalog()
     for entry in expanded or []:
-        for raw in _entry_keys(entry):
+        for raw in _entry_keys(entry, products):
             key = normalize(raw)
             if key and key not in table:
                 table[key] = entry.get("name") or key
@@ -65,7 +67,7 @@ def key_table(expanded) -> dict:
 
 
 def sender_keys(expanded) -> list:
-    """The keys the listener pushes: catalog senders, PWA hosts, and plain hosts, in list order."""
+    """The keys the listener pushes: catalog senders and PWA hosts, plain entries' hosts, in list order."""
     return list(key_table(expanded))
 
 
@@ -82,10 +84,10 @@ def _shell(*args):
             ["omarchy-shell", "notifications", *args],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=IPC_TIMEOUT,
         )
-    except FileNotFoundError:
-        return None, "omarchy-shell missing"
     except subprocess.TimeoutExpired:
         return None, "omarchy-shell timed out"
+    except OSError as e:
+        return None, f"omarchy-shell: {e}"
     out = (proc.stdout or "").strip()
     if proc.returncode != 0:
         return None, (proc.stderr or "").strip() or out or f"exit {proc.returncode}"
@@ -227,23 +229,29 @@ class Capture:
             rc = self.proc.returncode
             self.proc.stdout.close()
             self.proc, self.buf = None, b""
-            delay = BACKOFF[min(self.exits, len(BACKOFF) - 1)]
-            self.exits += 1
-            self.next_start = now + delay
-            _log(f"busctl exited with {rc}; restarting in {delay:g}s")
+            self._backoff(now, f"busctl exited with {rc}")
         if self.proc is None and not self.missing and now >= self.next_start:
-            self._start()
+            self._start(now)
 
-    def _start(self):
+    def _backoff(self, now, why):
+        delay = BACKOFF[min(self.exits, len(BACKOFF) - 1)]
+        self.exits += 1
+        self.next_start = now + delay
+        _log(f"{why}; restarting in {delay:g}s")
+
+    def _start(self, now):
         try:
             self.proc = subprocess.Popen(
                 BUSCTL, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
             )
+            os.set_blocking(self.proc.stdout.fileno(), False)
         except FileNotFoundError:
             self.missing = True
             _log("busctl missing; notification capture is off")
-            return
-        os.set_blocking(self.proc.stdout.fileno(), False)
+        except OSError as e:
+            if self.proc is not None:
+                self.stop()
+            self._backoff(now, f"busctl failed to start ({e})")
 
     def pump(self, active, table) -> int:
         """Read what busctl has; while `active`, record every Notify the table attributes."""
