@@ -320,7 +320,7 @@ class UiTests(unittest.TestCase):
         self.assertFalse(cfg["mute_sounds"])
         self.assertFalse(cfg["lock"]["ask_purpose"])
         self.assertEqual(cfg["hold_notifications"], "locked")
-        self.assertEqual(cfg["summary"]["command"], "off")
+        self.assertEqual(cfg["summary"]["command"], "auto")
         self.assertEqual(cfg["lock"]["default_minutes"], 40)
         self.assertEqual(cfg["lock"]["reason_min_chars"], 10)
         self.assertEqual(cfg["summary"]["timeout_seconds"], 90)
