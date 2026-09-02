@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -48,7 +50,13 @@ if args[:1] == ["-j"] and len(args) >= 2:
         print(json.dumps(data.get("workspaces") or []))
         sys.exit(0)
     sys.exit(1)
-if args[:1] in (["keyword"], ["dispatch"]):
+if args[:1] == ["keyword"]:
+    print("keyword can't work with non-legacy parsers. Use eval.")
+    sys.exit(1)
+if args[:1] == ["eval"] and (len(args) < 2 or args[1].startswith("-")):
+    sys.stderr.write("usage: hyprctl [flags] <command> [args...|--help]\n")
+    sys.exit(1)
+if args[:1] in (["eval"], ["dispatch"]):
     sys.exit(0)
 sys.exit(1)
 """
@@ -65,6 +73,8 @@ if os.environ.get("DS_NOTIFY_FAIL"):
     sys.stderr.write("notify refused\n")
     sys.exit(1)
 """
+
+LUA = shutil.which("lua5.4") or shutil.which("lua") or shutil.which("luajit")
 
 TELEGRAM = expand_entry("Telegram")
 PWA_CLASS = pwa_class("web.telegram.org")
@@ -138,12 +148,13 @@ class HyprTests(unittest.TestCase):
         expected, _ = hypr._rule_names([TELEGRAM])
         joined = "\n".join(self._joined())
         self.assertEqual(len(expected), 2)
-        self.assertIn(f"windowrule[{expected[0]}]", joined)
-        self.assertIn(f"windowrule[{expected[1]}]", joined)
-        self.assertIn(f"match:class {NATIVE}", joined)
-        self.assertIn(f"match:class {PWA_CLASS}", joined)
-        self.assertIn(f"workspace name:{hypr.SPACE} silent", joined)
-        self.assertIn("enable true", joined)
+        self.assertIn(f"name = {hypr.lua_string(expected[0])}", joined)
+        self.assertIn(f"name = {hypr.lua_string(expected[1])}", joined)
+        self.assertIn(f"class = {hypr.lua_string(NATIVE)}", joined)
+        self.assertIn(f"class = {hypr.lua_string(PWA_CLASS)}", joined)
+        self.assertIn(f'workspace = "name:{hypr.SPACE} silent"', joined)
+        self.assertIn("hl.window_rule(", joined)
+        self.assertEqual([c[0] for c in self._hypr_cmds() if c[0] != "-j"], ["eval", "eval"])
         names = state.read_json(state.state_path("rules.json"), [])
         self.assertEqual(set(names), set(expected))
 
@@ -156,8 +167,8 @@ class HyprTests(unittest.TestCase):
         self.hypr_log.write_text("", encoding="utf-8")
         hypr.apply_rules(_entries("Telegram"))
         joined = "\n".join(self._joined())
-        self.assertIn(f"windowrule[{discord_names[0]}]:enable false", joined)
-        self.assertNotIn(f"windowrule[{telegram_names[0]}]:enable false", joined)
+        self.assertIn(f"omarchy-ds disable {discord_names[0]}", joined)
+        self.assertNotIn(f"omarchy-ds disable {telegram_names[0]}", joined)
         after = set(state.read_json(state.state_path("rules.json"), []))
         self.assertEqual(after, set(telegram_names))
         self.assertFalse(set(discord_names) & after)
@@ -239,11 +250,11 @@ class HyprTests(unittest.TestCase):
         self.assertIn("hyprctl", log)
         self.assertTrue(any("lives in the distraction space" in " ".join(a) for a in self._notifies()))
 
-        os.environ["DS_HYPR_FAIL"] = "windowrule"
+        os.environ["DS_HYPR_FAIL"] = "-- omarchy-ds "  # both the set and the disable fragments
         self.hypr_log.write_text("", encoding="utf-8")
         hypr.apply_rules(_entries("Discord"))
         log = state.state_path("log").read_text(encoding="utf-8")
-        self.assertIn("windowrule", log)
+        self.assertIn("omarchy-ds set", log)
         names = set(state.read_json(state.state_path("rules.json"), []))
         discord_names, _ = hypr._rule_names(_entries("Discord"))
         telegram_names, _ = hypr._rule_names([TELEGRAM])
@@ -305,24 +316,115 @@ class HyprTests(unittest.TestCase):
         discord_names, _ = hypr._rule_names(_entries("Discord"))
         telegram_names, _ = hypr._rule_names(_entries("Telegram"))
         self.hypr_log.write_text("", encoding="utf-8")
-        os.environ["DS_HYPR_FAIL"] = "enable false"
+        os.environ["DS_HYPR_FAIL"] = "omarchy-ds disable"
         hypr.apply_rules(_entries("Telegram"))
         recorded = set(state.read_json(state.state_path("rules.json"), []))
         self.assertTrue(set(discord_names) <= recorded)
         self.assertTrue(set(telegram_names) <= recorded)
         joined = "\n".join(self._joined())
-        self.assertIn(f"windowrule[{discord_names[0]}]:enable false", joined)
+        self.assertIn(f"omarchy-ds disable {discord_names[0]}", joined)
         log = state.state_path("log").read_text(encoding="utf-8")
-        self.assertIn("enable false", log)
+        self.assertIn("omarchy-ds disable", log)
 
         os.environ.pop("DS_HYPR_FAIL", None)
         self.hypr_log.write_text("", encoding="utf-8")
         hypr.apply_rules(_entries("Telegram"))
         retried = "\n".join(self._joined())
-        self.assertIn(f"windowrule[{discord_names[0]}]:enable false", retried)
+        self.assertIn(f"omarchy-ds disable {discord_names[0]}", retried)
         after = set(state.read_json(state.state_path("rules.json"), []))
         self.assertEqual(after, set(telegram_names))
         self.assertFalse(set(discord_names) & after)
+
+    def test_keyword_is_never_used_for_rules(self):
+        hypr.apply_rules(_entries("Telegram", "Discord"))
+        hypr.apply_rules(_entries("Telegram"))
+        verbs = {c[0] for c in self._hypr_cmds()}
+        self.assertNotIn("keyword", verbs)
+        self.assertIn("eval", verbs)
+        self.assertFalse(state.state_path("log").exists(), "the eval double accepted every fragment")
+
+    def test_keyword_double_refuses_like_the_lua_parser(self):
+        r = hypr._run("keyword", "windowrule[x]:enable false")
+        self.assertIsNone(r)
+        self.assertIn("non-legacy parsers", state.state_path("log").read_text(encoding="utf-8"))
+
+    def test_is_config_reload(self):
+        self.assertTrue(hypr.is_config_reload("configreloaded>>"))
+        self.assertTrue(hypr.is_config_reload(">>configreloaded>>"))
+        self.assertFalse(hypr.is_config_reload("openwindow>>0xaaa,1,c,t"))
+        self.assertFalse(hypr.is_config_reload("configreloadedx>>"))
+        self.assertFalse(hypr.is_config_reload(""))
+        self.assertFalse(hypr.is_config_reload(None))
+
+    @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
+    def test_lua_string_round_trips_through_lua(self):
+        cases = [
+            NATIVE,
+            PWA_CLASS,
+            r"^chrome-discord\.com__.*$",
+            'quote"inside',
+            "apos'trophe",
+            "long]]bracket",
+            "new\nline\ttab",
+            "ctl\x019\x7f",
+            "back\\slash\\",
+        ]
+        for value in cases:
+            with self.subTest(value=value):
+                proc = subprocess.run([LUA, "-e", f"io.write({hypr.lua_string(value)})"], capture_output=True)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout.decode("utf-8"), value)
+
+    def _run_lua(self, *fragments, fail_create=False):
+        harness = self.box.runtime / "harness.lua"
+        harness.write_text(
+            "hl = {}\n"
+            f"local fail_create = {'true' if fail_create else 'false'}\n"
+            "hl.window_rule = function(spec)\n"
+            "  if fail_create then error('window_rule refused') end\n"
+            "  local h = { enabled = true }\n"
+            "  function h:set_enabled(v) self.enabled = v; io.write('set_enabled ', spec.name, ' ', tostring(v), '\\n') end\n"
+            "  io.write('create ', spec.name, ' ', spec.match.class, ' ', spec.workspace, '\\n')\n"
+            "  return h\n"
+            "end\n"
+            "for i = 1, #arg do dofile(arg[i]) end\n",
+            encoding="utf-8",
+        )
+        paths = []
+        for i, fragment in enumerate(fragments):
+            path = self.box.runtime / f"fragment{i}.lua"
+            path.write_text(fragment, encoding="utf-8")
+            paths.append(str(path))
+        return subprocess.run([LUA, str(harness), *paths], capture_output=True, text=True)
+
+    @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
+    def test_lua_fragments_disable_old_handle_and_noop_when_missing(self):
+        name = "omarchy-ds-telegram-0"
+        ws = hypr.WORKSPACE_EFFECT
+        proc = self._run_lua(
+            hypr.disable_rule_lua(name),
+            hypr.set_rule_lua(name, NATIVE),
+            hypr.set_rule_lua(name, r"^org\.telegram\..*$"),
+            hypr.disable_rule_lua(name),
+            hypr.disable_rule_lua(name),
+            hypr.disable_rule_lua("omarchy-ds-never"),
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(
+            proc.stdout.splitlines(),
+            [
+                f"create {name} {NATIVE} {ws}",
+                f"set_enabled {name} false",
+                f"create {name} ^org\\.telegram\\..*$ {ws}",
+                f"set_enabled {name} false",
+            ],
+        )
+
+    @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
+    def test_lua_fragment_create_error_is_not_swallowed(self):
+        proc = self._run_lua(hypr.set_rule_lua("omarchy-ds-telegram-0", NATIVE), fail_create=True)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("window_rule refused", proc.stderr)
 
     def test_slug_collision_gets_distinct_rule_names(self):
         entries = [
@@ -335,10 +437,10 @@ class HyprTests(unittest.TestCase):
         self.assertEqual(len(names), 2)
         self.assertEqual(len(set(names)), 2)
         joined = "\n".join(self._joined())
-        self.assertIn("match:class FooBarClass", joined)
-        self.assertIn("match:class FooDashClass", joined)
-        self.assertIn(f"windowrule[{names[0]}]", joined)
-        self.assertIn(f"windowrule[{names[1]}]", joined)
+        self.assertIn('class = "FooBarClass"', joined)
+        self.assertIn('class = "FooDashClass"', joined)
+        self.assertIn(f"name = {hypr.lua_string(names[0])}", joined)
+        self.assertIn(f"name = {hypr.lua_string(names[1])}", joined)
 
     def test_unknown_on_space_logs_and_skips_banner(self):
         hypr.apply_rules([TELEGRAM])

@@ -1,6 +1,6 @@
 {
   "branch_name": "fn-11-window-rules-through-hyprctl-eval-on",
-  "completion_review_status": "not_required",
+  "completion_review_status": "unknown",
   "completion_reviewed_at": "2026-09-02T08:36:52.539310Z",
   "created_at": "2026-09-02T08:18:50.460353Z",
   "default_impl": null,
@@ -68,5 +68,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T08:36:52.539320Z"
+  "updated_at": "2026-09-02T08:49:29.200834Z"
 }

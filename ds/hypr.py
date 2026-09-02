@@ -9,6 +9,8 @@ import time
 from ds import state
 
 SPACE = "distraction"
+WORKSPACE_EFFECT = f"name:{SPACE} silent"
+RULE_HANDLES = "_G.omarchy_ds_rules"
 BANNER_S = 30
 GLYPH = "󰈈"
 
@@ -113,6 +115,66 @@ def _rule_names(entries):
     return names, specs
 
 
+def lua_string(value):
+    """Double-quoted Lua literal for any Python string (regex patterns included)."""
+    out = ['"']
+    for ch in value:
+        code = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif code < 32 or code == 127:
+            out.append(f"\\{code:03d}")
+        else:
+            out.append(ch)
+    out.append('"')
+    return "".join(out)
+
+
+def set_rule_lua(name, klass, workspace=WORKSPACE_EFFECT):
+    """Lua for `hyprctl eval`: disable any previous handle under `name`, create the rule, keep the handle.
+
+    `hyprctl keyword` refuses on the Lua config parser (exit 0, message on stdout), so
+    rules go through `hl.window_rule`. Handles live in a Lua global table so a later
+    disable or re-apply can reach them; a create error propagates so eval exits nonzero.
+    """
+    key = lua_string(name)
+    # The first line never starts with "-": hyprctl parses a leading "--" as a flag.
+    return "\n".join(
+        [
+            f"local rules = {RULE_HANDLES} or {{}}  -- omarchy-ds set {name}",
+            f"{RULE_HANDLES} = rules",
+            f"local old = rules[{key}]",
+            "if old ~= nil then pcall(function() old:set_enabled(false) end) end",
+            "local rule = hl.window_rule({ "
+            f"name = {key}, match = {{ class = {lua_string(klass)} }}, workspace = {lua_string(workspace)}"
+            " })",
+            f"rules[{key}] = rule",
+        ]
+    )
+
+
+def disable_rule_lua(name):
+    """Lua for `hyprctl eval`: disable the stored handle for `name`; a missing handle is a no-op."""
+    key = lua_string(name)
+    return "\n".join(
+        [
+            f"local rules = {RULE_HANDLES}  -- omarchy-ds disable {name}",
+            f"local rule = rules and rules[{key}]",
+            f"if rule ~= nil then rules[{key}] = nil; pcall(function() rule:set_enabled(false) end) end",
+        ]
+    )
+
+
+def is_config_reload(line):
+    """True for the socket2 `configreloaded` event, which drops every eval-created rule."""
+    raw = (line or "").strip() if isinstance(line, str) else ""
+    if raw.startswith(">>"):
+        raw = raw[2:]
+    return raw.split(">>", 1)[0] == "configreloaded"
+
+
 def _read_rule_names():
     data = state.read_json(state.state_path("rules.json"), [])
     if isinstance(data, list):
@@ -135,15 +197,13 @@ def apply_rules(expanded):
         return
     old = _read_rule_names()
     for name, klass in specs:
-        _run("keyword", f"windowrule[{name}]:match:class {klass}")
-        _run("keyword", f"windowrule[{name}]:workspace name:{SPACE} silent")
-        _run("keyword", f"windowrule[{name}]:enable true")
+        _run("eval", set_rule_lua(name, klass, WORKSPACE_EFFECT))
     desired = set(names)
     recorded = list(names)
     seen = set(names)
     for name in old:
         if name not in desired:
-            if _run("keyword", f"windowrule[{name}]:enable false") is None:
+            if _run("eval", disable_rule_lua(name)) is None:
                 if name not in seen:
                     recorded.append(name)
                     seen.add(name)
