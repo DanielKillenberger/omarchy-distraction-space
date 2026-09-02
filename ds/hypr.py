@@ -196,10 +196,11 @@ def apply_rules(expanded):
         _log("apply_rules: generated windowrule names collide; skipped")
         return False
     old = _read_rule_names()
+    old_specs = _read_rule_specs()
     created = []
     for name, klass in specs:
         if _run("eval", set_rule_lua(name, klass, WORKSPACE_EFFECT)) is None:
-            _rollback_created(created, old)
+            _rollback_created(created, old_specs)
             _notify("Distraction list", "Window rules could not be updated. Keeping the previous set.")
             return False
         created.append(name)
@@ -212,19 +213,35 @@ def apply_rules(expanded):
                 if name not in seen:
                     recorded.append(name)
                     seen.add(name)
+    new_specs = dict(specs)
+    for name in recorded:
+        if name not in new_specs and name in old_specs:
+            new_specs[name] = old_specs[name]
     state.write_json(state.state_path("rules.json"), recorded)
+    state.write_json(state.state_path("rule-specs.json"), new_specs)
     return True
 
 
-def _rollback_created(created, old):
-    """Undo the rules this batch brought into being; names that already existed stay live.
+def _read_rule_specs():
+    data = state.read_json(state.state_path("rule-specs.json"), {})
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(k, str) and isinstance(v, str) and v}
 
-    A pre-existing name that was re-set keeps its new class (the registry only holds
-    names, so the old class is unknown); the registry is left untouched so the next
-    apply retries the whole set.
+
+def _rollback_created(created, old_specs):
+    """Restore the previous active set after a failed batch.
+
+    Names that existed before are re-set with their recorded class; names this batch
+    brought into being are disabled. Both registries stay untouched so the next apply
+    retries the whole set. A name with no recorded class (registry written before
+    rule-specs.json existed) is disabled.
     """
-    for name in created:
-        if name not in old:
+    for name in reversed(created):
+        prev = old_specs.get(name)
+        if prev is not None:
+            _run("eval", set_rule_lua(name, prev, WORKSPACE_EFFECT))
+        else:
             _run("eval", disable_rule_lua(name))
 
 

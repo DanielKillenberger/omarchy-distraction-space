@@ -279,17 +279,38 @@ class HyprTests(unittest.TestCase):
         self.assertTrue(hypr.apply_rules([TELEGRAM]))
         self.assertEqual(set(state.read_json(state.state_path("rules.json"), [])), set(expected))
 
-    def test_reset_of_existing_name_is_not_rolled_back(self):
-        self.assertTrue(hypr.apply_rules(_entries("Telegram")))
-        telegram_names, _ = hypr._rule_names(_entries("Telegram"))
-        discord_names, _ = hypr._rule_names(_entries("Discord"))
-        os.environ["DS_HYPR_FAIL"] = f"omarchy-ds set {discord_names[0]}"
+    def test_reset_of_existing_name_is_restored_on_failure(self):
+        foo_a = [{"name": "Foo", "classes": ["ClassA"]}]
+        self.assertTrue(hypr.apply_rules(foo_a))
+        foo_name, _ = hypr._rule_names(foo_a)
+        bar_name, _ = hypr._rule_names([{"name": "Bar", "classes": ["ClassC"]}])
+        self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}), {foo_name[0]: "ClassA"})
+        os.environ["DS_HYPR_FAIL"] = f"omarchy-ds set {bar_name[0]}"
         self.hypr_log.write_text("", encoding="utf-8")
-        self.assertFalse(hypr.apply_rules(_entries("Telegram", "Discord")))
+        self.assertFalse(hypr.apply_rules([
+            {"name": "Foo", "classes": ["ClassB"]},
+            {"name": "Bar", "classes": ["ClassC"]},
+        ]))
         joined = self._joined()
-        self.assertFalse(any("omarchy-ds disable" in j for j in joined), "pre-existing names stay live")
-        self.assertEqual(set(state.read_json(state.state_path("rules.json"), [])), set(telegram_names))
+        sets_for_foo = [j for j in joined if f"omarchy-ds set {foo_name[0]}" in j]
+        self.assertEqual(len(sets_for_foo), 2, "re-set to ClassB, then restored")
+        self.assertIn('class = "ClassB"', sets_for_foo[0])
+        self.assertIn('class = "ClassA"', sets_for_foo[1], "previous class re-set on rollback")
+        self.assertFalse(any("omarchy-ds disable" in j for j in joined), "a pre-existing name is never disabled")
+        self.assertEqual(state.read_json(state.state_path("rules.json"), []), foo_name)
+        self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}), {foo_name[0]: "ClassA"})
 
+    def test_pre_existing_name_without_recorded_class_is_disabled_on_rollback(self):
+        foo_a = [{"name": "Foo", "classes": ["ClassA"]}]
+        self.assertTrue(hypr.apply_rules(foo_a))
+        foo_name, _ = hypr._rule_names(foo_a)
+        bar_name, _ = hypr._rule_names([{"name": "Bar", "classes": ["ClassC"]}])
+        state.state_path("rule-specs.json").unlink()  # registry written before specs were kept
+        os.environ["DS_HYPR_FAIL"] = f"omarchy-ds set {bar_name[0]}"
+        self.hypr_log.write_text("", encoding="utf-8")
+        self.assertFalse(hypr.apply_rules([foo_a[0], {"name": "Bar", "classes": ["ClassC"]}]))
+        self.assertTrue(any(f"omarchy-ds disable {foo_name[0]}" in j for j in self._joined()))
+        self.assertEqual(state.read_json(state.state_path("rules.json"), []), foo_name)
     def test_notify_failure_ignored(self):
         hypr.apply_rules([TELEGRAM])
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])
