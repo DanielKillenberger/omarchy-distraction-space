@@ -8,12 +8,52 @@
   "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-12-superctrlshiftd-toggles-the-space-with",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-12-superctrlshiftd-toggles-the-space-with.1": 0
+  },
   "next_task": 1,
   "no_plan": true,
   "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "da60596ad2ec2cefe52c1f1495828fac984d54d2a377ea29323c5c7387e9d3d7",
+      "backend": "cursor",
+      "base_sha": "d1b67f9969c384ae2057e9e244c86ed2f9b698bb",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "fe223348fa1da6f6bec43d07e1a87fb47a8d525f",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1055,
+      "output_sha256": "cae7cdba4c944bb29e863720278e3f1ba19796dfccd17792f16e6103b714176c",
+      "reservation_id": "0d73ba1a44474fddb9a4a00c738a4bca",
+      "round_consumed": true,
+      "scope": "impl:fn-12-superctrlshiftd-toggles-the-space-with.1",
+      "superseded_by": null,
+      "task": "fn-12-superctrlshiftd-toggles-the-space-with.1",
+      "timestamp": "2026-09-02T10:15:55.686826Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-12-superctrlshiftd-toggles-the-space-with.1": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-12-superctrlshiftd-toggles-the-space-with.1": 0
+  },
   "spec_path": ".flow/specs/fn-12-superctrlshiftd-toggles-the-space-with.md",
   "status": "open",
   "title": "Super+Ctrl+Shift+D toggles the space with no confirm",
@@ -28,5 +68,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T09:58:21.094789Z"
+  "updated_at": "2026-09-02T10:15:55.689130Z"
 }
