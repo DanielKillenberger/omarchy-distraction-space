@@ -13,11 +13,13 @@ import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
+from ds import listener
 from ds.config import DEFAULTS
 from ds.state import write_json
 
@@ -842,6 +844,40 @@ class ListenerTests(unittest.TestCase):
         t.join(timeout=2 * bd + 8)
         self.assertFalse(t.is_alive())
         self.assertEqual(got, [b"ok"])
+
+
+class HoldRetryTests(unittest.TestCase):
+    def test_unavailable_retries_once_per_period_with_one_notice(self):
+        clock = [1000.0]
+        push = mock.Mock(side_effect=["unavailable", "unavailable", "on"])
+        notify = mock.Mock()
+        with mock.patch.object(listener.hold, "push", push), \
+             mock.patch.object(listener.hold, "effective_hold", return_value=True), \
+             mock.patch.object(listener.lock, "is_locked", return_value=False), \
+             mock.patch.object(listener.ui, "notify", notify), \
+             mock.patch.object(listener.time, "monotonic", side_effect=lambda: clock[0]):
+            ctx = listener._Ctx()
+            ctx.exp = {"list": []}
+            ctx.mute.sync = mock.Mock()
+            ctx.sync_hold(force=True)
+            self.assertEqual(push.call_count, 1)
+            self.assertEqual(notify.call_count, 1)
+            self.assertEqual(ctx.hold_ipc, "unavailable")
+            clock[0] = 1000.0 + 1.0
+            ctx.sync_hold()
+            self.assertEqual(push.call_count, 1)
+            clock[0] = 1000.0 + listener.PERIOD
+            ctx.sync_hold()
+            self.assertEqual(push.call_count, 2)
+            self.assertEqual(ctx.hold_ipc, "unavailable")
+            self.assertEqual(notify.call_count, 1)
+            clock[0] = 1000.0 + 2 * listener.PERIOD
+            ctx.sync_hold()
+            self.assertEqual(push.call_count, 3)
+            self.assertEqual(ctx.hold_ipc, "on")
+            clock[0] = 1000.0 + 3 * listener.PERIOD
+            ctx.sync_hold()
+            self.assertEqual(push.call_count, 3)
 
 
 if __name__ == "__main__":

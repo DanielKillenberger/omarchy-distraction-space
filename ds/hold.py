@@ -39,7 +39,13 @@ _BARE_ORIGIN = re.compile(r"^\s*(" + _HOST + r"(?:/\S*)?)(?:\s+|$)", re.I)
 
 
 def _log(msg):
-    print(f"hold: {msg}", file=sys.stderr, flush=True)
+    path = state.state_path("log")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"{state.now_iso()} hold: {msg}\n")
+    except OSError:
+        pass
 
 
 def normalize(value) -> str:
