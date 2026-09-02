@@ -30,6 +30,9 @@ gate: unittest full suite 193 OK at 50a5b0a; GREEN_RECEIPT .flow/tmp/green-recei
 stage: impl-review - ran [round 1 NEEDS_WORK (ownership check accepted any JSON record; clone creation not transactional) -> fixed in 50a5b0a -> round 2 SHIP], backend cursor
 memory: bug/data/ownership-record-accepted-any-json-and-2026-09-02 captured
 Follow-ups (not built): none required; the `omarchy-plugin-remove` backup-directory behaviour is bypassed deliberately by removing through the shell IPC plus rmtree.
+
+stage: plan-sync - skipped(config: planSync.enabled != true)
+
 ## Evidence
 - Commits: c33d2d028c1303d90c913448039a6344ee77fcff, 50a5b0aa434b6d76937f96ca1d5e39938825e643
 - Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (193 tests OK at 50a5b0a; baseline 179 OK at 89989ae), PATH=/usr/bin:$PATH python3 -m unittest tests.test_clone tests.test_setup (23 tests OK), bash test/shell.d/notifications-test.sh in a temporary worktree of ~/Projects/omarchy at cd6e991 (145 ok, rc 0, worktree removed), patch -p1 --dry-run against a temp copy of /usr/share/omarchy/shell/plugins/notifications (applies; patched files byte-identical to cd6e991), GREEN_RECEIPT unittest 50a5b0aa
