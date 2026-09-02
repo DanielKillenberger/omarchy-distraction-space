@@ -177,7 +177,7 @@
     "impl:fn-16-readme-pass-for-the-github-page.1": 0
   },
   "spec_path": ".flow/specs/fn-16-readme-pass-for-the-github-page.md",
-  "status": "open",
+  "status": "done",
   "title": "README pass for the GitHub page",
   "tracker": {
     "baseHashFlow": null,
@@ -190,5 +190,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T14:33:46.380104Z"
+  "updated_at": "2026-09-02T14:35:23.151939Z"
 }
