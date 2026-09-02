@@ -10,12 +10,73 @@
     "fn-9-rewrite-one-contained-distraction-space"
   ],
   "id": "fn-10-notification-hold-sound-mute-and-the",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-10-notification-hold-sound-mute-and-the.1": 1
+  },
   "next_task": 1,
   "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "ready": true,
+  "review_attempts": [
+    {
+      "artifact_sha256": "b4d40538a1aa4be56e402e43eaa79d10867c5bf268a28c5195c31c47d1e97023",
+      "backend": "cursor",
+      "base_sha": "89989ae9da0df5a99c07950c795f220380af3758",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-6df66c3468ae5a018e979d810552a2a5",
+            "classification": "introduced",
+            "findingId": "finding-6df66c3468ae5a018e979d810552a2a5",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-e5a67d142459297bc68ae3373239305a",
+            "classification": "introduced",
+            "findingId": "finding-e5a67d142459297bc68ae3373239305a",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "c33d2d028c1303d90c913448039a6344ee77fcff",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1958,
+      "output_sha256": "a7c4757251cd758d99ff2457e71ddc7653d32dce6e33f57a3c196588e3f31071",
+      "reservation_id": "22bb48f0605d48ae9e0393ac7c7ea993",
+      "round_consumed": true,
+      "scope": "impl:fn-10-notification-hold-sound-mute-and-the.1",
+      "superseded_by": null,
+      "task": "fn-10-notification-hold-sound-mute-and-the.1",
+      "timestamp": "2026-09-02T10:46:48.315161Z",
+      "verdict": "NEEDS_WORK"
+    }
+  ],
+  "review_hash_epoch": {},
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-10-notification-hold-sound-mute-and-the.1": 0
+  },
   "spec_path": ".flow/specs/fn-10-notification-hold-sound-mute-and-the.md",
   "status": "open",
   "title": "Notification hold, sound mute, and the agent one-liner",
@@ -30,5 +91,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-01T20:06:58.709191Z"
+  "updated_at": "2026-09-02T10:46:48.317003Z"
 }

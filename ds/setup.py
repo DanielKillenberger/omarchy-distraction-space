@@ -115,8 +115,17 @@ def _record_path() -> Path:
 
 
 def _read_record() -> dict | None:
-    record = state.read_json(_record_path(), None)
-    return record if isinstance(record, dict) else None
+    """The clone record, only when it names this exact clone; anything else is not ours."""
+    record, path = state.read_json(_record_path(), None), clone_dir()
+    if (
+        isinstance(record, dict)
+        and record.get("plugin") == path.name
+        and record.get("path") == str(path)
+        and isinstance(record.get("files"), dict)
+        and isinstance(record.get("patch"), str)
+    ):
+        return record
+    return None
 
 
 def _unlink(path: Path) -> None:
@@ -238,13 +247,28 @@ def sync_clone() -> int:
         return 1
     if proc.returncode != 0 or not path.is_dir():
         _unavailable((proc.stderr or proc.stdout or "omarchy-plugin-clone failed").strip())
+        # The tool can fail after creating and enabling the clone (its closing
+        # notification, say); an unrecorded clone left behind would read as
+        # foreign on the next run, so take it down now.
+        if path.exists() and not _remove_clone(path):
+            _unavailable(f"{path} is left over from the failed clone; remove it by hand and rerun setup")
         return 1
-    if not (_patch(path, dry_run=True) and _patch(path, dry_run=False)):
-        _remove_clone(path)
-        _unavailable("the shipped patch failed inside the clone; the built-in is back")
-        return 1
-    state.write_json(_record_path(), {"plugin": path.name, "path": str(path), "source": str(source), **want})
-    return 0
+    return _finish_clone(path, source, want)
+
+
+def _finish_clone(path: Path, source: Path, want: dict) -> int:
+    """Patch the fresh clone and record it; any failure hands the target back to the built-in."""
+    if _patch(path, dry_run=True) and _patch(path, dry_run=False):
+        try:
+            state.write_json(_record_path(), {"plugin": path.name, "path": str(path), "source": str(source), **want})
+            return 0
+        except OSError as e:
+            print(f"cannot write {_record_path()}: {e}", file=sys.stderr)
+    if _remove_clone(path):
+        _unavailable("the clone could not be completed; the built-in is back")
+    else:
+        _unavailable(f"{path} could not be removed; remove it by hand and rerun setup")
+    return 1
 
 
 def remove_clone() -> int:

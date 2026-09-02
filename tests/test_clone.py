@@ -32,7 +32,8 @@ CLONE = r"""
 import json, os, shutil, subprocess, sys
 from pathlib import Path
 Path(os.environ["DS_SHELL_LOG"]).open("a").write("omarchy-plugin-clone " + " ".join(sys.argv[1:]) + "\n")
-if sys.argv[1:] != ["omarchy.notifications"] or os.environ.get("DS_CLONE_FAIL"):
+fail = os.environ.get("DS_CLONE_FAIL", "")
+if sys.argv[1:] != ["omarchy.notifications"] or fail == "early":
     sys.stderr.write("omarchy-plugin-clone: refused\n")
     sys.exit(1)
 target = Path.home() / ".config" / "omarchy" / "plugins" / (os.environ["USER"] + ".notifications")
@@ -45,6 +46,12 @@ data = json.loads(manifest.read_text(encoding="utf-8"))
 data.update(id=target.name, name="My Notifications", omarchy={"clonedFrom": "omarchy.notifications"})
 manifest.write_text(json.dumps(data), encoding="utf-8")
 subprocess.run(["omarchy-shell", "shell", "rescanPlugins"], check=True)
+if os.environ.get("DS_CLONE_CORRUPT"):
+    (target / "Service.qml").write_text("Item {}\n", encoding="utf-8")
+if fail == "late":
+    # The real tool has enabled the clone by now; its closing notification failing exits 1.
+    sys.stderr.write("omarchy-notification-send: failed\n")
+    sys.exit(1)
 print(f"Cloned omarchy.notifications to {target}")
 """
 
@@ -65,7 +72,7 @@ Path(os.environ["DS_NOTIFY_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
 """
 
 _ENV = ("DS_NOTIFICATIONS_SOURCE", "DS_SHELL_LOG", "DS_NOTIFY_LOG", "USER", "DS_CLONE_FAIL",
-        "DS_SHELL_DOWN", "DS_WRAPPER_DEST", "DS_SUDOERS_DEST", "DS_SETUP_SUDO_LOG",
+        "DS_CLONE_CORRUPT", "DS_SHELL_DOWN", "DS_WRAPPER_DEST", "DS_SUDOERS_DEST", "DS_SETUP_SUDO_LOG",
         "DS_LOCK_PREFIX", "DS_SUDO_DENY", "DS_FLUSH_RC", "DS_FLUSH_ERR")
 
 
@@ -241,12 +248,37 @@ class CloneTests(unittest.TestCase):
         self.assertEqual(len(self._log()), calls)
 
     def test_clone_tool_failure_exits_1_without_record(self):
-        os.environ["DS_CLONE_FAIL"] = "1"
+        os.environ["DS_CLONE_FAIL"] = "early"
         rc, err = self._sync()
         self.assertEqual(rc, 1)
         self.assertIn("refused", err)
         self.assertFalse(self.clone.exists())
         self.assertFalse(self.record.exists())
+        self.assertNotIn("setPluginEnabled", "\n".join(self._log()))
+        os.environ["DS_CLONE_FAIL"] = "late"
+        rc, err = self._sync()
+        self.assertEqual(rc, 1)
+        self.assertIn("notification-send: failed", err)
+        self.assertFalse(self.clone.exists())
+        self.assertFalse(self.record.exists())
+        self.assertEqual(self._log()[-1], "omarchy-shell shell setPluginEnabled tester.notifications false")
+
+    def test_failure_after_clone_creation_rolls_the_clone_back(self):
+        os.environ["DS_CLONE_CORRUPT"] = "1"
+        rc, err = self._sync()
+        self.assertEqual(rc, 1)
+        self.assertIn("could not be completed", err)
+        self.assertFalse(self.clone.exists())
+        self.assertFalse(self.record.exists())
+        self.assertEqual(self._log()[-1], "omarchy-shell shell setPluginEnabled tester.notifications false")
+        os.environ.pop("DS_CLONE_CORRUPT")
+        os.chmod(self.box.state_dir, 0o500)
+        self.addCleanup(os.chmod, self.box.state_dir, 0o700)
+        rc, err = self._sync()
+        self.assertEqual(rc, 1)
+        self.assertIn("cannot write", err)
+        self.assertFalse(self.clone.exists())
+        self.assertEqual(self._log()[-1], "omarchy-shell shell setPluginEnabled tester.notifications false")
 
     def test_upstream_method_removes_clone(self):
         self.assertEqual(self._sync()[0], 0)
@@ -264,13 +296,21 @@ class CloneTests(unittest.TestCase):
     def test_foreign_clone_is_never_touched(self):
         shutil.copytree(self.source, self.clone)
         before = {p.relative_to(self.clone): p.read_bytes() for p in self.clone.rglob("*") if p.is_file()}
-        rc, err = self._sync()
-        self.assertEqual(rc, 0)
-        self.assertIn("not created by this plugin", err)
-        self.assertEqual(self._log(), [])
-        self.assertFalse(self.record.exists())
-        after = {p.relative_to(self.clone): p.read_bytes() for p in self.clone.rglob("*") if p.is_file()}
-        self.assertEqual(after, before)
+        other = {"plugin": "tester.notifications", "path": "/elsewhere/tester.notifications",
+                 "files": {}, "patch": ""}
+        for record in (None, {}, {"plugin": "tester.notifications"}, other, ["tester.notifications"]):
+            with self.subTest(record=record):
+                if record is None:
+                    self.record.unlink(missing_ok=True)
+                else:
+                    self.record.write_text(json.dumps(record), encoding="utf-8")
+                rc, err = self._sync()
+                self.assertEqual(rc, 0)
+                self.assertIn("not created by this plugin", err)
+                self.assertEqual(self._log(), [])
+                after = {p.relative_to(self.clone): p.read_bytes() for p in self.clone.rglob("*") if p.is_file()}
+                self.assertEqual(after, before)
+        self.record.unlink()
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             self.assertEqual(setup.remove_clone(), 0)
