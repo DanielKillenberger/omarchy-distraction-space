@@ -20,7 +20,9 @@ Implement `ds/ui.py` to the spec's `ds.ui` contract, replacing the wave 1 stubs:
 
 stage: impl-review - ran [round 1 NEEDS_WORK (3 findings fixed in 2677e46), round 2 SHIP] (model: gpt-5.6-sol-high via cursor)
 stage: plan-sync - skipped(config: planSync.enabled != true)
+
+Record repair 2026-09-02: status replayed from this task's own Done summary and evidence after PR #9 merged; the fn-9 run's flow-state never reached main.
 ## Evidence
 - Commits: fe6424b95148ce316e2ab285775c407ad0e9cc85, bc7a3c259ffad05547f6a0431ca800d7cf248beb, 2677e466f851d3a51ad3c71c98ad97c6db3e3bd8
 - Tests: python3 -m unittest discover tests
-- PRs:
+- PRs: 9

@@ -20,7 +20,9 @@ Implement `ds/feedback.py`: two daemon-thread servers binding 127.0.0.1 and ::1 
 
 stage: impl-review - ran [round 1 NEEDS_WORK (2 findings fixed in 245c38c), round 2 SHIP] (model: gpt-5.6-sol-high via cursor)
 stage: plan-sync - skipped(config: planSync.enabled != true)
+
+Record repair 2026-09-02: status replayed from this task's own Done summary and evidence after PR #9 merged; the fn-9 run's flow-state never reached main.
 ## Evidence
 - Commits: f4dd6eca991042640448d58a7f741f85cafca5bb, 245c38cec5824c6f3427481defa1dd135d50d0a5, 82192e11f19494f90de15e7b2e8441bde03469ce
 - Tests: python3 -m unittest discover tests
-- PRs:
+- PRs: 9

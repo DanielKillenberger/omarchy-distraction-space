@@ -21,7 +21,9 @@ Foundation for the rewrite: the `ds/` package with `config.py` (schema, defaults
 
 stage: impl-review - ran [round 1 NEEDS_WORK (5 findings fixed in 7bb3046), round 2 SHIP] (model: gpt-5.6-sol-high via cursor)
 stage: plan-sync - skipped(config: planSync.enabled != true)
+
+Record repair 2026-09-02: status replayed from this task's own Done summary and evidence after PR #9 merged; the fn-9 run's flow-state never reached main.
 ## Evidence
 - Commits: 90c791f84d2eaaaa8a3a2f6d660b7153e38d76f9, 7bb304637cf7bfd1a1641142b2c7ce51cf75976f
 - Tests: python3 -m unittest discover tests
-- PRs:
+- PRs: 9

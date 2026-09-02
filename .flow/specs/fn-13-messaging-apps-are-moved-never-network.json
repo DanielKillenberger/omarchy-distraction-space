@@ -145,7 +145,7 @@
     "impl:fn-13-messaging-apps-are-moved-never-network.1": 0
   },
   "spec_path": ".flow/specs/fn-13-messaging-apps-are-moved-never-network.md",
-  "status": "open",
+  "status": "done",
   "title": "Messaging apps are moved, never network-blocked",
   "tracker": {
     "baseHashFlow": null,
@@ -158,5 +158,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T10:09:09.553641Z"
+  "updated_at": "2026-09-02T10:13:40.931628Z"
 }

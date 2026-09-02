@@ -19,7 +19,9 @@ Implement `ds/hypr.py`: hyprctl/json wrappers, `on_space`, workspace cycle skipp
 
 stage: impl-review - ran [round 1 NEEDS_WORK (3 findings fixed in 1a8d92a), round 2 SHIP] (model: gpt-5.6-sol-high via cursor)
 stage: plan-sync - skipped(config: planSync.enabled != true)
+
+Record repair 2026-09-02: status replayed from this task's own Done summary and evidence after PR #9 merged; the fn-9 run's flow-state never reached main.
 ## Evidence
 - Commits: 95f937641ae4e50dfea1569fd42b4bceaf4744d8, 1a8d92aeccfda2c6e2e30d8feba6f5997e71e025
 - Tests: python3 -m unittest discover tests
-- PRs:
+- PRs: 9

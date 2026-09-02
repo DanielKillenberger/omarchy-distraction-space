@@ -1830,7 +1830,7 @@
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-9-rewrite-one-contained-distraction-space.md",
-  "status": "open",
+  "status": "done",
   "title": "Rewrite: one contained distraction space, one config, native menu UI",
   "tracker": {
     "baseHashFlow": null,
@@ -1843,5 +1843,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T07:38:24.018502Z"
+  "updated_at": "2026-09-02T10:14:37.895416Z"
 }

@@ -20,7 +20,9 @@ Implement `ds/lock.py` to the spec's `ds.lock` contract: `is_locked()` with lazy
 
 stage: impl-review - ran [round 1 NEEDS_WORK (3 findings fixed in 556dba8), round 2 SHIP] (model: gpt-5.6-sol-high via cursor)
 stage: plan-sync - skipped(config: planSync.enabled != true)
+
+Record repair 2026-09-02: status replayed from this task's own Done summary and evidence after PR #9 merged; the fn-9 run's flow-state never reached main.
 ## Evidence
 - Commits: 39fef48d31fd109b83451e02b8dd59f1f5ffe054, d9cd03929227f8c9c12f6f23ebedff913a25d66a, 556dba8a3dc218d7bf54c5688914b1efe1b6cef6
 - Tests: python3 -m unittest discover tests, python3 -m unittest tests.test_lock tests.test_enter tests.test_status tests.test_config tests.test_hypr
-- PRs:
+- PRs: 9

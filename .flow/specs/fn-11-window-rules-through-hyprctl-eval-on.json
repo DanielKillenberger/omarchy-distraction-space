@@ -345,7 +345,7 @@
     "impl:fn-11-window-rules-through-hyprctl-eval-on.2": 0
   },
   "spec_path": ".flow/specs/fn-11-window-rules-through-hyprctl-eval-on.md",
-  "status": "open",
+  "status": "done",
   "title": "Window rules through hyprctl eval on the Lua config",
   "tracker": {
     "baseHashFlow": null,
@@ -358,5 +358,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T09:41:42.952975Z"
+  "updated_at": "2026-09-02T10:13:40.462385Z"
 }

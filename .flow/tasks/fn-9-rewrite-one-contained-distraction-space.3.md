@@ -21,7 +21,9 @@ Implement `ds/net.py`: `resolve_batch(hosts, generation, reason)` on a `ThreadPo
 
 stage: impl-review - ran [round 1 NEEDS_WORK (5 findings + wrapper stdin fixed in 88ca82d), round 2 NEEDS_WORK (1 finding fixed in 113a359), round 3 SHIP] (model: gpt-5.6-sol-high via cursor)
 stage: plan-sync - skipped(config: planSync.enabled != true)
+
+Record repair 2026-09-02: status replayed from this task's own Done summary and evidence after PR #9 merged; the fn-9 run's flow-state never reached main.
 ## Evidence
 - Commits: 8015abcb30c8e1f8be64fbb1ef296bb45bf72f6e, 6d4003ac628a1ecef0dad7153b6af4d3df1aa8dd, 88ca82d45b6291b16ba667e876736cc61c830528, 113a35956735e793500672363e20962769d01ab1
 - Tests: python3 -m unittest discover tests, python3 -m unittest tests.test_net tests.test_nft tests.test_setup tests.test_status
-- PRs:
+- PRs: 9

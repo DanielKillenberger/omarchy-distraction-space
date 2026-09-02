@@ -21,7 +21,9 @@ Implement `ds/listener.py`, replacing the wave 1 stub: single-instance flock, co
 
 stage: impl-review - ran [round 1 NEEDS_WORK (7 findings fixed in 440d92c), round 2 NEEDS_WORK (2 fixed in b19463f), round 3 NEEDS_WORK (1 fixed in e3a6df3), round 4 SHIP] (model: gpt-5.6-sol-high via cursor)
 stage: plan-sync - skipped(config: planSync.enabled != true)
+
+Record repair 2026-09-02: status replayed from this task's own Done summary and evidence after PR #9 merged; the fn-9 run's flow-state never reached main.
 ## Evidence
 - Commits: 5fa1547de752f7373369e583120f40e25646f4e8, 440d92cc57a8357ed496d1b6805a3e57e61c0269, b19463fd5acaa670aaea4a97c15e08095fdec76e, e3a6df3d5d0c21c6d7332191dd1ae1faf90120b4
 - Tests: python3 -m unittest discover tests
-- PRs:
+- PRs: 9
