@@ -62,7 +62,7 @@ def default_agent():
     except FileNotFoundError:
         _log(f"no Omarchy default agent chosen ({path}); showing the count")
         return None
-    except OSError as e:
+    except (OSError, UnicodeDecodeError) as e:
         _log(f"cannot read {path}: {e}; showing the count")
         return None
     argv = AGENTS.get(name)

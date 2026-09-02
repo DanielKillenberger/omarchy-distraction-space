@@ -111,6 +111,9 @@ class SummaryUnitTests(_Env):
             path.unlink(missing_ok=True)
             return
         path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(name, bytes):
+            path.write_bytes(name)
+            return
         path.write_text(name + "\n", encoding="utf-8")
 
     def _asked(self):
@@ -135,6 +138,7 @@ class SummaryUnitTests(_Env):
             ("unsupported", "pi", None, "'pi' has no headless one-shot form"),
             ("no file", None, None, "no Omarchy default agent chosen"),
             ("no binary", "gemini", None, "'gemini' is not on PATH"),
+            ("not utf-8", b"\xff\xfegrok\n", None, "cannot read"),
         ]
         for name, agent, argv, log_bit in cases:
             with self.subTest(case=name):
