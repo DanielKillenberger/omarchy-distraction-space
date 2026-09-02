@@ -9,7 +9,7 @@
   "depends_on_epics": [],
   "id": "fn-16-readme-pass-for-the-github-page",
   "impl_review_rounds": {
-    "fn-16-readme-pass-for-the-github-page.1": 1
+    "fn-16-readme-pass-for-the-github-page.1": 0
   },
   "next_task": 1,
   "no_plan": true,
@@ -91,9 +91,86 @@
       "task": "fn-16-readme-pass-for-the-github-page.1",
       "timestamp": "2026-09-02T14:22:11.729094Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "832fe22c370fee35e863445d283dcfa05f3d59a64d19b56b7f4e9e2593f1a807",
+      "backend": "cursor",
+      "base_sha": "fa74170e1ccc93e8184abd940131c750ee9a9987",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-b8a2cbf5f5327dae373d388ab9bd121c",
+            "classification": "introduced",
+            "findingId": "finding-b8a2cbf5f5327dae373d388ab9bd121c",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-6bf141ae9bd5d05944a94575e991dde9",
+            "classification": "introduced",
+            "findingId": "finding-6bf141ae9bd5d05944a94575e991dde9",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-cdb17c1111e97b9406cc96c1d042c3a2",
+            "classification": "introduced",
+            "findingId": "finding-cdb17c1111e97b9406cc96c1d042c3a2",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-44778598093405ca93d48e487d6f2640",
+            "classification": "introduced",
+            "findingId": "finding-44778598093405ca93d48e487d6f2640",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-97c70eda7130249f3892fcd5ecc872b2",
+            "classification": "pre_existing",
+            "findingId": "finding-97c70eda7130249f3892fcd5ecc872b2",
+            "firstSeenThisRound": false,
+            "severity": "P3",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "c1868ae85bc6388843520a7dc07668fe3004d6f3",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 597,
+      "output_sha256": "f35146d6d026fa54c9b3e8e771de44d386461e30259403ffe7174f0a200f8c92",
+      "reservation_id": "d5a8897b39fc4dd0a9790f75fdd340bc",
+      "round_consumed": true,
+      "scope": "impl:fn-16-readme-pass-for-the-github-page.1",
+      "superseded_by": null,
+      "task": "fn-16-readme-pass-for-the-github-page.1",
+      "timestamp": "2026-09-02T14:30:38.008036Z",
+      "verdict": "SHIP"
     }
   ],
-  "review_hash_epoch": {},
+  "review_hash_epoch": {
+    "impl:fn-16-readme-pass-for-the-github-page.1": 1
+  },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
@@ -113,5 +190,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T14:22:11.739222Z"
+  "updated_at": "2026-09-02T14:30:38.013309Z"
 }
