@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-17-marketplace-readiness-and-submission",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "needs_work",
+  "completion_reviewed_at": "2026-09-02T18:59:16.776283Z",
   "created_at": "2026-09-02T13:58:22.044107Z",
   "default_impl": null,
   "default_review": null,
@@ -15,7 +15,7 @@
     "fn-17-marketplace-readiness-and-submission.2": 0
   },
   "next_task": 1,
-  "plan_review_rounds": 0,
+  "plan_review_rounds": 1,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "review_attempts": [
@@ -263,6 +263,49 @@
       "task": "fn-17-marketplace-readiness-and-submission.1",
       "timestamp": "2026-09-02T18:54:05.860319Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "98876d48659d825cf69f38b62b26af4fca0bd72c0fc2d20469b06ba6133c99a7",
+      "backend": "cursor",
+      "base_sha": "240d5c8713c72361ca313d2cf4f08cd3812f9b9d",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-bd1b4b3dafc458b8dcfbbdab39d1ebb2",
+            "classification": "introduced",
+            "findingId": "finding-bd1b4b3dafc458b8dcfbbdab39d1ebb2",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "ca2b25f1c194ed967d73a3c7ad6d2e23153269dc",
+      "head_sha_observed": true,
+      "kind": "completion",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 3572,
+      "output_sha256": "03f676a84ac1a9d0835f8443fabd44258f99cc120758f390cda8da7835fb7f76",
+      "reservation_id": "e094202dfa504ab0b7bb566cff7624be",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-02T18:59:16.773894Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -272,6 +315,7 @@
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "completion": 0,
     "impl:fn-17-marketplace-readiness-and-submission.1": 0,
     "impl:fn-17-marketplace-readiness-and-submission.2": 0
   },
@@ -289,5 +333,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T18:54:05.873163Z"
+  "updated_at": "2026-09-02T18:59:16.776848Z"
 }

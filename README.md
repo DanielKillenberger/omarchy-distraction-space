@@ -8,7 +8,7 @@ You list Telegram, X, YouTube, and whatever else pulls you off task. Their windo
 
 ## Install
 
-Omarchy 4, Hyprland, Python 3.11.
+Omarchy 4, Hyprland, Python 3.11. Runtime dependencies, all present on a stock Omarchy 4 install: `nft`, `sudo` and `visudo`, `hyprctl`, `getent`, `busctl`, `pactl`, `patch`, and the Omarchy tools `omarchy-shell`, `omarchy-plugin-clone`, `omarchy-menu-select`, `omarchy-menu-input`, `omarchy-notification-send`, and `omarchy-launch-editor`. Optional: one agent CLI (`claude`, `grok`, `codex`, `gemini`, `opencode`, or `copilot`) when `summary.command` is `auto`.
 
 ```bash
 omarchy plugin add https://github.com/DanielKillenberger/omarchy-distraction-space.git --enable
@@ -37,6 +37,15 @@ Autostart owns the long-running listener. To start it now without logging out:
 ```bash
 ~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions listen
 ```
+
+## Remove
+
+```bash
+~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions setup --remove
+omarchy plugin remove io.github.danielkillenberger.distraction-space
+```
+
+`setup --remove` flushes the nft sets, removes the wrapper and the sudoers grant with sudo, and removes the notification-service clone it created. Run it before `omarchy plugin remove`, because the plugin directory holds the script that does the removing. Delete the three Hyprland snippets by hand, the same way they went in.
 
 ## What it does
 
