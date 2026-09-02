@@ -40,7 +40,7 @@ Autostart owns the long-running listener. To start it now without logging out:
 
 **Windows stay on one workspace.** The listener installs one named Hyprland rule per listed window class through `hyprctl eval` and `hl.window_rule`, so a listed app opens on `name:distraction` directly. Hyprland drops those rules on every config reload, and the listener re-applies them when socket2 reports `configreloaded`. The socket2 `openwindow` event is the safety net. A listed window that lands elsewhere anyway gets moved there without stealing focus. Super+Tab and Super+Shift+Tab skip the space, so cycling workspaces never drops you into it.
 
-**Listed sites stop loading off the space.** Every 30 seconds while you are off the space, the listener resolves each listed host and drops the addresses into the nftables sets `omarchy_ds_v4` and `omarchy_ds_v6`. The wrapper rejects traffic to a member address with a TCP reset, redirects port 80 to a block page on 28080 that names the site you tried to reach, and redirects port 443 to 28443, where the plugin reads the SNI from the ClientHello and closes the connection. Entering the space flushes the sets, so the same sites load normally once you are there.
+**Listed sites stop loading off the space.** Every 30 seconds while you are off the space, the listener resolves each listed host and drops the addresses into the nftables sets `omarchy_ds_v4` and `omarchy_ds_v6`. The wrapper rejects traffic to a member address with a TCP reset, except ports 80 and 443, which it redirects to the plugin's routers on 28080 and 28443. The router reads the Host header or the SNI from the ClientHello. A listed host, or a subdomain of one, gets the block page on 80 and a closed connection on 443. Any other hostname on that shared address is spliced to its real destination, so Google Safe Browsing keeps working while YouTube is listed. The splices leave through TCP source ports 61000 to 61999, which the wrapper lets past the block, and at most 256 run at once. `site_block.pass_through: false` restores the plain address block. Entering the space flushes the sets, so the same sites load normally once you are there.
 
 **A banner names what you reached for.** A listed window that opens off the space raises one notification starting with the app's name. A blocked HTTPS fetch raises one titled "Blocked on this workspace", built from the host in the SNI. HTTP gets the block page instead of a banner. Both banners name Super+Ctrl+Shift+D as the way in and fire at most once per catalog entry per 30 seconds, and the blocked-fetch one fires only for fetches from windows outside the space, so a page you left open on the space keeps working without nagging you. `nudges.app_banner` turns off the window banner, and `nudges.block_page` turns off the block page and the HTTPS banner together.
 
@@ -77,7 +77,8 @@ Two separate things happen to a listed app. Its windows move to the distraction 
 
 ## Limits
 
-- The site block works on IP addresses, so a listed site sharing an address with something else takes that down too. Google Safe Browsing was refused during development while YouTube was listed, because both sit behind Google front-end addresses. Hostname-exact blocking is planned.
+- The hostname router cannot see through Encrypted Client Hello. A listed site served behind ECH presents the provider's public name in the outer ClientHello, so it passes through.
+- The pass-through exemption is TCP source ports 61000 to 61999, above the default `net.ipv4.ip_local_port_range` ceiling of 60999. On a machine whose sysctl widens that range past 61000, an ordinary connection can draw an exempt port and bypass the block.
 - HTTPS cannot show the block page without a certificate your browser trusts. The banner is the only feedback on port 443.
 - A web app running inside a shared Chrome window plays its audio through Chrome's single audio service process, so the plugin cannot attribute that stream to the web app and cannot mute it. WhatsApp Web's message tone still plays.
 - The notification hold needs the patched service clone until Omarchy ships a per-sender silenced list of its own. Without it, `status` reports `notification_hold: unavailable`, one notice names the fix, and everything else keeps working.
@@ -92,6 +93,7 @@ Two separate things happen to a listed app. Its windows move to the distraction 
 |---|---|---|
 | `list` | the 15 defaults | Catalog name, hostname, `class=<regex>`, or an object with `name` plus `class` or `hosts` |
 | `keep_reachable` | `[]` | Hosts whose addresses stay out of the block, even when a listed site shares one |
+| `site_block.pass_through` | `true` | Splice unlisted hostnames on a blocked address to their real destination; `false` refuses every connection to the address |
 | `nudges.app_banner` | `true` | The banner when a listed app opens off the space |
 | `nudges.block_page` | `true` | The block page on port 80, and the banner for a blocked HTTPS fetch |
 | `hold_notifications` | `"off-space"` | When the hold applies: `off-space`, `locked`, or `never` |
@@ -112,7 +114,7 @@ With no config file, the first load seeds `list` from your existing `~/.config/o
 
 | Command | What it does |
 |---|---|
-| `status [--json]` | Lock, `on_space`, `site_block`, `hold`, `held`, and `notification_hold`. Works with no listener running. |
+| `status [--json]` | Lock, `on_space`, `site_block`, `hold`, `held`, `notification_hold`, and `pass_through`. Works with no listener running. |
 | `toggle` / `enter` / `leave` | Enter or leave the space. `enter` refuses while locked. |
 | `next` / `prev` | Cycle occupied workspaces, skipping the space. |
 | `lock [MINUTES\|forever] [PURPOSE...]` | Lock. No arguments opens the duration menu, then the purpose input. |
@@ -136,7 +138,7 @@ State file shapes, the listener loop, the network generation counter, the clone 
 PATH=/usr/bin:$PATH python3 -m unittest discover -s tests
 ```
 
-239 tests, offline, about 80 seconds. `tests/harness.py` gives every test its own temporary XDG root and puts fake `hyprctl`, `getent`, `busctl`, `pactl`, and nft binaries at the front of `PATH`, so a run never touches your session, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, 20 of the 27 cases in `tests/test_hypr.py` fail here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request.
+255 tests, offline, about 100 seconds. `tests/harness.py` gives every test its own temporary XDG root and puts fake `hyprctl`, `getent`, `busctl`, `pactl`, and nft binaries at the front of `PATH`, so a run never touches your session, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, 20 of the 27 cases in `tests/test_hypr.py` fail here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request.
 
 ## License
 

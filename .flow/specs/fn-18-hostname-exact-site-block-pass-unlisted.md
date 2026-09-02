@@ -22,7 +22,7 @@ Only listed hostnames fail. Today the site block drops every address a listed ho
 - **Listed** (the hostname equals a host in the active expansion's `hosts`, or ends with `.` plus one, ignoring case and a leading `www.`): today's behavior, block page or close, origin-aware banner from fn-15.
 - **Unlisted or unreadable hostname**: open a TCP connection to the original destination and splice bytes both ways, including the bytes already read, until either side closes; per-connection idle timeout 120 s; at most 256 concurrent splices, beyond which the connection is closed. Nothing is decrypted or logged beyond a rate-limited count.
 
-**The outbound exemption.** The listener's own outbound sockets would hit the same redirect. `distractions-nft` gains one rule ahead of the redirects and the reject: `tcp sport 60000-60999 accept` (both families). The listener binds every splice socket to a free local port in that range (`bind(("0.0.0.0", port))` before `connect`, retrying on `EADDRINUSE`), so only its splices are exempt. `sudo -n` re-runs of `replace` and `flush` carry the new rule; `setup` refreshes the wrapper.
+**The outbound exemption.** The listener's own outbound sockets would hit the same redirect. `distractions-nft` gains one rule ahead of the redirects and the reject: `tcp sport 61000-61999 accept` (both families). The listener binds every splice socket to a free local port in that range (`bind(("0.0.0.0", port))` before `connect`, retrying on `EADDRINUSE`), so only its splices are exempt. `sudo -n` re-runs of `replace` and `flush` carry the new rule; `setup` refreshes the wrapper.
 
 **Config.** `site_block.pass_through` (boolean, default true) lets a person fall back to the address block; `status --json` gains `pass_through: on|off|unavailable` (unavailable when the servers failed to bind, in which case redirected connections fail as today).
 
@@ -52,7 +52,7 @@ python3 -m unittest discover -s tests > /tmp/ds-suite.log 2>&1; tail -3 /tmp/ds-
 
 - **R1:** A redirected TCP 443 connection whose SNI is not a listed host or subdomain reaches its original destination unchanged (bytes both ways), and a redirected TCP 80 connection whose Host header is unlisted does the same. Errors: destination unreachable closes the client and logs once per destination per minute.
 - **R2:** A redirected connection whose hostname is a listed host or a subdomain of one keeps today's behavior: block page on 80, close on 443, origin-aware banner. Errors: none.
-- **R3:** The wrapper accepts TCP source ports 60000 to 60999 ahead of the redirect and reject rules in both families, and the listener binds every splice socket in that range. Errors: range exhausted counts as cap reached.
+- **R3:** The wrapper accepts TCP source ports 61000 to 61999 ahead of the redirect and reject rules in both families, and the listener binds every splice socket in that range. Errors: range exhausted counts as cap reached.
 - **R4:** At most 256 splices run at once; the 257th connection is closed and logged once per minute. Errors: none.
 - **R5:** `site_block.pass_through: false` restores today's address block with no splicing; `status --json` reports `pass_through`. Errors: bind failure yields `unavailable` and today's behavior.
 - **R6:** Live check on this machine: with YouTube listed and the person off the space, `curl https://safebrowsing.google.com/` returns the real server's response and no banner appears, while `curl https://youtube.com/` fails fast with a banner. Recorded by the conductor.
@@ -70,3 +70,16 @@ python3 -m unittest discover -s tests > /tmp/ds-suite.log 2>&1; tail -3 /tmp/ds-
 <!-- scope: both -->
 
 The user rejected collateral blocking on 2026-09-02. Rejected here: a DNS-level block (bypassed by browser secure DNS, and the legacy tree's 1,400-line stack was removed for that reason), and removing shared-address products from the list, which hides the problem in the catalog.
+
+The conductor moved the exempt source-port range from 60000-60999 to 61000-61999 on 2026-09-02 at integration: Linux's default `net.ipv4.ip_local_port_range` is 32768-60999, so the first range sat inside the ephemeral range and any program's outbound connection had about a 3.5 percent chance of drawing an exempt port and bypassing the block. 61000-61999 lies above the default ceiling. A machine whose sysctl widens the ephemeral range past 61000 keeps that exposure; reserving the range with `net.ipv4.ip_local_reserved_ports` is a possible follow-up.
+
+## Live check (R6)
+
+Recorded by the conductor on 2026-09-02 on this machine, installed plugin at 5c2e773, wrapper reinstalled by `distractions setup`, listener restarted, YouTube listed, person off the space, `site_block=on pass_through=on`:
+
+- `curl https://safebrowsing.google.com/` returned HTTP 200 from 74.125.29.136 in 0.065 s. That address is in `addrs.json` (the block set) and is one of youtube.com's own addresses, so the connection was redirected and spliced.
+- `curl https://www.google.com/` returned HTTP 200 from 142.251.150.119 in 0.084 s.
+- `curl https://youtube.com/` failed in 0.073 s with a TLS unexpected EOF (the listed close), and `curl http://youtube.com/` served the "Can't open youtube.com on this workspace" block page.
+
+The wrapper's two new accept lines parsed and loaded on the live kernel (the listener's `replace` succeeded with them), which settles the nft syntax check the sandbox could not run.
+- Banner, confirmed by the user watching the screen: `curl https://reddit.com/` (listed) raised one "Blocked on this workspace" banner, a repeat within 30 s raised none, and `curl https://safebrowsing.google.com/` before it raised none.

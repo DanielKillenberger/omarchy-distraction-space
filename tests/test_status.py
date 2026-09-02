@@ -27,6 +27,7 @@ STATUS_KEYS = {
     "hold",
     "held",
     "notification_hold",
+    "pass_through",
     "updated",
 }
 
@@ -74,6 +75,7 @@ class StatusTests(unittest.TestCase):
         self.assertFalse(data["hold"])
         self.assertEqual(data["held"], {})
         self.assertEqual(data["notification_hold"], "off")
+        self.assertEqual(data["pass_through"], "off")
 
     def test_status_json_off_space(self):
         box = self._box()
@@ -162,6 +164,7 @@ class StatusTests(unittest.TestCase):
                     "hold": True,
                     "held": {"Telegram": 3, "Discord": "many", "X": True},
                     "notification_hold": "unavailable",
+                    "pass_through": "on",
                     "updated": _iso(-1),
                 }
             ),
@@ -175,9 +178,11 @@ class StatusTests(unittest.TestCase):
         self.assertTrue(data["hold"])
         self.assertEqual(data["held"], {"Telegram": 3})
         self.assertEqual(data["notification_hold"], "unavailable")
+        self.assertEqual(data["pass_through"], "on")
         r = box.run("status")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("hold=on held=3 notification_hold=unavailable", r.stdout)
+        self.assertIn("pass_through=on", r.stdout)
 
     def test_stubbed_commands_exit_2_not_yet(self):
         box = self._box()

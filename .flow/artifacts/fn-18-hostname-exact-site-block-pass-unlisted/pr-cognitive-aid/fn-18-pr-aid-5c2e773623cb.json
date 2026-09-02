@@ -1,0 +1,519 @@
+{
+  "artifactId": "fn-18-pr-aid-5c2e773623cb",
+  "baseSha": "7f009b865fe7c57e222807282fefcc7b379fa5e2",
+  "changeWalkthrough": {
+    "groups": [
+      {
+        "files": [],
+        "kind": "problem",
+        "ordinal": 1,
+        "rIds": [
+          "R1"
+        ],
+        "sourceRefs": [
+          "spec",
+          "rid-R1"
+        ],
+        "summary": "The site block drops every address a listed host resolves to. Google, Cloudflare, and Fastly front many products on shared addresses, so blocking YouTube also refused Chrome's Safe Browsing updates and raised a banner for a hostname nobody opened.",
+        "taskIds": [],
+        "title": "Problem"
+      },
+      {
+        "files": [],
+        "kind": "principle",
+        "ordinal": 2,
+        "rIds": [
+          "R2"
+        ],
+        "sourceRefs": [
+          "spec",
+          "rid-R2"
+        ],
+        "summary": "Only listed hostnames fail. The redirected connection's Host header or SNI decides; a listed host or a subdomain of one keeps the block page, the close, and the banner, and everything else is spliced to its real destination.",
+        "taskIds": [],
+        "title": "Principle"
+      },
+      {
+        "files": [
+          {
+            "additions": 8,
+            "attentionClass": "canonical",
+            "changeType": "modified",
+            "deletions": 0,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-13e10f71ec8882038f6a523cce4dbca7b1b7299fce7a404a43ccc9dc3c3785e2",
+            "path": "distractions-nft",
+            "rIds": [
+              "R3"
+            ],
+            "sourceRefs": [
+              "diff",
+              "task-1",
+              "rid-R3"
+            ],
+            "summary": "Accept rules for tcp sport 61000-61999 rendered ahead of the redirect and reject rules; constants beside HTTP_PORT and TLS_PORT.",
+            "taskIds": [
+              "fn-18-hostname-exact-site-block-pass-unlisted.1"
+            ]
+          },
+          {
+            "additions": 57,
+            "attentionClass": "canonical",
+            "changeType": "modified",
+            "deletions": 0,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-568fda0ec652f8d42ab4bfada1cc311acbb943d65efc63e51fe54d15a7557e97",
+            "path": "tests/test_nft.py",
+            "rIds": [
+              "R3"
+            ],
+            "sourceRefs": [
+              "diff",
+              "task-1",
+              "rid-R3"
+            ],
+            "summary": "Pins, per family and per chain, that the accept is the first rule and precedes both rejects and both redirects.",
+            "taskIds": [
+              "fn-18-hostname-exact-site-block-pass-unlisted.1"
+            ]
+          }
+        ],
+        "kind": "step",
+        "ordinal": 3,
+        "rIds": [
+          "R3"
+        ],
+        "sourceRefs": [
+          "task-1",
+          "rid-R3",
+          "commit-t1"
+        ],
+        "summary": "distractions-nft renders a source-port accept as the first rule of both the filter and the nat output chain in each family, so the listener's own splice sockets leave untouched.",
+        "taskIds": [
+          "fn-18-hostname-exact-site-block-pass-unlisted.1"
+        ],
+        "title": "Wrapper exempts the splice source ports"
+      },
+      {
+        "files": [
+          {
+            "additions": 321,
+            "attentionClass": "canonical",
+            "changeType": "modified",
+            "deletions": 29,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-b740e3961282518b66bebd5616ccabbca3ee9791cdb063c9cf9c45960595c50b",
+            "path": "ds/feedback.py",
+            "rIds": [
+              "R1",
+              "R2",
+              "R4"
+            ],
+            "sourceRefs": [
+              "diff",
+              "task-2",
+              "rid-R1",
+              "rid-R2",
+              "rid-R4"
+            ],
+            "summary": "Original-destination recovery, _entry_for_host suffix matching, _open_splice with a live-port registry and tuple-collision retry, _pump, the splice cap, _handshake_payload reassembly, and nudge-off routing.",
+            "taskIds": [
+              "fn-18-hostname-exact-site-block-pass-unlisted.2"
+            ]
+          },
+          {
+            "additions": 464,
+            "attentionClass": "canonical",
+            "changeType": "modified",
+            "deletions": 3,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-a125244ffefff963ae7a4f4ba09955a11a09e593ba7b1affaf6cfb05ce5ee8fe",
+            "path": "tests/test_feedback.py",
+            "rIds": [
+              "R1",
+              "R2",
+              "R4"
+            ],
+            "sourceRefs": [
+              "diff",
+              "task-2",
+              "rid-R1",
+              "rid-R2",
+              "rid-R4"
+            ],
+            "summary": "Fake loopback destinations drive splice, listed refusal, suffix and www matching, in-range binding, the cap, SO_ORIGINAL_DST self-hit, unreachable destinations, concurrent same-destination splices, tuple-collision retry, nudge-off routing, reload accounting, fragmented ClientHello, and subdomain banner identity.",
+            "taskIds": [
+              "fn-18-hostname-exact-site-block-pass-unlisted.2"
+            ]
+          }
+        ],
+        "kind": "step",
+        "ordinal": 4,
+        "rIds": [
+          "R1",
+          "R2",
+          "R4"
+        ],
+        "sourceRefs": [
+          "task-2",
+          "rid-R1",
+          "rid-R2",
+          "rid-R4",
+          "commit-t2",
+          "commit-fix"
+        ],
+        "summary": "ds/feedback.py recovers the pre-redirect destination with SO_ORIGINAL_DST, matches the hostname against the active expansion with one suffix-aware matcher, and splices unlisted connections over a registered source port with connect and idle timeouts and a 256-splice cap. The review round added the port registry, ClientHello reassembly across TLS records, reload-safe splice accounting, and routing with the block-page nudge off.",
+        "taskIds": [
+          "fn-18-hostname-exact-site-block-pass-unlisted.2"
+        ],
+        "title": "Feedback servers become hostname routers"
+      },
+      {
+        "files": [
+          {
+            "additions": 4,
+            "attentionClass": "canonical",
+            "changeType": "modified",
+            "deletions": 0,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-3df47a490e13cf417d66c03162be34a09eeb5c404b097ee268daf961f8bbe7a4",
+            "path": "ds/config.py",
+            "rIds": [
+              "R5"
+            ],
+            "sourceRefs": [
+              "diff",
+              "task-2",
+              "rid-R5"
+            ],
+            "summary": "site_block.pass_through in DEFAULTS and validate.",
+            "taskIds": [
+              "fn-18-hostname-exact-site-block-pass-unlisted.2"
+            ]
+          },
+          {
+            "additions": 2,
+            "attentionClass": "canonical",
+            "changeType": "modified",
+            "deletions": 1,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-d4c65c1734ee10b89c238dc50d7429a0f1da34e05a59379d5af3fbfa0dde6045",
+            "path": "ds/listener.py",
+            "rIds": [
+              "R5"
+            ],
+            "sourceRefs": [
+              "diff",
+              "task-2",
+              "rid-R5"
+            ],
+            "summary": "Status payload carries pass_through from the feedback module.",
+            "taskIds": [
+              "fn-18-hostname-exact-site-block-pass-unlisted.2"
+            ]
+          },
+          {
+            "additions": 3,
+            "attentionClass": "canonical",
+            "changeType": "modified",
+            "deletions": 1,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-0e94ff9619fa2ebafd908ad51c0896aeb1880a630254acc40dd51f0d93d6273f",
+            "path": "ds/state.py",
+            "rIds": [
+              "R5"
+            ],
+            "sourceRefs": [
+              "diff",
+              "task-2",
+              "rid-R5"
+            ],
+            "summary": "status() and cmd_status print the pass_through value.",
+            "taskIds": [
+              "fn-18-hostname-exact-site-block-pass-unlisted.2"
+            ]
+          },
+          {
+            "additions": 4,
+            "attentionClass": "canonical",
+            "changeType": "modified",
+            "deletions": 0,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-da24b355349b53e4c8047034767d008e4c2ce9ea6c8933a3acd50d0828f00528",
+            "path": "tests/test_config.py",
+            "rIds": [
+              "R5"
+            ],
+            "sourceRefs": [
+              "diff",
+              "task-2",
+              "rid-R5"
+            ],
+            "summary": "Default and validation of site_block.pass_through.",
+            "taskIds": [
+              "fn-18-hostname-exact-site-block-pass-unlisted.2"
+            ]
+          },
+          {
+            "additions": 5,
+            "attentionClass": "canonical",
+            "changeType": "modified",
+            "deletions": 0,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-c0a0b5639bb31e496a7fb7d7b2441f0322b29fb4f7becba0705ea8782293dc76",
+            "path": "tests/test_status.py",
+            "rIds": [
+              "R5"
+            ],
+            "sourceRefs": [
+              "diff",
+              "task-2",
+              "rid-R5"
+            ],
+            "summary": "STATUS_KEYS pins the new pass_through key.",
+            "taskIds": [
+              "fn-18-hostname-exact-site-block-pass-unlisted.2"
+            ]
+          }
+        ],
+        "kind": "step",
+        "ordinal": 5,
+        "rIds": [
+          "R5"
+        ],
+        "sourceRefs": [
+          "task-2",
+          "rid-R5",
+          "commit-t2"
+        ],
+        "summary": "site_block.pass_through defaults to true and is validated; status --json reports pass_through as on, off, or unavailable when the routers did not all bind.",
+        "taskIds": [
+          "fn-18-hostname-exact-site-block-pass-unlisted.2"
+        ],
+        "title": "pass_through config and status"
+      },
+      {
+        "files": [],
+        "kind": "step",
+        "ordinal": 6,
+        "rIds": [
+          "R3"
+        ],
+        "sourceRefs": [
+          "task-1",
+          "task-2",
+          "rid-R3",
+          "commit-range"
+        ],
+        "summary": "Linux's default ip_local_port_range is 32768-60999, so the spec's 60000-60999 let about one in thirty ordinary outbound connections bypass the block. The conductor moved the range to 61000-61999 in the wrapper, the router, the tests, and the spec.",
+        "taskIds": [
+          "fn-18-hostname-exact-site-block-pass-unlisted.1",
+          "fn-18-hostname-exact-site-block-pass-unlisted.2"
+        ],
+        "title": "Exempt range moved above the ephemeral ceiling"
+      },
+      {
+        "files": [],
+        "kind": "kept",
+        "ordinal": 7,
+        "rIds": [],
+        "sourceRefs": [
+          "spec"
+        ],
+        "summary": "No TLS interception, certificates, or decryption. DNS and the address sets are unchanged. The wrapper stays the only privileged component; the accept rule is its only new line. UDP and non-web TCP ports on set members stay rejected.",
+        "taskIds": [],
+        "title": "Kept"
+      },
+      {
+        "files": [
+          {
+            "additions": 24,
+            "attentionClass": "mechanical",
+            "changeType": "added",
+            "deletions": 0,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-3513f5feb473c3a8b64c5a61fe463cba222cdadaea0894ca49976032004475a5",
+            "path": ".flow/memory/bug/security/source-port-exemption-must-sit-above-2026-09-02.md",
+            "rIds": [],
+            "sourceRefs": [
+              "diff"
+            ],
+            "summary": "Memory entry recording the ephemeral-range pitfall.",
+            "taskIds": []
+          },
+          {
+            "additions": 331,
+            "attentionClass": "mechanical",
+            "changeType": "modified",
+            "deletions": 1,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-f8091987f5c342bc08d0c3b1525bbbe1eaa44b5c0e4ced0f18846a646626ac05",
+            "path": ".flow/specs/fn-18-hostname-exact-site-block-pass-unlisted.json",
+            "rIds": [],
+            "sourceRefs": [
+              "diff"
+            ],
+            "summary": "Spec state: task status, review rounds, completion review.",
+            "taskIds": []
+          },
+          {
+            "additions": 4,
+            "attentionClass": "mechanical",
+            "changeType": "modified",
+            "deletions": 2,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-78f16719593e9be4227cea5bead694fb679c048e09c0bf3056cde8f2dfdd4398",
+            "path": ".flow/specs/fn-18-hostname-exact-site-block-pass-unlisted.md",
+            "rIds": [],
+            "sourceRefs": [
+              "diff"
+            ],
+            "summary": "Spec R3 range updated; Decision Context records the range move.",
+            "taskIds": []
+          },
+          {
+            "additions": 53,
+            "attentionClass": "mechanical",
+            "changeType": "modified",
+            "deletions": 5,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-d89176669c54f167c2ba64b46c1ed7a956b0bf0dd23ca3f6e4db8c5165a1eae7",
+            "path": ".flow/tasks/fn-18-hostname-exact-site-block-pass-unlisted.1.md",
+            "rIds": [],
+            "sourceRefs": [
+              "diff"
+            ],
+            "summary": "Task receipt with done summary and evidence.",
+            "taskIds": []
+          },
+          {
+            "additions": 60,
+            "attentionClass": "mechanical",
+            "changeType": "modified",
+            "deletions": 5,
+            "diffUrl": "https://github.com/DanielKillenberger/omarchy-distraction-space/compare/7f009b865fe7c57e222807282fefcc7b379fa5e2...5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7#diff-c582ae0919deca2589cc1a1f135a0d821bd3b27bef69ad55d9eee7486452469f",
+            "path": ".flow/tasks/fn-18-hostname-exact-site-block-pass-unlisted.2.md",
+            "rIds": [],
+            "sourceRefs": [
+              "diff"
+            ],
+            "summary": "Task receipt with done summary and evidence.",
+            "taskIds": []
+          }
+        ],
+        "kind": "verify",
+        "ordinal": 8,
+        "rIds": [],
+        "sourceRefs": [
+          "task-1",
+          "task-2",
+          "commit-fix"
+        ],
+        "summary": "Full unittest suite green on the integrated branch: 255 tests at the review-fix commit. Both tasks reviewed by cursor (gpt-5.6-sol-high) to SHIP on round 2; spec completion review SHIP. The nft kernel syntax check and the R6 live check need root on the machine and remain open.",
+        "taskIds": [
+          "fn-18-hostname-exact-site-block-pass-unlisted.1",
+          "fn-18-hostname-exact-site-block-pass-unlisted.2"
+        ],
+        "title": "Verify"
+      }
+    ],
+    "proof": [
+      {
+        "label": "Tests",
+        "sourceRefs": [
+          "task-1",
+          "task-2",
+          "commit-fix"
+        ],
+        "value": "PATH=/usr/bin:$PATH python3 -m unittest discover -s tests: 255 tests OK on the integrated branch (baseline 239 at the spec base)."
+      },
+      {
+        "label": "Reviews",
+        "sourceRefs": [
+          "task-1",
+          "task-2"
+        ],
+        "value": "Per-task impl-review (cursor, gpt-5.6-sol-high): round 1 NEEDS_WORK, round 2 SHIP for both tasks; spec completion review SHIP."
+      },
+      {
+        "label": "Diff",
+        "sourceRefs": [
+          "diff"
+        ],
+        "value": "14 files, +1340/-47; ds/feedback.py +321/-29 and tests/test_feedback.py +464/-3 carry the router and its tests."
+      },
+      {
+        "label": "Open",
+        "sourceRefs": [
+          "spec",
+          "rid-R6"
+        ],
+        "value": "R6 live check (curl safebrowsing.google.com passes, curl youtube.com fails fast with a banner) and the nft -c syntax check need root and are not yet recorded."
+      }
+    ],
+    "thesis": "A connection to a shared address is refused only when the hostname the client asked for is a listed host or a subdomain of one; every other hostname on that address reaches its real destination unchanged."
+  },
+  "generatedAt": "2026-09-02T15:22:21Z",
+  "headSha": "5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7",
+  "schemaVersion": 1,
+  "sources": [
+    {
+      "id": "spec",
+      "kind": "spec",
+      "ref": "fn-18-hostname-exact-site-block-pass-unlisted"
+    },
+    {
+      "id": "task-1",
+      "kind": "task",
+      "ref": "fn-18-hostname-exact-site-block-pass-unlisted.1"
+    },
+    {
+      "id": "task-2",
+      "kind": "task",
+      "ref": "fn-18-hostname-exact-site-block-pass-unlisted.2"
+    },
+    {
+      "id": "rid-R1",
+      "kind": "rid",
+      "ref": "R1"
+    },
+    {
+      "id": "rid-R2",
+      "kind": "rid",
+      "ref": "R2"
+    },
+    {
+      "id": "rid-R3",
+      "kind": "rid",
+      "ref": "R3"
+    },
+    {
+      "id": "rid-R4",
+      "kind": "rid",
+      "ref": "R4"
+    },
+    {
+      "id": "rid-R5",
+      "kind": "rid",
+      "ref": "R5"
+    },
+    {
+      "id": "rid-R6",
+      "kind": "rid",
+      "ref": "R6"
+    },
+    {
+      "id": "diff",
+      "kind": "diff_metadata",
+      "ref": "7f009b865fe7c57e222807282fefcc7b379fa5e2..5c2e773623cb7395d621ac3374b8c2bc1f3ec6e7"
+    },
+    {
+      "id": "commit-t1",
+      "kind": "commit",
+      "ref": "3fdb232a19d0e188372b6a773390eae8074390b3"
+    },
+    {
+      "id": "commit-t2",
+      "kind": "commit",
+      "ref": "0a5fdf9a1f8192d2a1d8be289b202defbb17588d"
+    },
+    {
+      "id": "commit-range",
+      "kind": "commit",
+      "ref": "325708f858b88ddbacee9c18ccb7a6200c7ab865"
+    },
+    {
+      "id": "commit-fix",
+      "kind": "commit",
+      "ref": "99dbe55213265fe1d7b1e9f6afe2c96e8a18088e"
+    }
+  ],
+  "specId": "fn-18-hostname-exact-site-block-pass-unlisted"
+}

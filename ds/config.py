@@ -21,6 +21,7 @@ DEFAULTS = {
     "list": list(DEFAULT_LIST),
     "keep_reachable": [],
     "nudges": {"app_banner": True, "block_page": True},
+    "site_block": {"pass_through": True},
     "hold_notifications": "off-space",
     "mute_sounds": True,
     "lock": {"default_minutes": 25, "ask_purpose": True, "reason_min_chars": 50},
@@ -148,6 +149,9 @@ def validate(cfg):
     _need(isinstance(nudges, dict), "nudges")
     for k in NUDGE_KEYS:
         _need(k in nudges and _bool(nudges[k]), f"nudges.{k}")
+    sb = cfg.get("site_block")
+    _need(isinstance(sb, dict), "site_block")
+    _need(_bool(sb.get("pass_through")), "site_block.pass_through")
     _need(cfg.get("hold_notifications") in HOLD_VALUES, "hold_notifications")
     _need(_bool(cfg.get("mute_sounds")), "mute_sounds")
     lock = cfg.get("lock")
