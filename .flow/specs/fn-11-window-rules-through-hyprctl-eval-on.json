@@ -1,19 +1,59 @@
 {
   "branch_name": "fn-11-window-rules-through-hyprctl-eval-on",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-02T08:36:52.539310Z",
   "created_at": "2026-09-02T08:18:50.460353Z",
   "default_impl": null,
   "default_review": null,
   "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-11-window-rules-through-hyprctl-eval-on",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-11-window-rules-through-hyprctl-eval-on.1": 0
+  },
   "next_task": 1,
   "no_plan": true,
   "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "a0e74c54bb67c5970f6fc8cf6909452e2dd07a55d4f7ee75e445f69851ffee27",
+      "backend": "cursor",
+      "base_sha": "6fe05311e2e680ae22f52978f576307e926c4923",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "29b54050ab110157e470e8720b91367e3cc9c452",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 751,
+      "output_sha256": "dc9979dbb8398d573a09077c65e9b4b00be3a1e3c4aac9cdf71037bab495c4ae",
+      "reservation_id": "181743c5bf93456c8deb6cff1685a993",
+      "round_consumed": true,
+      "scope": "impl:fn-11-window-rules-through-hyprctl-eval-on.1",
+      "superseded_by": null,
+      "task": "fn-11-window-rules-through-hyprctl-eval-on.1",
+      "timestamp": "2026-09-02T08:36:12.056235Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-11-window-rules-through-hyprctl-eval-on.1": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-11-window-rules-through-hyprctl-eval-on.1": 0
+  },
   "spec_path": ".flow/specs/fn-11-window-rules-through-hyprctl-eval-on.md",
   "status": "open",
   "title": "Window rules through hyprctl eval on the Lua config",
@@ -28,5 +68,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-02T08:18:50.888521Z"
+  "updated_at": "2026-09-02T08:36:52.539320Z"
 }
