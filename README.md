@@ -28,7 +28,7 @@ hyprctl reload
 ~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions setup
 ```
 
-`setup` asks for sudo one time. It installs the nftables wrapper at `/usr/local/libexec/omarchy-distraction-space/distractions-nft` and the grant at `/etc/sudoers.d/omarchy-distraction-space`, then clones and patches the notification service so the hold has a per-sender silenced list to write to. Run it again after an Omarchy update. `distractions setup --remove` reverses all of it. The bar widget lands in the center section; `omarchy bar move io.github.danielkillenberger.distraction-space --section right` moves it.
+`setup` asks for sudo one time. It installs the nftables wrapper at `/usr/local/libexec/omarchy-distraction-space/distractions-nft` and the grant at `/etc/sudoers.d/omarchy-distraction-space`, records what it installed in `/usr/local/libexec/omarchy-distraction-space/.installed.sha256` so a matching re-run needs no password, then clones and patches the notification service so the hold has a per-sender silenced list to write to. Run it again after an Omarchy update. `distractions setup --remove` reverses all of it. The bar widget lands in the center section; `omarchy bar move io.github.danielkillenberger.distraction-space --section right` moves it.
 
 Installs from before 2.1.0 used the id `distraction-space`. To move to the new id: `omarchy plugin remove distraction-space`, add the plugin again with the command above, copy the three snippets again (the helper path changed), and run `distractions setup`.
 
@@ -45,7 +45,7 @@ Autostart owns the long-running listener. To start it now without logging out:
 omarchy plugin remove io.github.danielkillenberger.distraction-space
 ```
 
-`setup --remove` flushes the nft sets, removes the wrapper and the sudoers grant with sudo, and removes the notification-service clone it created. Run it before `omarchy plugin remove`, because the plugin directory holds the script that does the removing. Delete the three Hyprland snippets by hand, the same way they went in.
+`setup --remove` flushes the nft sets, removes the wrapper, the sudoers grant, and that record with sudo, and removes the notification-service clone it created. Run it before `omarchy plugin remove`, because the plugin directory holds the script that does the removing. Delete the three Hyprland snippets by hand, the same way they went in.
 
 ## What it does
 
@@ -150,7 +150,7 @@ State file shapes, the listener loop, the network generation counter, the clone 
 PATH=/usr/bin:$PATH python3 -m unittest discover -s tests
 ```
 
-256 tests, offline, about 100 seconds. `tests/harness.py` gives every test its own temporary XDG root and puts fake `hyprctl`, `getent`, `busctl`, `pactl`, and nft binaries at the front of `PATH`, so a run never touches your session, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, 20 of the 27 cases in `tests/test_hypr.py` fail here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request.
+293 tests, offline, about 100 seconds. `tests/harness.py` gives every test its own temporary XDG root and puts fake `hyprctl`, `getent`, `busctl`, `pactl`, and nft binaries at the front of `PATH`, so a run never touches your session, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, 20 of the 27 cases in `tests/test_hypr.py` fail here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request.
 
 Lint the bar widget with `qmllint` from `qt6-declarative`; it is not on `PATH`. Quickshell maps `qs.*` onto the shell root, so a bare `-I "$OMARCHY_PATH/shell"` cannot resolve `qs.Commons` or `qs.Ui`. Give it an import directory whose `qs` entry links to the shell instead.
 
@@ -159,7 +159,7 @@ mkdir -p /tmp/qmlimports && ln -sfn "${OMARCHY_PATH:-/usr/share/omarchy}/shell" 
 /usr/lib/qt6/bin/qmllint -I /tmp/qmlimports BarWidget.qml
 ```
 
-One warning remains, `Member "iconSlot" not found on type "QObject"` at `Style.bar.iconSlot`. `Style.bar` is an inline `QtObject` whose declared properties qmllint cannot see through the bare `QObject` type, so the warning is noise. Anything else is a finding.
+Two warnings remain, both noise. `Member "iconSlot" not found on type "QObject"` at `Style.bar.iconSlot`: `Style.bar` is an inline `QtObject` whose declared properties qmllint cannot see through the bare `QObject` type. `Type QProcess::ExitStatus of parameter exitStatus in signal called exited was not found` at the state process's `onExited`: the type lives in a Qt module this import path does not carry, and Omarchy's own `plugins/bar/indicators/ScreenRecording.qml` emits it verbatim under the same command. Anything else is a finding.
 
 ## License
 

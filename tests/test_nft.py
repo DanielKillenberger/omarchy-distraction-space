@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import shutil
 import subprocess
@@ -65,6 +66,18 @@ class NftTests(unittest.TestCase):
     def stdin_log(self):
         path = self.root / "stdin.log"
         return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def address_lines(self, count):
+        base = int(ipaddress.IPv4Address("10.0.0.0"))
+        return [str(ipaddress.IPv4Address(base + i)) for i in range(count)]
+
+    def padded_payload(self, lines, size):
+        payload = "".join(line + "\n" for line in lines)
+        # Blank lines are skipped by the parser, so padding moves the byte count
+        # without moving the address count.
+        payload += "\n" * (size - len(payload.encode("utf-8")))
+        self.assertEqual(len(payload.encode("utf-8")), size)
+        return payload
 
     def test_render_has_redirect_per_family_and_reject(self):
         script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"])
@@ -186,6 +199,39 @@ class NftTests(unittest.TestCase):
         blank = self.run_wrapper(["flush", "ds"], "  \n\t\n")
         self.assertEqual(blank.returncode, 0, blank.stderr)
         self.assertTrue((self.root / "calls.log").exists())
+
+    def test_refuses_input_over_caps_before_any_nft_call(self):
+        over_bytes = "\n" * (self.nft.MAX_STDIN_BYTES + 1)
+        over_addresses = "".join(
+            line + "\n" for line in self.address_lines(self.nft.MAX_ADDRESSES + 1)
+        )
+        cases = [
+            ("replace_stdin_over_byte_cap", ["replace", "ds"], over_bytes),
+            ("replace_over_address_cap", ["replace", "ds"], over_addresses),
+            ("flush_stdin_over_byte_cap", ["flush", "ds"], over_bytes),
+        ]
+        for name, args, stdin in cases:
+            with self.subTest(case=name):
+                result = self.run_wrapper(args, stdin)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue(
+                    result.stderr.startswith("refused:"), result.stderr
+                )
+                self.assertFalse((self.root / "calls.log").exists())
+                self.assertFalse((self.root / "stdin.log").exists())
+
+    def test_accepts_payload_exactly_at_caps(self):
+        lines = self.address_lines(self.nft.MAX_ADDRESSES)
+        payload = self.padded_payload(lines, self.nft.MAX_STDIN_BYTES)
+        result = self.run_wrapper(["replace", "ds"], payload)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            (self.root / "calls.log").read_text(encoding="utf-8"), "1\n"
+        )
+        logged = self.stdin_log()
+        for addr in (lines[0], lines[-1]):
+            with self.subTest(addr=addr):
+                self.assertIn(addr, logged)
 
     def test_nft_check_skips_without_cap(self):
         nft = shutil.which("nft")

@@ -24,11 +24,27 @@ TLS_PORT = 28443
 # outbound connection never draws an exempt source port by chance.
 SPLICE_PORT_LO = 61000
 SPLICE_PORT_HI = 61999
+# The listener sends one textual address per line for the resolved site list -- tens
+# to low hundreds of addresses, well under 16 KiB -- so this sits far above real use
+# and far below anything that stresses a root process.
+MAX_STDIN_BYTES = 256 * 1024
+# Same headroom on the set itself, so a granted account cannot make root render and
+# commit a ruleset proportional to whatever it feels like sending.
+MAX_ADDRESSES = 4096
 
 
 def _fail(message: str, code: int = 2) -> None:
     print(message, file=sys.stderr)
     raise SystemExit(code)
+
+
+def _read_stdin() -> str:
+    # Bound the read itself rather than checking a full one: a single byte past the
+    # cap proves the sender is over it, without root ever holding what it sent.
+    data = sys.stdin.buffer.read(MAX_STDIN_BYTES + 1)
+    if len(data) > MAX_STDIN_BYTES:
+        _fail(f"refused: stdin over {MAX_STDIN_BYTES} bytes")
+    return data.decode("utf-8", errors="replace")
 
 
 def _parse_address(token: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
@@ -92,6 +108,10 @@ def parse_replace_stdin(text: str) -> tuple[list[str], list[str]]:
         rendered = str(addr)
         if rendered in seen:
             continue
+        # Checked while parsing, so neither list nor the rendered ruleset ever grows
+        # past the cap and no oversized set reaches commit.
+        if len(seen) >= MAX_ADDRESSES:
+            _fail(f"refused: over {MAX_ADDRESSES} addresses")
         seen.add(rendered)
         if isinstance(addr, ipaddress.IPv4Address):
             v4.append(rendered)
@@ -116,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
         _fail("refused: only target ds is allowed")
     if command not in {"replace", "flush"}:
         _fail("usage: distractions-nft replace|flush ds")
-    text = sys.stdin.read()
+    text = _read_stdin()
     if command == "flush":
         if text.strip():
             _fail("refused: flush takes no stdin")

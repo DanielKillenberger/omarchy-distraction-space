@@ -3,11 +3,16 @@
 import json
 import os
 import socket
+import stat
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from ds import hypr
+
+# Every JSON file read here is state this plugin writes: kilobytes at most. The cap
+# is what a reader will materialize from a path someone else may have grown.
+READ_CAP = 1024 * 1024
 
 
 def state_dir() -> Path:
@@ -34,10 +39,48 @@ def now_iso():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def read_json(path, default=None):
+def read_bounded(path, cap=READ_CAP):
+    """The file's bytes, or None when it is missing, irregular, unreadable, or over `cap`.
+
+    Every path read here is small state this plugin wrote, and each one is
+    predictable and sits in a directory the account can write. The descriptor is
+    opened without following a symlink and non-blocking, and checked with `fstat`
+    before a byte is read, so neither a link pointing somewhere else nor a fifo or
+    device swapped in where a state file was can redirect, stall, or fill the
+    reader -- the bar's shell process and the listener both come through here.
+
+    Past the cap the read refuses rather than truncating: a caller that got the
+    first `cap` bytes of a larger file cannot tell a whole state file from the
+    head of one, and JSON that parses after truncation would be believed. One
+    byte over is enough to refuse, so `cap` bytes exactly still read clean.
+    """
     try:
-        return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = b""
+        while len(data) <= cap:
+            chunk = os.read(fd, min(65536, cap + 1 - len(data)))
+            if not chunk:
+                return data
+            data += chunk
+        return None
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def read_json(path, default=None):
+    data = read_bounded(path)
+    if data is None:
+        return default
+    try:
+        return json.loads(data.decode("utf-8"))
+    except (json.JSONDecodeError, UnicodeDecodeError):
         return default
 
 

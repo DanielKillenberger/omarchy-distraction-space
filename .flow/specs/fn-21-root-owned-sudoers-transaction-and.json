@@ -1,0 +1,146 @@
+{
+  "branch_name": "fn-21-root-owned-sudoers-transaction-and",
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-04T17:31:40.904908Z",
+  "created_at": "2026-09-04T16:39:52.622521Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
+  "depends_on_epics": [],
+  "id": "fn-21-root-owned-sudoers-transaction-and",
+  "impl_review_rounds": {
+    "fn-21-root-owned-sudoers-transaction-and.1": 0
+  },
+  "next_task": 1,
+  "plan_review_rounds": 0,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": null,
+  "ready": true,
+  "review_attempts": [
+    {
+      "artifact_sha256": "0e6d0a8cafb43e79af4ba2c1d94f532efee9b10344f5959360e638cbc4d1fbe7",
+      "backend": "cursor",
+      "base_sha": "1c3fa253b438da6913231b922b19990ea7c0c417",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-41c9b72e3126c28e5a05f3e636f5481a",
+            "classification": "introduced",
+            "findingId": "finding-41c9b72e3126c28e5a05f3e636f5481a",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-3152b35109300fa6e08fe7181d9a5800",
+            "classification": "introduced",
+            "findingId": "finding-3152b35109300fa6e08fe7181d9a5800",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "f116af0f7d69fe3da803d29a6bdac82cf60ff96c",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 2502,
+      "output_sha256": "aabcf2a312da92ea803bd041d192d9dcf8616ea6901e0fdacbb9e2c9558f1fe0",
+      "reservation_id": "892a29e076ff4a7f9943f71c7e8c8337",
+      "round_consumed": true,
+      "scope": "impl:fn-21-root-owned-sudoers-transaction-and.1",
+      "superseded_by": null,
+      "task": "fn-21-root-owned-sudoers-transaction-and.1",
+      "timestamp": "2026-09-04T17:23:09.973361Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "e52f410a5a7541853f39f6f1f43a1b3efce2d18870849295ac419e9de583f6c6",
+      "backend": "cursor",
+      "base_sha": "1c3fa253b438da6913231b922b19990ea7c0c417",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-41c9b72e3126c28e5a05f3e636f5481a",
+            "classification": "introduced",
+            "findingId": "finding-41c9b72e3126c28e5a05f3e636f5481a",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-3152b35109300fa6e08fe7181d9a5800",
+            "classification": "introduced",
+            "findingId": "finding-3152b35109300fa6e08fe7181d9a5800",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "9eecae511b51b54c9f509fe882d17d2df272887e",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 890,
+      "output_sha256": "cf9545487773df852de522adfca49a57ed843ef085b197e5703fcc92d642e800",
+      "reservation_id": "05f077f5c98349a09274dfd42665d295",
+      "round_consumed": true,
+      "scope": "impl:fn-21-root-owned-sudoers-transaction-and.1",
+      "superseded_by": null,
+      "task": "fn-21-root-owned-sudoers-transaction-and.1",
+      "timestamp": "2026-09-04T17:30:56.022268Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-21-root-owned-sudoers-transaction-and.1": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-21-root-owned-sudoers-transaction-and.1": 0
+  },
+  "spec_path": ".flow/specs/fn-21-root-owned-sudoers-transaction-and.md",
+  "status": "open",
+  "title": "Root-owned sudoers transaction and bounded reads",
+  "tracker": {
+    "baseHashFlow": null,
+    "baseHashTracker": null,
+    "depRelations": [],
+    "id": null,
+    "identifier": null,
+    "lastSyncedAt": null,
+    "mergeBaseFlow": null,
+    "mergeBaseTracker": null,
+    "url": null
+  },
+  "updated_at": "2026-09-04T17:31:40.904917Z"
+}

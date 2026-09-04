@@ -3,12 +3,15 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import pwd
+import shutil
 import stat
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
@@ -17,7 +20,7 @@ sys.path.insert(0, str(ROOT))
 from ds import setup
 
 SUDO = r"""
-import os, shutil, sys
+import os, shutil, subprocess, sys
 from pathlib import Path
 raw = sys.argv[1:]
 args = list(raw)
@@ -48,40 +51,14 @@ def unlock(path: Path):
 def is_wrapper_flush(a):
     return len(a) >= 2 and a[-2:] == ["flush", "ds"] and Path(a[0]).name == "distractions-nft"
 
-def parse_install(a):
-    if a[:1] != ["install"]:
-        return None
-    mode = 0o755
-    dflag = False
-    files = []
-    i = 1
-    while i < len(a):
-        if a[i] == "-D":
-            dflag = True
-            i += 1
-        elif a[i] == "-m":
-            mode = int(a[i + 1], 8)
-            i += 2
-        else:
-            files.append(a[i])
-            i += 1
-    if len(files) != 2:
-        return None
-    return files[0], Path(files[1]), mode, dflag
-
-def do_install(src, dest, mode, dflag):
-    unlock(dest)
-    unlock(dest.parent)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(src, dest)
-    os.chmod(dest, mode)
-    relock()
-
-# Interactive session or grant: sh -c compare-or-install, install, wrapper, rm.
-# Standalone cmp (including sudo -n cmp) is not accepted.
+# Interactive session or grant: the setup transaction, the wrapper flush, rm.
+# Nothing else is accepted, and only the flush runs passwordless.
 if nflag and not is_wrapper_flush(args):
     sys.exit(1)
-log.open("a").write(" ".join(raw) + "\n")
+entry = raw
+if args[:2] == ["python3", "-c"]:
+    entry = ["python3", "-c", "<transaction>", *args[3:]]
+log.open("a").write(" ".join(entry) + "\n")
 if os.environ.get("DS_SUDO_DENY"):
     sys.exit(1)
 if is_wrapper_flush(args):
@@ -89,45 +66,17 @@ if is_wrapper_flush(args):
     if err:
         sys.stderr.write(err + "\n")
     sys.exit(int(os.environ.get("DS_FLUSH_RC", "0")))
-if args[:2] == ["sh", "-c"] and len(args) == 6 and args[3] == "sh":
-    script, src, dest = args[2], Path(args[4]), Path(args[5])
-    tokens = script.split()
-    if "cmp" not in tokens or "install" not in tokens:
-        relock()
-        sys.exit(1)
-    dflag = "-D" in tokens
-    mode = 0o755
-    if "-m" in tokens:
-        mode = int(tokens[tokens.index("-m") + 1], 8)
-    dest_mode = None
-    if dest.exists():
-        dest_mode = dest.stat().st_mode
-        try:
-            os.chmod(dest, dest_mode | 0o400)
-        except OSError:
-            unlock(dest)
+if args[:2] == ["python3", "-c"] and len(args) == 5:
+    # Root really runs the transaction here, against the real destinations: the
+    # read-only prefix stands in for the root-only directories of an install, so
+    # it is opened for the child and closed again after it exits.
+    for dest in args[3:]:
+        unlock(Path(dest).parent)
     try:
-        same = dest.exists() and src.read_bytes() == dest.read_bytes()
-    except OSError:
-        same = False
-    if dest.exists() and dest_mode is not None:
-        try:
-            os.chmod(dest, dest_mode)
-        except OSError:
-            pass
-    if same:
+        rc = subprocess.run([sys.executable, "-c", args[2], *args[3:]]).returncode
+    finally:
         relock()
-        sys.exit(0)
-    do_install(src, dest, mode, dflag)
-    log.open("a").write(
-        f"install {'-D ' if dflag else ''}-m {mode:04o} {src} {dest}\n"
-    )
-    sys.exit(0)
-parsed = parse_install(args)
-if parsed is not None:
-    src, dest, mode, dflag = parsed
-    do_install(src, dest, mode, dflag)
-    sys.exit(0)
+    sys.exit(rc)
 if args[:1] == ["rm"]:
     for token in args[1:]:
         if token.startswith("-"):
@@ -142,11 +91,23 @@ sys.exit(1)
 """
 
 VISUDO = r"""
-import sys
+import hashlib, os, sys
 from pathlib import Path
 if sys.argv[1:2] != ["-cf"] or len(sys.argv) != 3:
     sys.exit(2)
-text = Path(sys.argv[2]).read_text(encoding="utf-8")
+path = Path(sys.argv[2])
+data = path.read_bytes()
+# What was validated, and which file it was: the test proves the same one is renamed.
+log = os.environ.get("DS_VISUDO_LOG")
+if log:
+    st = path.stat()
+    Path(log).open("a").write(
+        f"{path}\t{st.st_dev}:{st.st_ino}\t{oct(st.st_mode & 0o777)}\t{hashlib.sha256(data).hexdigest()}\n"
+    )
+if os.environ.get("DS_VISUDO_FAIL"):
+    sys.stderr.write("visudo: parse error near line 1\n")
+    sys.exit(1)
+text = data.decode("utf-8", "replace")
 if "__INSTALL_USER__" in text or "ALL=(root) NOPASSWD:" not in text:
     sys.exit(1)
 sys.exit(0)
@@ -174,15 +135,22 @@ class SetupTests(unittest.TestCase):
         self.box.apply_env()
         self.prefix = Path(self.box.runtime / "prefix")
         self.prefix.mkdir()
-        os.chmod(self.prefix, 0o555)
         self.wrapper = self.prefix / "libexec" / "omarchy-distraction-space" / "distractions-nft"
         self.sudoers = self.prefix / "etc" / "sudoers.d" / "omarchy-distraction-space"
+        # /etc/sudoers.d is root-only and already there on a real system; the
+        # transaction stages inside it rather than creating it.
+        self.sudoers.parent.mkdir(parents=True)
+        os.chmod(self.sudoers.parent, 0o750)
+        os.chmod(self.prefix, 0o555)
         os.environ["DS_WRAPPER_DEST"] = str(self.wrapper)
         os.environ["DS_SUDOERS_DEST"] = str(self.sudoers)
         self.sudo_log = self.box.runtime / "sudo.log"
         self.rescan_log = self.box.runtime / "rescan.log"
+        self.visudo_log = self.box.runtime / "visudo.log"
         os.environ["DS_SETUP_SUDO_LOG"] = str(self.sudo_log)
         os.environ["DS_RESCAN_LOG"] = str(self.rescan_log)
+        os.environ["DS_VISUDO_LOG"] = str(self.visudo_log)
+        os.environ.pop("DS_VISUDO_FAIL", None)
         os.environ["DS_LOCK_PREFIX"] = str(self.prefix)
         # No notification plugin source in the sandbox: the clone step reports
         # the hold unavailable and never reaches the live omarchy-plugin-clone.
@@ -222,6 +190,23 @@ class SetupTests(unittest.TestCase):
     def _rescan_text(self):
         return self.rescan_log.read_text(encoding="utf-8") if self.rescan_log.exists() else ""
 
+    def _visudo_lines(self):
+        if not self.visudo_log.exists():
+            return []
+        return [ln.split("\t") for ln in self.visudo_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    def _staged(self):
+        """Anything the transaction left behind in the destination directories."""
+        left = []
+        for d in (self.sudoers.parent, self.wrapper.parent):
+            if d.is_dir():
+                left += [p.name for p in d.iterdir() if p.name.startswith(".ds-stage.")]
+        return left
+
+    def _ident(self, path):
+        st = path.stat()
+        return (st.st_dev, st.st_ino)
+
     def test_install_idempotent_and_rescan_last(self):
         rc = setup.install()
         self.assertEqual(rc, 0)
@@ -233,15 +218,46 @@ class SetupTests(unittest.TestCase):
         self.assertIn(principal, text)
         self.assertNotIn("__INSTALL_USER__", text)
         self.assertTrue(self._rescan_text().strip().endswith("shell rescanPlugins"))
-        sudo_after_first = self._sudo_lines()
-        self.assertTrue(any(ln.startswith("install") for ln in sudo_after_first))
+        # One privileged step for the whole install, so setup asks for a password once.
+        self.assertEqual(len(self._sudo_lines()), 1)
+        self.assertTrue(self._sudo_lines()[0].startswith("python3 -c <transaction> "))
+        installed = (self._ident(self.wrapper), self._ident(self.sudoers))
+        validated = len(self._visudo_lines())
         first_rescan = self._rescan_text()
         rc = setup.install()
         self.assertEqual(rc, 0)
-        extra = self._sudo_lines()[len(sudo_after_first):]
-        self.assertFalse(any(ln.startswith("install") for ln in extra))
+        # A re-run whose bytes already match renames nothing and revalidates nothing.
+        self.assertEqual((self._ident(self.wrapper), self._ident(self.sudoers)), installed)
+        self.assertEqual(len(self._visudo_lines()), validated)
+        # And it never reaches sudo at all, so an expired timestamp asks for nothing.
+        self.assertEqual(len(self._sudo_lines()), 1)
+        self.assertEqual(self._staged(), [])
         self.assertGreater(len(self._rescan_text()), len(first_rescan))
         self.assertTrue(self._rescan_text().splitlines()[-1].endswith("shell rescanPlugins"))
+
+    def test_rerun_reinstalls_when_the_installed_bytes_drift(self):
+        self.assertEqual(setup.install(), 0)
+        record = setup._record_dest(self.wrapper)
+        self.assertTrue(record.is_file())
+        self.assertEqual(stat.S_IMODE(record.stat().st_mode), 0o444)
+        digests = record.read_text(encoding="utf-8").split()
+        self.assertEqual(digests[0], hashlib.sha256(self.wrapper.read_bytes()).hexdigest())
+        self.assertEqual(digests[1], hashlib.sha256(self.sudoers.read_bytes()).hexdigest())
+
+        # The record is root's claim about what it installed, so a wrapper that no
+        # longer matches it sends the re-run back through the transaction.
+        for target in (record.parent, record):
+            os.chmod(target, 0o755)
+        self.wrapper.write_bytes(b"#!/usr/bin/env python3\n# drifted\n")
+        self.assertEqual(setup.install(), 0)
+        self.assertEqual(len(self._sudo_lines()), 2)
+        self.assertEqual(self.wrapper.read_bytes(), (ROOT / "distractions-nft").read_bytes())
+
+        # A missing record is the same answer: reinstall rather than assume.
+        record.unlink()
+        self.assertEqual(setup.install(), 0)
+        self.assertEqual(len(self._sudo_lines()), 3)
+        self.assertTrue(setup._record_dest(self.wrapper).is_file())
 
     def test_refuses_user_writable_destination_chain(self):
         writable = self.box.state / "open" / "distractions-nft"
@@ -311,21 +327,85 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.sudoers.exists())
         self.assertTrue(any(ln.startswith("rm ") for ln in self._sudo_lines()))
 
-    def test_sudoers_idempotent_when_unreadable(self):
+    def test_grant_is_validated_and_activated_as_one_root_owned_file(self):
+        """The file visudo accepted is the file that lands: no name is resolved twice."""
         self.assertEqual(setup.install(), 0)
-        os.chmod(self.sudoers, 0o000)
-        sudo_after_first = self._sudo_lines()
-        try:
-            rc = setup.install()
-        finally:
-            if self.sudoers.exists():
-                os.chmod(self.sudoers, 0o440)
-        self.assertEqual(rc, 0)
-        extra = self._sudo_lines()[len(sudo_after_first):]
-        self.assertTrue(
-            any(ln.startswith("sh -c ") and str(self.sudoers) in ln for ln in extra)
+        lines = self._visudo_lines()
+        self.assertEqual(len(lines), 1)
+        path, ident, mode, digest = lines[0]
+        staged = Path(path)
+        # Staged inside the destination's own directory, which only root can write,
+        # under a dotted name sudo's #includedir skips while it waits.
+        self.assertEqual(staged.parent, self.sudoers.parent)
+        self.assertTrue(staged.name.startswith(".ds-stage."))
+        self.assertEqual(mode, oct(0o440))
+        st = self.sudoers.stat()
+        self.assertEqual(ident, f"{st.st_dev}:{st.st_ino}")
+        self.assertEqual(
+            digest, hashlib.sha256(self.sudoers.read_bytes()).hexdigest()
         )
-        self.assertFalse(any(ln.startswith(("install", "cmp ", "-n ")) for ln in extra))
+        self.assertEqual(self._staged(), [])
+
+    def test_rejected_grant_aborts_before_anything_moves(self):
+        os.environ["DS_VISUDO_FAIL"] = "1"
+        rc = setup.install()
+        self.assertEqual(rc, 1)
+        self.assertFalse(self.sudoers.exists())
+        # The grant is checked first, so a rejection costs the wrapper nothing either.
+        self.assertFalse(self.wrapper.exists())
+        self.assertEqual(self._staged(), [])
+        self.assertEqual(self._rescan_text(), "")
+
+    def test_rejected_grant_leaves_the_prior_grant_intact(self):
+        self.assertEqual(setup.install(), 0)
+        before = self.sudoers.read_bytes()
+        ident = self._ident(self.sudoers)
+        os.chmod(self.sudoers.parent, 0o755)
+        os.chmod(self.sudoers, 0o644)
+        self.sudoers.write_bytes(before + b"# drifted\n")
+        os.chmod(self.sudoers, 0o440)
+        os.chmod(self.sudoers.parent, 0o750)
+        # An edit made behind /etc/sudoers.d is invisible to the unprivileged
+        # pre-check by construction, so drop root's record to send this re-run
+        # through the transaction -- which is what this test is about.
+        record = setup._record_dest(self.wrapper)
+        os.chmod(record.parent, 0o755)
+        record.unlink()
+        os.environ["DS_VISUDO_FAIL"] = "1"
+        self.assertEqual(setup.install(), 1)
+        self.assertEqual(self.sudoers.read_bytes(), before + b"# drifted\n")
+        self.assertEqual(self._ident(self.sudoers), ident)
+        self.assertEqual(self._staged(), [])
+
+    def test_wrapper_source_is_pinned_against_symlinks_and_irregular_files(self):
+        src = self.box.runtime / "src"
+        src.mkdir()
+        real = src / "real"
+        real.write_bytes(b"#!/usr/bin/env python3\n")
+        link = src / "link"
+        link.symlink_to(real)
+        fifo = src / "fifo"
+        os.mkfifo(fifo)
+        self.assertEqual(setup._pinned_source(real), b"#!/usr/bin/env python3\n")
+        for name, path in (("symlink", link), ("fifo", fifo), ("missing", src / "gone")):
+            with self.subTest(name):
+                self.assertIsNone(setup._pinned_source(path))
+
+    def test_install_refuses_a_non_regular_wrapper_source_before_any_sudo(self):
+        fake_root = self.box.runtime / "plugin"
+        (fake_root / "install").mkdir(parents=True)
+        shutil.copyfile(
+            ROOT / "install" / "sudoers.omarchy-distraction-space",
+            fake_root / "install" / "sudoers.omarchy-distraction-space",
+        )
+        (fake_root / "distractions-nft").symlink_to(ROOT / "distractions-nft")
+        with patch.object(setup, "ROOT", fake_root):
+            rc = setup.install()
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._sudo_lines(), [])
+        self.assertFalse(self.wrapper.exists())
+        self.assertFalse(self.sudoers.exists())
+        self.assertEqual(self._rescan_text(), "")
 
     def test_cli_setup_and_remove(self):
         site = self.box.runtime / "pysite"

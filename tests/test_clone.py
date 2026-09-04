@@ -387,12 +387,17 @@ class CloneTests(unittest.TestCase):
     def _arm_wrapper_install(self):
         prefix = self.box.runtime / "prefix"
         prefix.mkdir()
+        sudoers = prefix / "etc" / "sudoers.d" / "omarchy-distraction-space"
+        # /etc/sudoers.d is already there and root-only on a real system; the
+        # setup transaction stages the grant inside it rather than creating it.
+        sudoers.parent.mkdir(parents=True)
+        os.chmod(sudoers.parent, 0o750)
         os.chmod(prefix, 0o555)
         self.addCleanup(os.chmod, prefix, 0o755)
         self.wrapper = prefix / "libexec" / "omarchy-distraction-space" / "distractions-nft"
         os.environ.update(
             DS_WRAPPER_DEST=str(self.wrapper),
-            DS_SUDOERS_DEST=str(prefix / "etc" / "sudoers.d" / "omarchy-distraction-space"),
+            DS_SUDOERS_DEST=str(sudoers),
             DS_SETUP_SUDO_LOG=str(self.box.runtime / "sudo.log"),
             DS_LOCK_PREFIX=str(prefix),
         )

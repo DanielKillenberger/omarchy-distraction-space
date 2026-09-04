@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fn-21 — Root-owned sudoers transaction and bounded reads</title>
+<style>
+:root {
+  --bg: #0c0b09; --panel: #14120e; --panel-2: #1a1712;
+  --line: #2c2719; --line-soft: #211d14;
+  --ink: #e8e2d4; --dim: #9a917c; --faint: #645d4c;
+  --amber: #ffb454; --amber-deep: #cc8b33;
+  --green: #87d96c; --red: #f07178; --cyan: #5ccfe6; --violet: #c9a7f5;
+  --mono: "Berkeley Mono", "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: var(--mono); font-size: 14px; line-height: 1.65;
+}
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 999;
+  background:
+    repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,180,84,0.012) 2px 4px),
+    radial-gradient(ellipse 120% 60% at 50% -10%, rgba(255,180,84,0.05), transparent 60%);
+}
+.wrap { max-width: 1120px; margin: 0 auto; padding: 0 26px 80px; }
+a { color: var(--cyan); text-decoration: none; border-bottom: 1px solid var(--line); }
+a:hover { color: var(--amber); border-bottom-color: var(--amber-deep); }
+code { font-family: var(--mono); color: var(--cyan); font-size: .94em; }
+
+nav.rail {
+  position: sticky; top: 0; z-index: 50;
+  background: rgba(12,11,9,.82); backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 34px;
+}
+nav.rail .inner { max-width: 1120px; margin: 0 auto; padding: 10px 26px; display: flex; flex-wrap: wrap; gap: 20px; }
+nav.rail a {
+  font-size: 10px; letter-spacing: .18em; text-transform: uppercase;
+  color: var(--faint); border: 0;
+}
+nav.rail a:hover { color: var(--amber); }
+
+.kicker {
+  font-size: 10px; letter-spacing: .22em; text-transform: uppercase;
+  color: var(--amber); margin: 40px 0 14px;
+}
+.kicker span { color: var(--faint); }
+h1 {
+  font-size: 30px; line-height: 1.22; font-weight: 600; margin: 0 0 22px;
+  letter-spacing: -.01em;
+}
+h1 .id { color: var(--amber); }
+
+.dials { display: grid; grid-template-columns: repeat(5, 1fr); border: 1px solid var(--line); background: var(--panel); }
+.dial { padding: 14px 16px; border-right: 1px solid var(--line-soft); }
+.dial:last-child { border-right: 0; }
+.dial .v { font-size: 19px; font-weight: 700; color: var(--ink); line-height: 1.25; }
+.dial .v.amber { color: var(--amber); }
+.dial .v.red { color: var(--red); }
+.dial .c { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); margin-top: 4px; }
+
+section { margin-top: 46px; animation: rise .5s ease both; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+section:nth-of-type(1) { animation-delay: .05s; }
+section:nth-of-type(2) { animation-delay: .10s; }
+section:nth-of-type(3) { animation-delay: .15s; }
+section:nth-of-type(4) { animation-delay: .20s; }
+section:nth-of-type(5) { animation-delay: .25s; }
+section:nth-of-type(6) { animation-delay: .30s; }
+section:nth-of-type(7) { animation-delay: .35s; }
+
+.shead { display: flex; align-items: baseline; gap: 14px; border-bottom: 1px solid var(--line); padding-bottom: 9px; margin-bottom: 20px; }
+.shead .n { color: var(--amber); font-size: 12px; font-weight: 700; letter-spacing: .1em; }
+.shead h2 { font-size: 17px; text-transform: uppercase; letter-spacing: .08em; margin: 0; font-weight: 600; }
+.shead .note { margin-left: auto; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+
+.tldr { font-family: var(--serif); font-size: 20px; line-height: 1.6; max-width: 920px; color: var(--ink); }
+.tldr strong { color: var(--amber); font-weight: 600; }
+.tldr em { color: var(--cyan); font-style: italic; }
+.thesis { border: 1px solid var(--line); border-left: 3px solid var(--amber); background: var(--panel); padding: 14px 18px; margin-top: 20px; color: var(--dim); }
+.thesis b { color: var(--ink); font-weight: 600; }
+
+table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+th { text-align: left; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); font-weight: 500; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+td { padding: 11px 10px; border-bottom: 1px solid var(--line-soft); color: var(--dim); vertical-align: top; }
+tr:hover td { color: var(--ink); background: #1c170d; }
+td.rid { color: var(--amber); font-weight: 700; white-space: nowrap; width: 54px; }
+details summary { cursor: pointer; color: var(--dim); }
+details summary::marker { color: var(--faint); }
+details[open] summary { color: var(--ink); margin-bottom: 7px; }
+details .body { color: var(--dim); }
+
+.tagchip { display: inline-block; border: 1px solid var(--line); padding: 1px 7px; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; margin-right: 5px; white-space: nowrap; }
+.tagchip.user { color: var(--green); border-color: #2f4a26; }
+.tagchip.para { color: var(--cyan); border-color: #1e4652; }
+.tagchip.inf { color: var(--red); border-color: #4d2126; }
+
+.archgrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+.box { border: 1px solid var(--line); background: var(--panel); padding: 15px 17px; }
+.box h3 { margin: 0 0 8px; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--amber); font-weight: 600; }
+.box p { margin: 0 0 8px; color: var(--dim); }
+.box p:last-child { margin-bottom: 0; }
+.box .now { color: var(--red); }
+.box .then { color: var(--green); }
+
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.card { border: 1px solid var(--line); border-left: 3px solid var(--line); background: var(--panel); padding: 14px 16px; }
+.card.hi { border-left-color: var(--red); }
+.card.md { border-left-color: var(--amber); }
+.card.lo { border-left-color: var(--cyan); }
+.card h3 { margin: 0 0 8px; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); font-weight: 500; }
+.card ul { margin: 0; padding-left: 17px; color: var(--dim); }
+.card li { margin-bottom: 7px; }
+.card li:last-child { margin-bottom: 0; }
+
+.isnot { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.isnot ul { list-style: none; margin: 0; padding: 0; }
+.isnot li { padding: 9px 0 9px 26px; border-bottom: 1px solid var(--line-soft); color: var(--dim); position: relative; }
+.isnot li:last-child { border-bottom: 0; }
+.isnot .is li::before { content: "✓"; position: absolute; left: 4px; color: var(--green); }
+.isnot .isnot-col li::before { content: "✕"; position: absolute; left: 4px; color: var(--red); }
+
+.dec { border: 1px solid var(--line); background: var(--panel); padding: 15px 17px; margin-bottom: 14px; }
+.dec .dn { display: inline-block; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--amber); border: 1px solid var(--line); padding: 1px 7px; margin-bottom: 10px; }
+.dec p { margin: 0 0 9px; color: var(--dim); }
+.dec .quote { color: var(--green); font-style: italic; }
+.dec .rej { color: var(--red); margin-bottom: 0; }
+
+.fog { border: 1px solid var(--line); background: var(--panel); padding: 15px 17px; }
+.fog ul { margin: 0; padding-left: 17px; color: var(--dim); }
+.fog li { margin-bottom: 9px; }
+.fog li:last-child { margin-bottom: 0; }
+.fog b { color: var(--ink); font-weight: 600; }
+
+footer { margin-top: 56px; border-top: 1px solid var(--line); padding-top: 18px; color: var(--faint); font-size: 12px; }
+footer .lens { color: var(--dim); margin-bottom: 12px; }
+.stamp { display: inline-block; border: 1px solid var(--line); padding: 6px 11px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); }
+
+@media (max-width: 760px) {
+  .wrap { padding: 0 16px 60px; }
+  .dials { grid-template-columns: repeat(2, 1fr); }
+  .dial { border-bottom: 1px solid var(--line-soft); }
+  .archgrid, .cards, .isnot { grid-template-columns: 1fr; }
+  h1 { font-size: 24px; }
+  .tldr { font-size: 18px; }
+}
+
+@media print {
+  :root { --bg:#fff; --panel:#fafaf7; --panel-2:#f2f0ea; --line:#ccc7ba; --line-soft:#e2ded2;
+          --ink:#1a1812; --dim:#4a463c; --faint:#8a8678; --amber:#9a6a10; --amber-deep:#9a6a10;
+          --green:#2e7d32; --red:#b3261e; --cyan:#0a6e8a; --violet:#6a3fae; }
+  body::before { display: none; }
+  nav.rail, .progress { display: none; }
+  section { break-inside: avoid-page; animation: none; }
+  @page { size: A4; margin: 1.2cm; }
+}
+</style>
+</head>
+<body>
+
+<nav class="rail"><div class="inner">
+  <a href="#thesis">Thesis</a>
+  <a href="#criteria">Acceptance</a>
+  <a href="#arch">Architecture</a>
+  <a href="#edges">Edge cases</a>
+  <a href="#bounds">Boundaries</a>
+  <a href="#decision">Decision</a>
+  <a href="#fog">Parked</a>
+</div></nav>
+
+<div class="wrap">
+
+  <div class="kicker">Spec render lens <span>·</span> captured from conversation <span>·</span> 2026-09-04</div>
+  <h1><span class="id">fn-21</span> Root-owned sudoers transaction and bounded reads</h1>
+
+  <div class="dials">
+    <div class="dial"><div class="v amber">READY</div><div class="c">status</div></div>
+    <div class="dial"><div class="v">7</div><div class="c">acceptance R-IDs</div></div>
+    <div class="dial"><div class="v red">5</div><div class="c">inferred lines</div></div>
+    <div class="dial"><div class="v">0</div><div class="c">tasks (unplanned)</div></div>
+    <div class="dial"><div class="v"><a href="https://github.com/omacom/omarchy-plugin-marketplace/issues/4518">#4518</a></div><div class="c">listing issue</div></div>
+  </div>
+
+  <section id="thesis">
+    <div class="shead"><span class="n">01</span><h2>Thesis</h2><span class="note">scope: business</span></div>
+    <p class="tldr">A marketplace reviewer stopped the listing review of commit <em>1c3fa25</em> and named four boundaries the plugin does not hold as tightly as its design claims. One of them is a real local-escalation window on the author's machine today: the sudoers drop-in that grants passwordless root to the nft wrapper is validated as the user, then <strong>re-opened by pathname</strong> when root installs it. The other three are unbounded reads that a granted account, or a hostile state file, can drive.</p>
+    <div class="thesis"><b>The load-bearing clarification:</b> the reviewer specified the required shape rather than leaving it open, so no design question blocks the work. Validation and activation become one root-owned, descriptor-pinned transaction with revalidation immediately before an atomic rename. Everything else here is a cap.</div>
+  </section>
+
+  <section id="criteria">
+    <div class="shead"><span class="n">02</span><h2>Acceptance criteria</h2><span class="note">7 rows · provenance chipped</span></div>
+    <table>
+      <thead><tr><th>R</th><th>Criterion</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr data-rid="R1"><td class="rid">R1</td><td>
+          <details><summary>Sudoers grant is validated and activated inside one root-owned transaction; the destination is never re-resolved by pathname after validation.</summary>
+          <div class="body">Root writes the rendered grant to a file only root can modify, validates that same file, and moves it into place atomically. A process running as the installing user cannot substitute content between validation and activation. <b>Errors:</b> visudo rejects the grant, the transaction aborts and any prior grant stays intact; <code>sudo</code> denied, cancelled, or non-TTY, nothing is written.</div></details>
+        </td><td><span class="tagchip para">paraphrase</span></td></tr>
+
+        <tr data-rid="R2"><td class="rid">R2</td><td>
+          <details><summary>The wrapper install reads its source through a pinned descriptor that refuses a symlink or a non-regular file.</summary>
+          <div class="body">The bytes root installs to the wrapper path are the bytes that were checked. <b>Errors:</b> source is a symlink, a non-regular file, or unreadable, the install refuses and the run fails closed.</div></details>
+        </td><td><span class="tagchip para">paraphrase</span></td></tr>
+
+        <tr data-rid="R3"><td class="rid">R3</td><td>
+          <details><summary>Setup completes with exactly one interactive <code>sudo</code> prompt; a matching re-run prompts zero times.</summary>
+          <div class="body"><b>Errors:</b> no error surface beyond R1 and R2.</div></details>
+        </td><td><span class="tagchip para">paraphrase</span></td></tr>
+
+        <tr data-rid="R4"><td class="rid">R4</td><td>
+          <details><summary>The privileged wrapper refuses standard input over a fixed byte cap and an address set over a fixed count cap, before allocating and before any nft commit.</summary>
+          <div class="body"><b>Errors:</b> over either cap, exit non-zero with a <code>refused:</code> line and commit nothing; <code>flush</code> with non-whitespace input keeps its existing refusal.</div></details>
+        </td><td><span class="tagchip para">paraphrase</span><span class="tagchip inf">inferred caps</span></td></tr>
+
+        <tr data-rid="R5"><td class="rid">R5</td><td>
+          <details><summary>The bar's state watcher and the held-summary claim read both bound what they materialize: no non-regular file, and a size cap.</summary>
+          <div class="body"><b>Errors:</b> irregular, oversized, or unreadable state leaves the widget in its empty state and logs nothing to the user; an oversized claim file is read up to the cap at a record boundary and the summary reports on what it read.</div></details>
+        </td><td><span class="tagchip para">paraphrase</span><span class="tagchip inf">inferred mechanism</span></td></tr>
+
+        <tr data-rid="R6"><td class="rid">R6</td><td>
+          <details><summary>The unit suite covers each new refusal path, and the full suite passes.</summary>
+          <div class="body"><b>Errors:</b> no error surface beyond the criteria above.</div></details>
+        </td><td><span class="tagchip inf">inferred</span></td></tr>
+
+        <tr data-rid="R7"><td class="rid">R7</td><td>
+          <details><summary>After the fix lands on <code>main</code>, the listing issue is edited to point at the new commit and a reply maps each review point to the change that answers it.</summary>
+          <div class="body">Editing the issue re-runs validation and the security baseline at the new SHA. <b>Errors:</b> revalidation reports a new finding, the reply waits until that finding is answered too.</div></details>
+        </td><td><span class="tagchip inf">inferred</span></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="arch">
+    <div class="shead"><span class="n">03</span><h2>Architecture</h2><span class="note">four surfaces · confirmed at 1c3fa25</span></div>
+    <div class="archgrid">
+      <div class="box">
+        <h3>Setup transaction</h3>
+        <p class="now">Now: renders the grant to a user-owned temp file, validates it with visudo, then hands the pathname to a sudo helper that re-opens it.</p>
+        <p class="then">Target: root writes, root validates, root renames. The name is resolved once.</p>
+      </div>
+      <div class="box">
+        <h3>Wrapper install</h3>
+        <p class="now">Now: root copies the helper out of the user-writable plugin directory by pathname.</p>
+        <p class="then">Target: a pinned, no-follow source descriptor carries the bytes that were checked.</p>
+      </div>
+      <div class="box">
+        <h3>Privileged nft helper</h3>
+        <p>Two argv forms, one fixed table, every address validated with <code>ipaddress.ip_address</code>. The ruleset shape is confined; the count is not.</p>
+        <p class="then">Target: a byte cap and an address cap, refused before allocation and before commit.</p>
+      </div>
+      <div class="box">
+        <h3>Bar watcher and hold claim</h3>
+        <p>The widget holds a watching <code>FileView</code> on the state path for the life of the shell. Summary take renames <code>held.jsonl</code> to a private claim, then reads all of it.</p>
+        <p class="then">Target: a regular-file check and a size cap on both reads.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="edges">
+    <div class="shead"><span class="n">04</span><h2>Edge cases and constraints</h2><span class="note">grouped by blast radius</span></div>
+    <div class="cards">
+      <div class="card hi">
+        <h3>Privilege</h3>
+        <ul>
+          <li>A denied, cancelled, or non-TTY <code>sudo</code> fails closed and leaves no half-installed grant.</li>
+          <li>A rejected grant leaves any prior grant intact.</li>
+          <li>No new privileged command and no widening of the one-line policy.</li>
+        </ul>
+      </div>
+      <div class="card md">
+        <h3>Usability</h3>
+        <ul>
+          <li>The transaction stays one interactive prompt. Two prompts trade a security win for a regression the earlier privilege work avoided.</li>
+          <li>A re-run whose wrapper bytes and grant already match still skips the prompt.</li>
+        </ul>
+      </div>
+      <div class="card lo">
+        <h3>Runtime and process</h3>
+        <ul>
+          <li>The bar renders its empty state on irregular, oversized, or unreadable state rather than blocking the shell.</li>
+          <li>An over-cap claim file is truncated at a record boundary; the claim already removed it, so the records cannot be re-read.</li>
+          <li><code>main</code> stays frozen at <code>1c3fa25</code> until the fix lands, because validation binds to the HEAD at filing.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="bounds">
+    <div class="shead"><span class="n">05</span><h2>Boundaries</h2><span class="note">scope: business</span></div>
+    <div class="isnot">
+      <div class="box is">
+        <h3>Is</h3>
+        <ul>
+          <li>How bytes are validated on the way to root.</li>
+          <li>How much any one read materializes.</li>
+          <li>Regression tests for each new refusal.</li>
+          <li>A revalidated listing issue and a posted reply.</li>
+        </ul>
+      </div>
+      <div class="box isnot-col">
+        <h3>Is not</h3>
+        <ul>
+          <li>Any change to blocking behavior, the site list, the banner path, or summary content.</li>
+          <li>The baseline's citations of <code>.flow/</code> planning files, already answered in the maintainer note.</li>
+          <li>Filing or arguing the listing decision.</li>
+          <li>New dependencies or a wider sudoers policy.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="decision">
+    <div class="shead"><span class="n">06</span><h2>Decision context</h2><span class="note">scope: both</span></div>
+    <div class="dec">
+      <span class="dn">D1 · sudoers activation shape</span>
+      <p>Chosen: one root-owned, descriptor-pinned transaction with revalidation immediately before an atomic rename.</p>
+      <p class="quote">"Validation and activation must be one root-owned, descriptor-pinned transaction with immediate revalidation before atomic rename; apply the same no-follow/pinned-source treatment to the wrapper copy." — reviewer, issue #4518</p>
+      <p class="rej">Rejected: the current user-side temp file plus a root copy by pathname; and a narrower fix that only tightens the temp file's permissions, which leaves the same-UID window open because the file is owned by the account that would attack it.</p>
+    </div>
+    <div class="dec">
+      <span class="dn">D2 · ordering</span>
+      <p>Chosen: the sudoers transaction leads. It is the only finding that crosses a privilege boundary.</p>
+      <p class="rej">Rejected: leading with the caps. They close resource-exhaustion surfaces the granted account already reaches, at lower severity and far lower design risk.</p>
+    </div>
+  </section>
+
+  <section id="fog">
+    <div class="shead"><span class="n">07</span><h2>Parked unknowns</h2><span class="note">2 open</span></div>
+    <div class="fog">
+      <ul>
+        <li><b>Can Quickshell's <code>FileView</code> express a size or regular-file bound directly,</b> or must the bar reach the state through a bounded reader? Resolved by reading the <code>FileView</code> API surface in the installed Quickshell version against what the widget needs.</li>
+        <li><b>The concrete cap values</b> for the wrapper's input and for the two bounded reads. Resolved by measuring the sizes the listener and the hold file produce in normal use and setting each cap above that with headroom.</li>
+      </ul>
+    </div>
+  </section>
+
+  <footer>
+    <div class="lens">Render lens, not record. Source: <code>.flow/specs/fn-21-root-owned-sudoers-transaction-and.md</code></div>
+    <div class="stamp">staleness stamp · spec updated_at 2026-09-04T16:39:53Z · repo commit 1c3fa25 · rendered 2026-09-04</div>
+  </footer>
+
+</div>
+
+<script>
+(function () {
+  var KEY = 'flow-next:fn-21:open-criteria';
+  var open = {};
+  try { open = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { open = {}; }
+  var rows = document.querySelectorAll('tr[data-rid] details');
+  rows.forEach(function (d) {
+    var rid = d.closest('tr').getAttribute('data-rid');
+    if (open[rid]) d.open = true;
+    d.addEventListener('toggle', function () {
+      open[rid] = d.open;
+      try { localStorage.setItem(KEY, JSON.stringify(open)); } catch (e) {}
+    });
+  });
+})();
+</script>
+
+</body>
+</html>

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import inspect
 import json
+import os
 import sys
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -14,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
-from ds import feedback, hypr, listener, lock, net, setup, ui
+from ds import feedback, hypr, listener, lock, net, setup, state, ui
 
 STUBS = ()
 STATUS_KEYS = {
@@ -196,6 +197,57 @@ class StatusTests(unittest.TestCase):
         box = self._box()
         r = box.run()
         self.assertEqual(r.returncode, 2)
+
+
+class BoundedReadTests(unittest.TestCase):
+    """What a reader materializes from a state path someone else can replace."""
+
+    def setUp(self):
+        self.box = Sandbox()
+        self.addCleanup(self.box.cleanup)
+        self.box.apply_env()
+        self.path = Path(self.box.state) / "probe.json"
+
+    def test_reads_a_normal_state_file_whole(self):
+        self.path.write_text(json.dumps({"locked": True}), encoding="utf-8")
+        self.assertEqual(state.read_json(self.path), {"locked": True})
+
+    def test_reads_exactly_the_cap_and_refuses_one_byte_more(self):
+        self.path.write_bytes(b"x" * state.READ_CAP)
+        self.assertEqual(len(state.read_bounded(self.path)), state.READ_CAP)
+        self.path.write_bytes(b"x" * (state.READ_CAP + 1))
+        self.assertIsNone(state.read_bounded(self.path))
+
+    def test_refuses_oversized_json_instead_of_truncating_it(self):
+        # Valid JSON followed by padding: truncation at the cap would leave bytes
+        # that still parse, so the caller would believe a file it never read whole.
+        body = json.dumps({"locked": True}).encode("utf-8")
+        self.path.write_bytes(body + b" " * (state.READ_CAP + 1 - len(body)))
+        self.assertIsNone(state.read_bounded(self.path))
+        self.assertEqual(state.read_json(self.path, {}), {})
+
+    def test_refuses_a_path_that_is_not_a_regular_file(self):
+        fifo = Path(self.box.state) / "fifo.json"
+        os.mkfifo(fifo)
+        self.assertIsNone(state.read_bounded(fifo))
+        self.assertEqual(state.read_json(fifo, {}), {})
+        self.assertIsNone(state.read_bounded(Path(self.box.state)))
+        self.assertIsNone(state.read_bounded(Path(self.box.state) / "gone.json"))
+
+    def test_refuses_a_symlink_even_to_a_readable_file(self):
+        target = Path(self.box.state) / "target.json"
+        target.write_text(json.dumps({"locked": True}), encoding="utf-8")
+        link = Path(self.box.state) / "link.json"
+        link.symlink_to(target)
+        self.assertIsNone(state.read_bounded(link))
+        self.assertEqual(state.read_json(link, {}), {})
+
+    def test_state_reads_come_through_the_bound(self):
+        os.mkfifo(state.state_path("state.json"))
+        os.mkfifo(state.state_path("lock.json"))
+        # Neither call blocks on the fifo; both fall back to their empty answer.
+        self.assertIsNone(state.read_state())
+        self.assertFalse(state.read_lock()["locked"])
 
 
 def _params(fn):
