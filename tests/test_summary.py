@@ -234,6 +234,48 @@ class SummaryUnitTests(_Env):
             self.assertTrue(summary.notice(records, _cfg(command="off")))
             notify.assert_called_once_with(summary.TITLE, GROUPED)
 
+    def test_take_returns_whole_records_only_from_a_file_over_the_read_cap(self):
+        for i in range(40):
+            self.assertTrue(hold.append_held("Telegram", f"Alice {i}", "x" * 120))
+        raw = hold.held_path().read_bytes()
+        cap = len(raw) // 2
+        # The claim already removed the file, so the cut is what gets summarized: whole lines up to the cap.
+        expected = [json.loads(ln) for ln in raw[:cap].rpartition(b"\n")[0].decode("utf-8").splitlines()]
+        self.assertTrue(0 < len(expected) < 40)
+        with mock.patch.object(summary, "HELD_READ_CAP", cap):
+            records = summary.take()
+        self.assertEqual(records, expected)
+        for rec in records:
+            self.assertEqual(set(rec), {"at", "app", "title", "body"})
+            self.assertEqual(rec["body"], "x" * 120)
+        tail = self._log_text()
+        self.assertEqual(tail.count("\n"), 1, tail)
+        self.assertIn(f"is over {cap} bytes", tail)
+        self.assertFalse(hold.held_path().exists())
+        self.assertEqual([p.name for p in self.box.state_dir.iterdir() if "taken" in p.name], [])
+        self.assertEqual(summary.take(), [])
+
+    def test_take_refuses_a_claim_that_is_not_a_regular_file(self):
+        # os.replace renames the fifo, so the claim is reached; opening it must not wait for a writer.
+        os.mkfifo(hold.held_path())
+        t0 = time.monotonic()
+        self.assertEqual(summary.take(), [])
+        self.assertLess(time.monotonic() - t0, 4.0)
+        tail = self._log_text()
+        self.assertEqual(tail.count("\n"), 1, tail)
+        self.assertIn("not a regular file", tail)
+        self.assertFalse(hold.held_path().exists())
+        self.assertEqual([p.name for p in self.box.state_dir.iterdir() if "taken" in p.name], [])
+
+    def test_take_leaves_a_normal_sized_hold_untouched(self):
+        for rec in RECORDS:
+            self.assertTrue(hold.append_held(rec["app"], rec["title"], rec["body"]))
+        self.assertLess(hold.held_path().stat().st_size, summary.HELD_READ_CAP)
+        records = summary.take()
+        self.assertEqual([(r["app"], r["title"], r["body"]) for r in records],
+                         [(r["app"], r["title"], r["body"]) for r in RECORDS])
+        self.assertEqual(self._log_text(), "")
+
     def test_unlock_command_claims_the_records_for_its_hook_and_its_notice(self):
         hook_out = self.box.runtime / "hook-out.json"
         os.environ["DS_HOOK_OUT"] = str(hook_out)

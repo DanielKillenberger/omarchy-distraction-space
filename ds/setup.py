@@ -6,9 +6,9 @@ import hashlib
 import os
 import pwd
 import shutil
+import stat
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 from ds import state
@@ -57,15 +57,217 @@ def _writable_ancestor(dest: Path) -> bool:
     return False
 
 
-def _install_if_changed(src: Path, dest: Path, mode: str, *, mkdir: bool) -> int:
-    inner = (
-        f'install -D -m {mode} "$1" "$2"'
-        if mkdir
-        else f'install -m {mode} "$1" "$2"'
-    )
-    script = f'cmp -s "$1" "$2" 2>/dev/null || {inner}'
+# Both payload halves are small: the shipped wrapper is a few KiB and the grant is
+# one line. The cap only stops setup from streaming something absurd into root.
+MAX_PAYLOAD = 1024 * 1024
+PAYLOAD_MAGIC = "ds-setup-1"
+
+# The root half of `setup`, run once through one `sudo`. The wrapper and the grant
+# arrive as bytes on stdin, so root never re-opens a pathname the installing account
+# can write: the bytes root validates are the bytes root activates, and there is no
+# window between the two for a same-UID process to substitute anything.
+ROOT_TRANSACTION = r'''
+import os
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+
+MAGIC = "@MAGIC@"
+MAX_PAYLOAD = @MAX_PAYLOAD@
+
+
+def fail(message):
+    sys.stderr.write("refused: " + message + "\n")
+    raise SystemExit(1)
+
+
+def read_line():
+    line = bytearray()
+    while len(line) < 64:
+        c = os.read(0, 1)
+        if not c:
+            fail("short payload")
+        if c == b"\n":
+            return line.decode("ascii", "replace")
+        line += c
+    fail("bad payload header")
+
+
+def read_exact(n):
+    out = bytearray()
+    while len(out) < n:
+        chunk = os.read(0, min(65536, n - len(out)))
+        if not chunk:
+            fail("short payload")
+        out += chunk
+    return bytes(out)
+
+
+def installed(path):
+    """What the destination already holds, or None. Never followed through a symlink."""
+    try:
+        # Non-blocking: a fifo left where a destination was would otherwise hold
+        # root open at the `open` itself, before fstat could refuse it.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except FileNotFoundError:
+        return None
+    except OSError as e:
+        fail("cannot read %s: %s" % (path, e))
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode):
+            fail("%s is not a regular file" % path)
+        if st.st_size > MAX_PAYLOAD:
+            return b""
+        return os.read(fd, MAX_PAYLOAD)
+    finally:
+        os.close(fd)
+
+
+def stage(data, directory, mode):
+    """A root-owned file in the destination's own directory, held open by descriptor.
+
+    The name carries a dot, which sudo's #includedir skips, so a staged grant is
+    never parsed while it waits. The directory is root-only in a real install, so
+    the account being granted cannot reach what is staged there.
+    """
+    fd, tmp = tempfile.mkstemp(prefix=".ds-stage.", dir=directory)
+    try:
+        written = 0
+        while written < len(data):
+            written += os.write(fd, data[written:])
+        os.fsync(fd)
+        os.fchmod(fd, mode)
+    except OSError as e:
+        os.close(fd)
+        os.unlink(tmp)
+        fail("cannot stage into %s: %s" % (directory, e))
+    return fd, tmp
+
+
+def activate(fd, tmp, data, dest, mode):
+    """Revalidate the staged file through its own descriptor, then rename it into place."""
+    st, path_st = os.fstat(fd), os.lstat(tmp)
+    if (st.st_dev, st.st_ino) != (path_st.st_dev, path_st.st_ino):
+        fail("%s was replaced before activation" % tmp)
+    if st.st_nlink != 1 or st.st_uid != os.geteuid() or stat.S_IMODE(st.st_mode) != mode:
+        fail("%s is no longer the file that was checked" % tmp)
+    os.lseek(fd, 0, os.SEEK_SET)
+    if os.read(fd, len(data) + 1) != data:
+        fail("%s changed after validation" % tmp)
+    os.rename(tmp, dest)
+
+
+def main():
+    wrapper_dest, sudoers_dest = sys.argv[1], sys.argv[2]
+    if read_line() != MAGIC:
+        fail("bad payload header")
+    try:
+        n_wrapper, n_grant = int(read_line()), int(read_line())
+    except ValueError:
+        fail("bad payload header")
+    if not (0 < n_wrapper <= MAX_PAYLOAD and 0 < n_grant <= MAX_PAYLOAD):
+        fail("payload out of range")
+    wrapper, grant = read_exact(n_wrapper), read_exact(n_grant)
+
+    wrapper_dir, sudoers_dir = os.path.dirname(wrapper_dest), os.path.dirname(sudoers_dest)
+    try:
+        os.makedirs(wrapper_dir, 0o755, exist_ok=True)
+    except OSError as e:
+        fail("cannot create %s: %s" % (wrapper_dir, e))
+    if not os.path.isdir(sudoers_dir):
+        fail("%s is missing" % sudoers_dir)
+
+    staged = []
+    try:
+        # The grant is staged and validated first, so a rejected grant costs nothing:
+        # nothing has moved yet and any prior grant is still the live one.
+        grant_fd = grant_tmp = None
+        if installed(sudoers_dest) != grant:
+            grant_fd, grant_tmp = stage(grant, sudoers_dir, 0o440)
+            staged.append((grant_fd, grant_tmp))
+            visudo = shutil.which("visudo") or "/usr/sbin/visudo"
+            try:
+                checked = subprocess.run([visudo, "-cf", grant_tmp], capture_output=True, text=True)
+            except OSError:
+                fail("visudo missing")
+            if checked.returncode != 0:
+                fail((checked.stderr or checked.stdout or "visudo rejected the grant").strip())
+
+        # The wrapper lands before the grant that names it, so the path the grant
+        # points at is never a name root has promised NOPASSWD on but not written.
+        if installed(wrapper_dest) != wrapper:
+            fd, tmp = stage(wrapper, wrapper_dir, 0o755)
+            staged.append((fd, tmp))
+            activate(fd, tmp, wrapper, wrapper_dest, 0o755)
+            staged.pop()
+            os.close(fd)
+
+        if grant_tmp is not None:
+            activate(grant_fd, grant_tmp, grant, sudoers_dest, 0o440)
+            staged.pop()
+            os.close(grant_fd)
+    finally:
+        for fd, tmp in staged:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+    return 0
+
+
+raise SystemExit(main())
+'''.replace("@MAGIC@", PAYLOAD_MAGIC).replace("@MAX_PAYLOAD@", str(MAX_PAYLOAD))
+
+
+def _pinned_source(path: Path) -> bytes | None:
+    """The shipped wrapper's bytes, read through one descriptor that refuses a symlink.
+
+    Root installs these bytes rather than this pathname, so what was checked here is
+    what lands: nothing re-resolves the plugin directory, which the user can write.
+    """
+    try:
+        # Non-blocking, so a fifo in the plugin directory cannot stall setup
+        # before fstat gets to refuse it.
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as e:
+        print(f"refused: cannot read {path}: {e}", file=sys.stderr)
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            print(f"refused: {path} is not a regular file", file=sys.stderr)
+            return None
+        data = b""
+        while len(data) <= MAX_PAYLOAD:
+            chunk = os.read(fd, 65536)
+            if not chunk:
+                return data
+            data += chunk
+        print(f"refused: {path} is over {MAX_PAYLOAD} bytes", file=sys.stderr)
+        return None
+    except OSError as e:
+        print(f"refused: cannot read {path}: {e}", file=sys.stderr)
+        return None
+    finally:
+        os.close(fd)
+
+
+def _root_transaction(wrapper: bytes, grant: bytes, wrapper_path: Path, sudoers_path: Path) -> int:
+    """One sudo, one prompt: validate and activate both files inside root.
+
+    Everything privileged happens in this single invocation, so setup asks for a
+    password once and a re-run whose bytes already match does no work inside it.
+    """
+    header = f"{PAYLOAD_MAGIC}\n{len(wrapper)}\n{len(grant)}\n".encode("ascii")
     proc = subprocess.run(
-        ["sudo", "sh", "-c", script, "sh", str(src), str(dest)],
+        ["sudo", "python3", "-c", ROOT_TRANSACTION, str(wrapper_path), str(sudoers_path)],
+        input=header + wrapper + grant,
         check=False,
     )
     return proc.returncode
@@ -366,37 +568,12 @@ def install():
     if "__INSTALL_USER__" in grant or not principal:
         print("refused: sudoers render", file=sys.stderr)
         return 1
-    if _install_if_changed(shipped, wrapper, "0755", mkdir=True) != 0:
-        print("sudo install wrapper failed", file=sys.stderr)
+    source = _pinned_source(shipped)
+    if source is None:
         return 1
-    fd, tmp = tempfile.mkstemp(prefix="ds-sudoers.")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(grant)
-            fd = -1
-        try:
-            visudo = subprocess.run(
-                ["visudo", "-cf", tmp],
-                capture_output=True,
-                text=True,
-                check=False,
-            )
-        except FileNotFoundError:
-            print("visudo missing", file=sys.stderr)
-            return 1
-        if visudo.returncode != 0:
-            print((visudo.stderr or "visudo failed").strip(), file=sys.stderr)
-            return 1
-        if _install_if_changed(Path(tmp), sudoers, "0440", mkdir=False) != 0:
-            print("sudo install sudoers failed", file=sys.stderr)
-            return 1
-    finally:
-        if fd >= 0:
-            os.close(fd)
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+    if _root_transaction(source, grant.encode("utf-8"), wrapper, sudoers) != 0:
+        print("sudo setup transaction failed", file=sys.stderr)
+        return 1
     clone_rc = sync_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:

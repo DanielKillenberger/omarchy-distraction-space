@@ -454,6 +454,16 @@ class UiTests(unittest.TestCase):
         missing = self.box.state_dir / "no-such-state.json"
         self.assertFalse(missing.exists())
 
+    def test_bar_widget_watches_the_state_path_but_reads_it_through_the_helper(self):
+        """The shell process never materializes the state path: FileView cannot bound it."""
+        qml = (ROOT / "BarWidget.qml").read_text(encoding="utf-8")
+        self.assertIn("watchChanges", qml)
+        for materializer in ("stateFile.text()", "reload()", "onLoaded"):
+            with self.subTest(materializer):
+                self.assertNotIn(materializer, qml)
+        self.assertRegex(qml, r'\[root\.helperPath, "status", "--json"\]')
+        self.assertIn("onFileChanged: root.refresh()", qml)
+
 
 if __name__ == "__main__":
     unittest.main()

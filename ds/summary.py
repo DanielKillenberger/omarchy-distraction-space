@@ -6,6 +6,7 @@ import json
 import os
 import select
 import shutil
+import stat
 import subprocess
 import tempfile
 import threading
@@ -17,6 +18,9 @@ TITLE = "While you were away"
 CLIP = 800
 # What is read from the command at most: stdout past this is not a one-liner, stderr past this is not a reason.
 READ_CAP, ERR_CAP = 64 * 1024, 4 * 1024
+# Held records are one small JSON object per line, so a real claim is kilobytes: the cap sits far above any
+# genuine hold and bounds what a tampered or runaway file can push through the summary into the listener.
+HELD_READ_CAP = 4 * 1024 * 1024
 # The headless one-shot form of each Omarchy default agent: the prompt on stdin, the answer on stdout.
 AGENTS = {
     "grok": ["grok", "-p"],
@@ -89,8 +93,48 @@ def resolve_command(cfg):
     return default_agent()
 
 
+def _claimed_lines(claim) -> list:
+    """The claimed file's lines, at most HELD_READ_CAP bytes of it and only whole records.
+
+    The claim is opened without following a symlink and must be a regular
+    file: a fifo or a device swapped in where held.jsonl was would otherwise
+    hand the listener something that never ends. O_NONBLOCK keeps that open
+    from waiting on a writer. Past the cap the read stops at the last newline,
+    so the trailing partial record is dropped rather than parsed; the claim
+    already removed the file, so what is dropped cannot be re-read and the
+    summary reports on what it got. Any failure is one log line and no records.
+    """
+    try:
+        fd = os.open(claim, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError as e:
+        _log(f"cannot read {claim}: {e}")
+        return []
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            _log(f"refusing {claim}: not a regular file")
+            return []
+        chunks, size = [], 0
+        while size <= HELD_READ_CAP:
+            chunk = os.read(fd, min(65536, HELD_READ_CAP + 1 - size))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            size += len(chunk)
+        data = b"".join(chunks)
+    except OSError as e:
+        _log(f"cannot read {claim}: {e}")
+        return []
+    finally:
+        os.close(fd)
+    if len(data) > HELD_READ_CAP:
+        cut = data[:HELD_READ_CAP].rpartition(b"\n")[0]
+        _log(f"{claim} is over {HELD_READ_CAP} bytes; summarizing the first {len(cut)}")
+        data = cut
+    return data.decode("utf-8", "replace").splitlines()
+
+
 def take() -> list:
-    """Claim the held records: held.jsonl is renamed away first, then read.
+    """Claim the held records: held.jsonl is renamed away first, then read under a bound.
 
     The rename is the claim, so whoever marks a boundary (the listener on a
     lock expiry or space entry, `distractions unlock` on a manual unlock) gets
@@ -110,10 +154,7 @@ def take() -> list:
         _log(f"cannot claim {path}: {e}")
         return []
     try:
-        lines = claim.read_text(encoding="utf-8").splitlines()
-    except OSError as e:
-        _log(f"cannot read {claim}: {e}")
-        lines = []
+        lines = _claimed_lines(claim)
     finally:
         try:
             claim.unlink()

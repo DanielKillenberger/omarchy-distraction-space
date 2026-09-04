@@ -19,6 +19,7 @@ BarWidget {
   property string until: ""
   property string purpose: ""
   property int heldTotal: 0
+  property bool refreshPending: false
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -61,17 +62,47 @@ BarWidget {
     actionProcess.running = true
   }
 
+  function refresh() {
+    if (stateProcess.running) {
+      root.refreshPending = true
+      return
+    }
+    root.refreshPending = false
+    stateProcess.running = true
+  }
+
+  // The state path is predictable and anyone running as this account can replace
+  // it. FileView has no regular-file or size bound to give (checked against the
+  // installed Quickshell API), and this widget lives as long as the shell, so the
+  // file is watched here and read through the helper, which refuses an irregular
+  // path and stops at a size cap. Nothing the path holds is materialized in-process.
   FileView {
     id: stateFile
     path: root.statePath
     watchChanges: true
-    onLoaded: root.applyState(stateFile.text())
-    onFileChanged: stateFile.reload()
+    onFileChanged: root.refresh()
+  }
+
+  Process {
+    id: stateProcess
+    command: [root.helperPath, "status", "--json"]
+    stdout: StdioCollector {
+      onStreamFinished: root.applyState(this.text)
+    }
+    // A watch that lands mid-read is not lost: the next read starts when this one ends.
+    onExited: function (code) {
+      if (code !== 0)
+        root.applyState("")
+      if (root.refreshPending)
+        root.refresh()
+    }
   }
 
   Process {
     id: actionProcess
   }
+
+  Component.onCompleted: root.refresh()
 
   BarIconButton {
     id: button
