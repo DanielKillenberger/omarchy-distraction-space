@@ -129,7 +129,7 @@
     "impl:fn-21-root-owned-sudoers-transaction-and.1": 0
   },
   "spec_path": ".flow/specs/fn-21-root-owned-sudoers-transaction-and.md",
-  "status": "open",
+  "status": "done",
   "title": "Root-owned sudoers transaction and bounded reads",
   "tracker": {
     "baseHashFlow": null,
@@ -142,5 +142,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-04T17:31:40.904917Z"
+  "updated_at": "2026-09-04T19:48:23.312508Z"
 }
