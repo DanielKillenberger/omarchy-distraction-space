@@ -40,28 +40,34 @@ def now_iso():
 
 
 def read_bounded(path, cap=READ_CAP):
-    """The file's first `cap` bytes, or None when it is missing, irregular, or unreadable.
+    """The file's bytes, or None when it is missing, irregular, unreadable, or over `cap`.
 
     Every path read here is small state this plugin wrote, and each one is
     predictable and sits in a directory the account can write. The descriptor is
-    opened non-blocking and checked with `fstat` before a byte is read, so a fifo
-    or a device swapped in where a state file was cannot stall or fill the reader
-    -- the bar's shell process and the listener both come through here.
+    opened without following a symlink and non-blocking, and checked with `fstat`
+    before a byte is read, so neither a link pointing somewhere else nor a fifo or
+    device swapped in where a state file was can redirect, stall, or fill the
+    reader -- the bar's shell process and the listener both come through here.
+
+    Past the cap the read refuses rather than truncating: a caller that got the
+    first `cap` bytes of a larger file cannot tell a whole state file from the
+    head of one, and JSON that parses after truncation would be believed. One
+    byte over is enough to refuse, so `cap` bytes exactly still read clean.
     """
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK)
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     except OSError:
         return None
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             return None
         data = b""
-        while len(data) < cap:
-            chunk = os.read(fd, min(65536, cap - len(data)))
+        while len(data) <= cap:
+            chunk = os.read(fd, min(65536, cap + 1 - len(data)))
             if not chunk:
-                break
+                return data
             data += chunk
-        return data
+        return None
     except OSError:
         return None
     finally:

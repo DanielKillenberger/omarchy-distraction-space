@@ -61,12 +61,16 @@ def _writable_ancestor(dest: Path) -> bool:
 # one line. The cap only stops setup from streaming something absurd into root.
 MAX_PAYLOAD = 1024 * 1024
 PAYLOAD_MAGIC = "ds-setup-1"
+# Root's record of what it installed, beside the wrapper in root's own directory.
+# The leading dot keeps it out of the way; the name is never a command.
+RECORD_NAME = ".installed.sha256"
 
 # The root half of `setup`, run once through one `sudo`. The wrapper and the grant
 # arrive as bytes on stdin, so root never re-opens a pathname the installing account
 # can write: the bytes root validates are the bytes root activates, and there is no
 # window between the two for a same-UID process to substitute anything.
 ROOT_TRANSACTION = r'''
+import hashlib
 import os
 import shutil
 import stat
@@ -76,6 +80,7 @@ import tempfile
 
 MAGIC = "@MAGIC@"
 MAX_PAYLOAD = @MAX_PAYLOAD@
+RECORD_NAME = "@RECORD_NAME@"
 
 
 def fail(message):
@@ -162,6 +167,7 @@ def activate(fd, tmp, data, dest, mode):
 
 def main():
     wrapper_dest, sudoers_dest = sys.argv[1], sys.argv[2]
+    record_dest = os.path.join(os.path.dirname(wrapper_dest), RECORD_NAME)
     if read_line() != MAGIC:
         fail("bad payload header")
     try:
@@ -209,6 +215,22 @@ def main():
             activate(grant_fd, grant_tmp, grant, sudoers_dest, 0o440)
             staged.pop()
             os.close(grant_fd)
+
+        # What root just installed, digested and world-readable, written last so it
+        # never claims an install that did not finish. The grant is 0440 in a
+        # directory the account cannot traverse, so an unprivileged re-run has no
+        # other way to learn there is nothing to do -- and learning that must not
+        # cost a password. Only root can write here, so the record cannot be forged
+        # by the account the grant names.
+        record = (
+            hashlib.sha256(wrapper).hexdigest() + "\n" + hashlib.sha256(grant).hexdigest() + "\n"
+        ).encode("ascii")
+        if installed(record_dest) != record:
+            fd, tmp = stage(record, wrapper_dir, 0o444)
+            staged.append((fd, tmp))
+            activate(fd, tmp, record, record_dest, 0o444)
+            staged.pop()
+            os.close(fd)
     finally:
         for fd, tmp in staged:
             try:
@@ -223,7 +245,9 @@ def main():
 
 
 raise SystemExit(main())
-'''.replace("@MAGIC@", PAYLOAD_MAGIC).replace("@MAX_PAYLOAD@", str(MAX_PAYLOAD))
+'''.replace("@MAGIC@", PAYLOAD_MAGIC).replace("@MAX_PAYLOAD@", str(MAX_PAYLOAD)).replace(
+    "@RECORD_NAME@", RECORD_NAME
+)
 
 
 def _pinned_source(path: Path) -> bytes | None:
@@ -256,6 +280,39 @@ def _pinned_source(path: Path) -> bytes | None:
         return None
     finally:
         os.close(fd)
+
+
+def _record_dest(wrapper_path: Path) -> Path:
+    return wrapper_path.parent / RECORD_NAME
+
+
+def _already_current(source: bytes, grant: bytes, wrapper_path: Path) -> bool:
+    """True when this install is already the one on disk, decided without privilege.
+
+    The transaction is a no-op when both files match, but reaching it costs a
+    password once the sudo timestamp has expired, so a matching re-run has to be
+    recognised before sudo is invoked at all. The wrapper is 0755 and root-owned,
+    so its bytes are read and compared directly. The grant cannot be: it is 0440
+    in `/etc/sudoers.d`, which the account cannot even traverse. Root's record --
+    written last, in root's own directory, world-readable -- is what answers for
+    it, and it is compared against the digests of the exact bytes this run would
+    install, so a changed wrapper or a re-rendered grant fails the check.
+
+    The gap this leaves is a grant removed out of band: nothing unprivileged can
+    see behind `/etc/sudoers.d`, so setup would still skip. `setup --remove` takes
+    the record with the grant, and the runtime's `sudo -n` already degrades to
+    skip-with-notify when the grant is gone, so the failure is visible and the
+    repair is `setup --remove` followed by `setup`.
+    """
+    record = state.read_bounded(_record_dest(wrapper_path), cap=MAX_PAYLOAD)
+    if record is None:
+        return False
+    want = (
+        hashlib.sha256(source).hexdigest() + "\n" + hashlib.sha256(grant).hexdigest() + "\n"
+    ).encode("ascii")
+    if record != want:
+        return False
+    return state.read_bounded(wrapper_path, cap=MAX_PAYLOAD) == source
 
 
 def _root_transaction(wrapper: bytes, grant: bytes, wrapper_path: Path, sudoers_path: Path) -> int:
@@ -571,9 +628,11 @@ def install():
     source = _pinned_source(shipped)
     if source is None:
         return 1
-    if _root_transaction(source, grant.encode("utf-8"), wrapper, sudoers) != 0:
-        print("sudo setup transaction failed", file=sys.stderr)
-        return 1
+    grant_bytes = grant.encode("utf-8")
+    if not _already_current(source, grant_bytes, wrapper):
+        if _root_transaction(source, grant_bytes, wrapper, sudoers) != 0:
+            print("sudo setup transaction failed", file=sys.stderr)
+            return 1
     clone_rc = sync_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:
@@ -594,7 +653,7 @@ def remove():
         print((proc.stderr or "nft flush failed").strip() or "nft flush failed", file=sys.stderr)
         return 1
     proc = subprocess.run(
-        ["sudo", "rm", "-f", str(wrapper), str(sudoers)],
+        ["sudo", "rm", "-f", str(wrapper), str(sudoers), str(_record_dest(wrapper))],
         check=False,
     )
     if proc.returncode != 0:

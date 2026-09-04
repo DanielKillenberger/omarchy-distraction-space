@@ -229,10 +229,35 @@ class SetupTests(unittest.TestCase):
         # A re-run whose bytes already match renames nothing and revalidates nothing.
         self.assertEqual((self._ident(self.wrapper), self._ident(self.sudoers)), installed)
         self.assertEqual(len(self._visudo_lines()), validated)
-        self.assertEqual(len(self._sudo_lines()), 2)
+        # And it never reaches sudo at all, so an expired timestamp asks for nothing.
+        self.assertEqual(len(self._sudo_lines()), 1)
         self.assertEqual(self._staged(), [])
         self.assertGreater(len(self._rescan_text()), len(first_rescan))
         self.assertTrue(self._rescan_text().splitlines()[-1].endswith("shell rescanPlugins"))
+
+    def test_rerun_reinstalls_when_the_installed_bytes_drift(self):
+        self.assertEqual(setup.install(), 0)
+        record = setup._record_dest(self.wrapper)
+        self.assertTrue(record.is_file())
+        self.assertEqual(stat.S_IMODE(record.stat().st_mode), 0o444)
+        digests = record.read_text(encoding="utf-8").split()
+        self.assertEqual(digests[0], hashlib.sha256(self.wrapper.read_bytes()).hexdigest())
+        self.assertEqual(digests[1], hashlib.sha256(self.sudoers.read_bytes()).hexdigest())
+
+        # The record is root's claim about what it installed, so a wrapper that no
+        # longer matches it sends the re-run back through the transaction.
+        for target in (record.parent, record):
+            os.chmod(target, 0o755)
+        self.wrapper.write_bytes(b"#!/usr/bin/env python3\n# drifted\n")
+        self.assertEqual(setup.install(), 0)
+        self.assertEqual(len(self._sudo_lines()), 2)
+        self.assertEqual(self.wrapper.read_bytes(), (ROOT / "distractions-nft").read_bytes())
+
+        # A missing record is the same answer: reinstall rather than assume.
+        record.unlink()
+        self.assertEqual(setup.install(), 0)
+        self.assertEqual(len(self._sudo_lines()), 3)
+        self.assertTrue(setup._record_dest(self.wrapper).is_file())
 
     def test_refuses_user_writable_destination_chain(self):
         writable = self.box.state / "open" / "distractions-nft"
@@ -340,6 +365,12 @@ class SetupTests(unittest.TestCase):
         self.sudoers.write_bytes(before + b"# drifted\n")
         os.chmod(self.sudoers, 0o440)
         os.chmod(self.sudoers.parent, 0o750)
+        # An edit made behind /etc/sudoers.d is invisible to the unprivileged
+        # pre-check by construction, so drop root's record to send this re-run
+        # through the transaction -- which is what this test is about.
+        record = setup._record_dest(self.wrapper)
+        os.chmod(record.parent, 0o755)
+        record.unlink()
         os.environ["DS_VISUDO_FAIL"] = "1"
         self.assertEqual(setup.install(), 1)
         self.assertEqual(self.sudoers.read_bytes(), before + b"# drifted\n")

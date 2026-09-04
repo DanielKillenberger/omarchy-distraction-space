@@ -28,7 +28,7 @@ hyprctl reload
 ~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions setup
 ```
 
-`setup` asks for sudo one time. It installs the nftables wrapper at `/usr/local/libexec/omarchy-distraction-space/distractions-nft` and the grant at `/etc/sudoers.d/omarchy-distraction-space`, then clones and patches the notification service so the hold has a per-sender silenced list to write to. Run it again after an Omarchy update. `distractions setup --remove` reverses all of it. The bar widget lands in the center section; `omarchy bar move io.github.danielkillenberger.distraction-space --section right` moves it.
+`setup` asks for sudo one time. It installs the nftables wrapper at `/usr/local/libexec/omarchy-distraction-space/distractions-nft` and the grant at `/etc/sudoers.d/omarchy-distraction-space`, records what it installed in `/usr/local/libexec/omarchy-distraction-space/.installed.sha256` so a matching re-run needs no password, then clones and patches the notification service so the hold has a per-sender silenced list to write to. Run it again after an Omarchy update. `distractions setup --remove` reverses all of it. The bar widget lands in the center section; `omarchy bar move io.github.danielkillenberger.distraction-space --section right` moves it.
 
 Installs from before 2.1.0 used the id `distraction-space`. To move to the new id: `omarchy plugin remove distraction-space`, add the plugin again with the command above, copy the three snippets again (the helper path changed), and run `distractions setup`.
 
@@ -45,7 +45,7 @@ Autostart owns the long-running listener. To start it now without logging out:
 omarchy plugin remove io.github.danielkillenberger.distraction-space
 ```
 
-`setup --remove` flushes the nft sets, removes the wrapper and the sudoers grant with sudo, and removes the notification-service clone it created. Run it before `omarchy plugin remove`, because the plugin directory holds the script that does the removing. Delete the three Hyprland snippets by hand, the same way they went in.
+`setup --remove` flushes the nft sets, removes the wrapper, the sudoers grant, and that record with sudo, and removes the notification-service clone it created. Run it before `omarchy plugin remove`, because the plugin directory holds the script that does the removing. Delete the three Hyprland snippets by hand, the same way they went in.
 
 ## What it does
 

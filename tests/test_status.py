@@ -212,11 +212,19 @@ class BoundedReadTests(unittest.TestCase):
         self.path.write_text(json.dumps({"locked": True}), encoding="utf-8")
         self.assertEqual(state.read_json(self.path), {"locked": True})
 
-    def test_stops_at_the_cap(self):
-        self.path.write_bytes(b"x" * (state.READ_CAP + 4096))
+    def test_reads_exactly_the_cap_and_refuses_one_byte_more(self):
+        self.path.write_bytes(b"x" * state.READ_CAP)
         self.assertEqual(len(state.read_bounded(self.path)), state.READ_CAP)
-        # Over the cap the JSON no longer parses, and the caller gets its default.
-        self.assertIsNone(state.read_json(self.path))
+        self.path.write_bytes(b"x" * (state.READ_CAP + 1))
+        self.assertIsNone(state.read_bounded(self.path))
+
+    def test_refuses_oversized_json_instead_of_truncating_it(self):
+        # Valid JSON followed by padding: truncation at the cap would leave bytes
+        # that still parse, so the caller would believe a file it never read whole.
+        body = json.dumps({"locked": True}).encode("utf-8")
+        self.path.write_bytes(body + b" " * (state.READ_CAP + 1 - len(body)))
+        self.assertIsNone(state.read_bounded(self.path))
+        self.assertEqual(state.read_json(self.path, {}), {})
 
     def test_refuses_a_path_that_is_not_a_regular_file(self):
         fifo = Path(self.box.state) / "fifo.json"
@@ -225,6 +233,14 @@ class BoundedReadTests(unittest.TestCase):
         self.assertEqual(state.read_json(fifo, {}), {})
         self.assertIsNone(state.read_bounded(Path(self.box.state)))
         self.assertIsNone(state.read_bounded(Path(self.box.state) / "gone.json"))
+
+    def test_refuses_a_symlink_even_to_a_readable_file(self):
+        target = Path(self.box.state) / "target.json"
+        target.write_text(json.dumps({"locked": True}), encoding="utf-8")
+        link = Path(self.box.state) / "link.json"
+        link.symlink_to(target)
+        self.assertIsNone(state.read_bounded(link))
+        self.assertEqual(state.read_json(link, {}), {})
 
     def test_state_reads_come_through_the_bound(self):
         os.mkfifo(state.state_path("state.json"))
