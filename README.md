@@ -150,7 +150,7 @@ State file shapes, the listener loop, the network generation counter, the clone 
 PATH=/usr/bin:$PATH python3 -m unittest discover -s tests
 ```
 
-256 tests, offline, about 100 seconds. `tests/harness.py` gives every test its own temporary XDG root and puts fake `hyprctl`, `getent`, `busctl`, `pactl`, and nft binaries at the front of `PATH`, so a run never touches your session, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, 20 of the 27 cases in `tests/test_hypr.py` fail here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request.
+293 tests, offline, about 100 seconds. `tests/harness.py` gives every test its own temporary XDG root and puts fake `hyprctl`, `getent`, `busctl`, `pactl`, and nft binaries at the front of `PATH`, so a run never touches your session, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, 20 of the 27 cases in `tests/test_hypr.py` fail here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request.
 
 Lint the bar widget with `qmllint` from `qt6-declarative`; it is not on `PATH`. Quickshell maps `qs.*` onto the shell root, so a bare `-I "$OMARCHY_PATH/shell"` cannot resolve `qs.Commons` or `qs.Ui`. Give it an import directory whose `qs` entry links to the shell instead.
 
@@ -159,7 +159,7 @@ mkdir -p /tmp/qmlimports && ln -sfn "${OMARCHY_PATH:-/usr/share/omarchy}/shell" 
 /usr/lib/qt6/bin/qmllint -I /tmp/qmlimports BarWidget.qml
 ```
 
-One warning remains, `Member "iconSlot" not found on type "QObject"` at `Style.bar.iconSlot`. `Style.bar` is an inline `QtObject` whose declared properties qmllint cannot see through the bare `QObject` type, so the warning is noise. Anything else is a finding.
+Two warnings remain, both noise. `Member "iconSlot" not found on type "QObject"` at `Style.bar.iconSlot`: `Style.bar` is an inline `QtObject` whose declared properties qmllint cannot see through the bare `QObject` type. `Type QProcess::ExitStatus of parameter exitStatus in signal called exited was not found` at the state process's `onExited`: the type lives in a Qt module this import path does not carry, and Omarchy's own `plugins/bar/indicators/ScreenRecording.qml` emits it verbatim under the same command. Anything else is a finding.
 
 ## License
 
