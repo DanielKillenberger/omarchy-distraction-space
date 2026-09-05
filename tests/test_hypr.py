@@ -429,6 +429,14 @@ class HyprTests(unittest.TestCase):
         self.assertTrue(hypr.past("2099-01-01T00:00:00"), "a naive deadline cannot be compared")
         self.assertFalse(hypr.past("2099-01-01T00:00:00+00:00"))
 
+        # snap_back off: a scan or a move leaves an arranged window; a fresh one is still placed.
+        hypr.snap_back = False
+        try:
+            self.assertIsNone(hypr.contain(self._client("0xddd", NATIVE, "2")))
+            self.assertEqual(hypr.contain(self._client("0xddd", NATIVE, "2"), opened=True), "class")
+        finally:
+            hypr.snap_back = True
+
     def test_failed_move_on_a_scan_raises_no_banner(self):
         hypr.apply_rules([TELEGRAM])
         client = self._client("0xaaa", NATIVE, "1")

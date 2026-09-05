@@ -35,6 +35,20 @@ def pwa_class(host):
     return "^chrome-" + re.escape(host) + "__.*$"
 
 
+_PWA_CLASS = re.compile(r"\^chrome-(.+)__\.\*\$")
+_UNESCAPE = re.compile(r"\\(.)")
+
+
+def pwa_host(pattern):
+    """The host behind a `pwa_class` pattern, or None for any other class pattern.
+
+    The expansion carries a web app's host only inside that pattern, so every
+    reader that needs the host back goes through here.
+    """
+    m = _PWA_CLASS.fullmatch(pattern) if isinstance(pattern, str) else None
+    return _UNESCAPE.sub(r"\1", m.group(1)) if m else None
+
+
 def _ident(name, classes, hosts, spec=None):
     spec = spec or {}
     senders = spec.get("senders")

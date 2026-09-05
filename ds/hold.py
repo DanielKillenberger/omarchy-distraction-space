@@ -26,10 +26,6 @@ RELEASE_RETRY = 16.0
 PROC = Path("/proc")
 _SINK_INPUT = re.compile(r"^Event '(new|change|remove)' on sink-input #(\d+)")
 
-# catalog.pwa_class(host) is "^chrome-" + re.escape(host) + "__.*$"; the
-# expansion carries the PWA host only in that class pattern.
-_PWA_CLASS = re.compile(r"\^chrome-(.+)__\.\*\$")
-_UNESCAPE = re.compile(r"\\(.)")
 # Same rule as the shell patch: a Chromium-derived sender is told by its
 # app_name or app_icon, and the site host it prepends to the body is the key.
 _CHROMIUM = ("chrom", "brave", "vivaldi", "microsoft-edge", "opera")
@@ -57,11 +53,9 @@ def _entry_hosts(entry, products):
     """The PWA host; a plain or custom hostname entry adds its hosts."""
     raw = []
     for pat in entry.get("classes") or []:
-        m = _PWA_CLASS.fullmatch(pat) if isinstance(pat, str) else None
-        if m:
-            host = _UNESCAPE.sub(r"\1", m.group(1))
-            if catalog.is_hostname(host):
-                raw.append(host)
+        host = catalog.pwa_host(pat)
+        if host and catalog.is_hostname(host):
+            raw.append(host)
     if entry.get("name") not in products:
         raw.extend(h for h in entry.get("hosts") or [] if isinstance(h, str))
     return raw

@@ -537,6 +537,13 @@ class SetupTests(unittest.TestCase):
         self.assertIsNotNone(self._entries())
         self.assertEqual(self._links(), "on")
 
+    def test_plan_refuses_a_name_with_control_characters(self):
+        cfg = json.loads(json.dumps(DEFAULTS))
+        exp = {"list": [{"name": "Bad\nName", "hosts": ["x.example"], "classes": []},
+                        {"name": "Good", "hosts": ["good.example"], "classes": []}]}
+        plan = setup._plan(exp, cfg, None)
+        self.assertEqual([p.name for p, _text in plan], ["Good.desktop", setup.HANDLER_ID])
+
     def test_wm_class_follows_the_configured_browser(self):
         self._cfg(browser=["/usr/bin/brave", "--foo"])
         self.assertEqual(self._install(), (0, ""))

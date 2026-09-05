@@ -33,10 +33,6 @@ _EXEC_LINE = re.compile(r"^\s*Exec\s*=\s*(.*?)\s*$")
 _FIELD_CODE = re.compile(r"%(.)")
 _KEY_ESCAPES = {"s": " ", "n": "\n", "t": "\t", "r": "\r", "\\": "\\"}
 _SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
-# catalog.pwa_class(host) is "^chrome-" + re.escape(host) + "__.*$"; the expansion
-# carries the PWA host only in that class pattern (same read as ds/hold.py).
-_PWA_CLASS = re.compile(r"\^chrome-(.+)__\.\*\$")
-_UNESCAPE = re.compile(r"\\(.)")
 
 
 @dataclass
@@ -75,11 +71,9 @@ def entry_hosts(entry):
         return []
     out = []
     for pat in entry.get("classes") or []:
-        m = _PWA_CLASS.fullmatch(pat) if isinstance(pat, str) else None
-        if m:
-            host = _UNESCAPE.sub(r"\1", m.group(1))
-            if catalog.is_hostname(host) and host not in out:
-                out.append(host)
+        host = catalog.pwa_host(pat)
+        if host and catalog.is_hostname(host) and host not in out:
+            out.append(host)
     for h in entry.get("hosts") or []:
         if isinstance(h, str) and h and h not in out:
             out.append(h)
@@ -383,7 +377,8 @@ def exec_argv(desktop_id, url=None, skip_own=False):
     for path in desktop_files(desktop_id):
         argv = parse_exec(read_exec(path))
         if not argv:
-            return None
+            # An unusable file nearer in the search order does not hide a good one behind it.
+            continue
         if skip_own and _is_own_launcher(argv):
             continue
         return expand_fields(argv, url) or None

@@ -550,6 +550,10 @@ def contain(client, klass=None, opened=False):
     """
     if not isinstance(client, dict) or _is_released(client.get("address")):
         return None
+    if not opened and not snap_back:
+        # `containment.snap_back: false`: only a fresh window is placed. A scan at
+        # start or reload and a move event leave what the person arranged (R18).
+        return None
     klass = klass or client.get("class") or client.get("initialClass") or ""
     decision = classify(klass, client.get("pid"))
     if decision is None:

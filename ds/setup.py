@@ -13,7 +13,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from ds import catalog, cgroup, config, state
+from ds import catalog, cgroup, config, launch, state
 
 ROOT = Path(__file__).resolve().parent.parent
 WRAPPER_DEFAULT = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
@@ -24,7 +24,8 @@ PATCH = ROOT / "shell" / "notifications-silenced-senders.patch"
 # The URL handler's desktop id: the file setup writes, and the value `xdg-settings`
 # reports once the plugin is the default browser.
 PLUGIN_ID = "io.github.danielkillenberger.distraction-space"
-HANDLER_ID = PLUGIN_ID + ".desktop"
+HANDLER_ID = launch.HANDLER_ID
+assert HANDLER_ID == PLUGIN_ID + ".desktop"
 HANDLER_MIME = "x-scheme-handler/http;x-scheme-handler/https;"
 # The IPC method the shipped patch adds; its presence in the first-party
 # Service.qml means Omarchy carries the change and the clone is redundant.
@@ -671,19 +672,15 @@ def remove_slice() -> int:
     return 0
 
 
-def data_home() -> Path:
-    raw = os.environ.get("XDG_DATA_HOME")
-    return Path(raw) if raw else Path.home() / ".local" / "share"
+# The data directory and the browser profile have one owner, `ds/launch.py`;
+# setup only writes beside what `open` reads.
+data_home = launch.data_home
+profile_dir = launch.profile_dir
 
 
 def applications_dir() -> Path:
     """The person's own applications directory: where Omarchy's web apps live and where the entries shadow from."""
     return data_home() / "applications"
-
-
-def profile_dir() -> Path:
-    """The distraction browser's profile. `open` fills it; remove leaves it in place."""
-    return data_home() / "omarchy" / "distraction-space" / "browser"
 
 
 def _backup_dir() -> Path:
@@ -694,7 +691,8 @@ def _xdg_settings(*args: str) -> tuple[int, str]:
     """`xdg-settings` as the person, never through sudo. A missing tool answers like its own exit 3."""
     try:
         proc = subprocess.run(
-            ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=30,
+            # Short: the listener asks on its own loop, and a hung tool must not hold it.
+            ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=5,
         )
     except (OSError, subprocess.TimeoutExpired):
         return 3, ""
@@ -777,15 +775,9 @@ def _class_prefix(cfg: dict, handler: str | None) -> str:
 
 
 def _app_host(entry: dict) -> str | None:
-    """The host `open` launches the entry with: its first listed host, else the pwa host behind its class."""
-    hosts = entry.get("hosts") or []
-    if hosts and isinstance(hosts[0], str):
-        return hosts[0]
-    for pat in entry.get("classes") or []:
-        m = re.match(r"^\^chrome-(.+)__\.\*\$$", pat) if isinstance(pat, str) else None
-        if m:
-            return re.sub(r"\\(.)", r"\1", m.group(1))
-    return None
+    """The host `open` launches the entry with: the same first host `launch.entry_hosts` picks."""
+    hosts = launch.entry_hosts(entry)
+    return hosts[0] if hosts else None
 
 
 def _wm_class(entry: dict, cfg: dict, handler: str | None) -> str | None:
@@ -793,7 +785,7 @@ def _wm_class(entry: dict, cfg: dict, handler: str | None) -> str | None:
         klass = (entry.get("classes") or [None])[0]
         return klass if isinstance(klass, str) and _EXEC_PLAIN.match(klass) else None
     host = _app_host(entry)
-    return f"{_class_prefix(cfg, handler)}-{host}__-Distraction" if host else None
+    return f"{_class_prefix(cfg, handler)}-{host}__-{launch.PROFILE}" if host else None
 
 
 def _entry_file(entry: dict) -> str:
@@ -847,7 +839,10 @@ def _plan(exp: dict, cfg: dict, handler: str | None, keep_handler: bool = False)
     apps, plan, seen = applications_dir(), [], set()
     for entry in exp.get("list") or []:
         name = entry.get("name") if isinstance(entry, dict) else None
-        if not isinstance(name, str) or not name or "/" in name or name.startswith("."):
+        # A name becomes a filename and a desktop-entry value: no path parts, no
+        # hidden files, and no control character that could start a second key.
+        if not isinstance(name, str) or not name or "/" in name or name.startswith(".") \
+                or any(ord(c) < 32 or c == "\x7f" for c in name):
             continue
         path = apps / _entry_file(entry)
         if path in seen:
