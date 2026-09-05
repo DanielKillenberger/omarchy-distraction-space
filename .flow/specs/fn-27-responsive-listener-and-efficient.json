@@ -1,11 +1,34 @@
 {
   "branch_name": "fn-27-responsive-listener-and-efficient",
+  "completion_review_status": "unknown",
+  "completion_reviewed_at": null,
   "created_at": "2026-09-05T19:23:03.407753Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-27-responsive-listener-and-efficient",
+  "impl_review_rounds": {
+    "fn-27-responsive-listener-and-efficient.1": 1
+  },
   "next_task": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_hash_epoch": {},
+  "review_pending_rounds": {
+    "impl:fn-27-responsive-listener-and-efficient.1": 1
+  },
+  "review_reservations": {
+    "d7efa3090a2c439bb64e16c846673a7b": {
+      "artifact_sha256": "4d5b46ba0099baf9775e7e6d9467539b7cb31fb3286343ad9fb9a71db9503312",
+      "counter_scope": "impl:fn-27-responsive-listener-and-efficient.1",
+      "epoch": 0,
+      "exclusive": true,
+      "forced": false,
+      "review_type": "impl"
+    }
+  },
   "spec_path": ".flow/specs/fn-27-responsive-listener-and-efficient.md",
   "status": "open",
   "title": "Responsive listener and efficient firewall reconciliation",
@@ -20,5 +43,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T19:37:35.732849Z"
+  "updated_at": "2026-09-05T20:25:55.151503Z"
 }
