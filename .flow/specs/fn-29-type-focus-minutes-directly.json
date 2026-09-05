@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-29-type-focus-minutes-directly",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-05T22:41:11.027858Z",
   "created_at": "2026-09-05T22:30:49.151133Z",
   "default_impl": null,
   "default_review": null,
@@ -9,25 +9,85 @@
   "depends_on_epics": [],
   "id": "fn-29-type-focus-minutes-directly",
   "impl_review_rounds": {
-    "fn-29-type-focus-minutes-directly.1": 1
+    "fn-29-type-focus-minutes-directly.1": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
-  "review_hash_epoch": {},
-  "review_pending_rounds": {
-    "impl:fn-29-type-focus-minutes-directly.1": 1
-  },
-  "review_reservations": {
-    "e02a16612b5743a3855a4963bb93a3ea": {
+  "review_attempts": [
+    {
       "artifact_sha256": "744a33d1f83e21678d1044d24ac854c06a4067c132a66e70e768b5d675cfeea6",
-      "counter_scope": "impl:fn-29-type-focus-minutes-directly.1",
-      "epoch": 0,
-      "exclusive": true,
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "claude-cli",
+        "digest_truncated": false,
+        "items": [],
+        "reviewKind": "implementation"
+      },
       "forced": false,
-      "review_type": "impl"
+      "hash_epoch": 0,
+      "head_sha": "42d17ca0bbbfb66383584c124542b81fa6a78554",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 3356,
+      "output_sha256": "0d8a36ced8a89ff3ae9b9b4e90fcee765eb0468c2074475dde73186d4f79426a",
+      "reservation_id": "e02a16612b5743a3855a4963bb93a3ea",
+      "round_consumed": true,
+      "scope": "impl:fn-29-type-focus-minutes-directly.1",
+      "superseded_by": null,
+      "task": "fn-29-type-focus-minutes-directly.1",
+      "timestamp": "2026-09-05T22:37:15.985518Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "9442468d6318c03caa548708a5b542a368655e888aef44ab4d1604ad54fca660",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "claude-cli",
+        "digest_truncated": false,
+        "items": [],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "42d17ca0bbbfb66383584c124542b81fa6a78554",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 3619,
+      "output_sha256": "81be47c6c68b4b3380b35948eb94659ba3711ff412a5437a441dc653a348e7ce",
+      "reservation_id": "7afd6ba3e5f24ce6946c7072664e102f",
+      "round_consumed": true,
+      "scope": "impl:fn-29-type-focus-minutes-directly.1",
+      "superseded_by": null,
+      "task": "fn-29-type-focus-minutes-directly.1",
+      "timestamp": "2026-09-05T22:39:16.950118Z",
+      "verdict": "SHIP"
     }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-29-type-focus-minutes-directly.1": 2
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-29-type-focus-minutes-directly.1": 0
   },
   "spec_path": ".flow/specs/fn-29-type-focus-minutes-directly.md",
   "status": "open",
@@ -43,5 +103,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T22:35:46.467444Z"
+  "updated_at": "2026-09-05T22:41:11.027866Z"
 }

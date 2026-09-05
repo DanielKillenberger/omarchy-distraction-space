@@ -4,7 +4,7 @@
 Replace the searchable duration preset list with native minutes entry, stacked on the v3 improvements and fn28 reason fix.
 
 ## Architecture & Data Models
-Change only ds.ui.prompt_lock duration interaction. Use omarchy-menu-input immediately. No persistence or lock-engine changes.
+Change only ds.ui.prompt_lock duration interaction. Use omarchy-menu-input immediately with width 500 so the duration hint is fully visible; native screen clamping remains in charge. No persistence or lock-engine changes.
 
 ## API Contracts
 Enter positive whole minutes directly; allow whitespace. Zero explicitly means until manual unlock and maps to None at the UI boundary. Show a concise prompt with the configured default as an example and the zero meaning. Invalid configured defaults retain fallback 25. Do not change CLI numeric duration semantics. Purpose and return tuple remain as before.
