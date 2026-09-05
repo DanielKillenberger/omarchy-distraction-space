@@ -4,6 +4,10 @@
 from __future__ import annotations
 
 import ipaddress
+import json
+import io
+import time
+from unittest.mock import patch
 import os
 import shutil
 import subprocess
@@ -296,6 +300,104 @@ class NftTests(unittest.TestCase):
         for addr in (lines[0], lines[-1]):
             with self.subTest(addr=addr):
                 self.assertIn(addr, logged)
+
+    def listed_policy(self):
+        return (self.nft.render_table(["203.0.113.8", "203.0.113.2"], ["2001:db8::8"], CGROUP)
+                .split("\n", 1)[1]
+                .replace("priority filter;", "priority 0;")
+                .replace("priority dstnat;", "priority -100;")
+                .replace("@omarchy_ds_v4 reject\n", "@omarchy_ds_v4 reject with icmp port-unreachable\n")
+                .replace("@omarchy_ds_v6 reject\n", "@omarchy_ds_v6 reject with icmpv6 port-unreachable\n"))
+
+    def test_check_matches_full_policy_and_returns_identity(self):
+        text = self.listed_policy().replace("203.0.113.8, 203.0.113.2", "203.0.113.2,\n 203.0.113.8")
+        (self.bin / "nft").write_text("#!/usr/bin/env python3\nimport sys\nassert sys.argv[1:] == ['-y','list','table','inet','omarchy_ds']\nprint(" + repr(text) + ")\n")
+        result = self.run_wrapper(["check", "ds"], "2001:db8::8\n203.0.113.2\n203.0.113.8\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        st = (self.cgroup_root / CGROUP).stat()
+        self.assertEqual(json.loads(result.stdout), {"dev": st.st_dev, "ino": st.st_ino})
+
+    def test_check_rejects_policy_drift(self):
+        text = self.listed_policy()
+        changes = [
+            ("level 5", "level 4"), (CGROUP, CGROUP + "x"),
+            (f'"{CGROUP}"', "123456"),
+            ("61000-61999", "60000-61999"), ("priority -100", "priority -99"),
+            ("hook output", "hook input"), ("203.0.113.8", "203.0.113.9"),
+            ("type ipv4_addr", "type ipv4_addr; flags interval"),
+            ("chain output {", "chain extra { }\n chain output {"),
+            ("set omarchy_ds_v4 {", "set extra { type ipv4_addr }\n set omarchy_ds_v4 {"),
+            (" accept\n", " counter accept\n"),
+            (" accept\n", ' accept comment "extra"\n'),
+            ("    ip daddr @omarchy_ds_v4 reject with icmp port-unreachable\n", ""),
+            ("    ip daddr @omarchy_ds_v4 reject with icmp port-unreachable\n", "    accept\n"),
+        ]
+        for old, new in changes:
+            with self.subTest(change=(old, new)):
+                actual = text.replace(old, new)
+                self.assertNotEqual(self.nft.canonical_policy(actual), self.nft.canonical_policy(text))
+                output = io.StringIO()
+                with patch.object(self.nft, "slice_identity", return_value=(1, 2)), patch.object(self.nft, "list_policy", return_value=actual), patch("sys.stdout", output):
+                    with self.assertRaises(SystemExit):
+                        self.nft.check_policy(["203.0.113.8", "203.0.113.2"], ["2001:db8::8"], CGROUP)
+                self.assertEqual(output.getvalue(), "")
+        lines = text.splitlines()
+        i = next(i for i, line in enumerate(lines) if 'tcp sport' in line)
+        lines[i], lines[i+1] = lines[i+1], lines[i]
+        self.assertNotEqual(self.nft.canonical_policy('\n'.join(lines)), self.nft.canonical_policy(text))
+        for malformed in ("", "garbage", text + "extra"):
+            self.assertNotEqual(self.nft.canonical_policy(malformed), self.nft.canonical_policy(text))
+
+    def test_check_missing_changed_slice_and_failed_listing(self):
+        with patch.dict(os.environ, self.env), patch.object(self.nft, "list_policy", return_value=self.listed_policy()):
+            with patch.object(self.nft, "slice_identity", side_effect=[(1, 2), (1, 3)]):
+                with self.assertRaises(SystemExit):
+                    self.nft.check_policy(["203.0.113.8", "203.0.113.2"], ["2001:db8::8"], CGROUP)
+        shutil.rmtree(self.cgroup_root / CGROUP)
+        result = self.run_wrapper(["check", "ds"])
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((self.root / "calls.log").exists())
+        self.assertEqual(result.stdout, "")
+
+    def test_check_refuses_input_and_operands(self):
+        for args, data in [(["check", "other"], ""), (["check", "ds", "x"], ""),
+                           (["check", "ds"], "flush ruleset"),
+                           (["check", "ds"], "\n" * (self.nft.MAX_STDIN_BYTES + 1)),
+                           (["check", "ds"], "\n".join(self.address_lines(self.nft.MAX_ADDRESSES + 1)))]:
+            result = self.run_wrapper(args, data)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+        self.assertFalse((self.root / "calls.log").exists())
+
+    def test_listing_bounds_output_time_and_reaps(self):
+        cases = ["import os; os.write(1,b'x'*20000)",
+                 "import os; os.write(2,b'x'*20000)",
+                 "import time; time.sleep(30)",
+                 "import os,time; os.close(1); os.close(2); time.sleep(30)",
+                 "import os,time; pid=os.fork(); time.sleep(30) if pid==0 else os._exit(0)",
+                 "raise SystemExit(1)", "import os; os.write(1,b'\\xff')"]
+        for body in cases:
+            with self.subTest(body=body):
+                (self.bin / "nft").write_text("#!/usr/bin/env python3\n" + body + "\n")
+                launched = []
+                original = subprocess.Popen
+                def launch(*a, **kw):
+                    child = original(*a, **kw)
+                    launched.append(child)
+                    return child
+                with patch.dict(os.environ, self.env), patch.object(self.nft, "CHECK_TIMEOUT", 0.15), patch.object(self.nft, "MAX_OUTPUT_BYTES", 1024), patch.object(self.nft.subprocess, "Popen", side_effect=launch):
+                    start = time.monotonic()
+                    with self.assertRaises(SystemExit):
+                        self.nft.list_policy()
+                    self.assertLess(time.monotonic() - start, 2)
+                self.assertTrue(launched)
+                self.assertIsNotNone(launched[0].poll())
+
+    def test_listing_launch_failure_is_not_proof(self):
+        with patch.object(self.nft.subprocess, "Popen", side_effect=FileNotFoundError), patch("sys.stdout", new_callable=io.StringIO) as output:
+            with self.assertRaises(SystemExit):
+                self.nft.list_policy()
+            self.assertEqual(output.getvalue(), "")
 
     def test_nft_check_skips_without_cap(self):
         nft = shutil.which("nft")
