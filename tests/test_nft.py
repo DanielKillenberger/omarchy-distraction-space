@@ -393,6 +393,12 @@ class NftTests(unittest.TestCase):
                 self.assertTrue(launched)
                 self.assertIsNotNone(launched[0].poll())
 
+    def test_successful_listing_does_not_signal_reaped_pid(self):
+        (self.bin / "nft").write_text("#!/usr/bin/env python3\nprint('listed')\n")
+        with patch.dict(os.environ, self.env), patch.object(self.nft.os, "killpg") as kill:
+            self.assertEqual(self.nft.list_policy(), "listed\n")
+            kill.assert_not_called()
+
     def test_listing_launch_failure_is_not_proof(self):
         with patch.object(self.nft.subprocess, "Popen", side_effect=FileNotFoundError), patch("sys.stdout", new_callable=io.StringIO) as output:
             with self.assertRaises(SystemExit):
@@ -417,6 +423,76 @@ class NftTests(unittest.TestCase):
             if any(w in lowered for w in ("permission", "operation not permitted", "netlink", "cap_net")):
                 return
             self.fail(f"nft -c rejected ruleset: {err}")
+
+
+def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
+    """Invoked only by LiveNftTests inside a disposable user/network namespace."""
+    if os.readlink("/proc/self/ns/net") == parent_namespace:
+        raise RuntimeError("refusing firewall test in parent network namespace")
+    nft = shutil.which("nft")
+    assert nft
+    env = dict(os.environ, SUDO_UID=str(uid))
+    env.pop("DS_CGROUP_ROOT", None)
+    cgroup = Path("/sys/fs/cgroup") / load_nft().slice_path(uid)
+    info = cgroup.stat()
+    identity = {"dev": info.st_dev, "ino": info.st_ino}
+
+    def call(argv, data=""):
+        return subprocess.run(argv, input=data, text=True, capture_output=True,
+                              env=env, timeout=10, check=False)
+
+    data = "203.0.113.8\n203.0.113.2\n2001:db8::8\n"
+
+    def apply_and_check():
+        applied = call([sys.executable, wrapper, "replace", "ds"], data)
+        assert applied.returncode == 0, applied.stderr
+        checked = call([sys.executable, wrapper, "check", "ds"], data)
+        assert checked.returncode == 0, checked.stderr
+        assert json.loads(checked.stdout) == identity, checked.stdout
+
+    apply_and_check()
+    listed = call([nft, "-y", "list", "table", "inet", "omarchy_ds"])
+    assert listed.returncode == 0, listed.stderr
+    print("Real installed policy:\n" + listed.stdout, flush=True)
+    for mutation in ([nft, "add", "rule", "inet", "omarchy_ds", "output", "accept"],
+                     [nft, "delete", "table", "inet", "omarchy_ds"]):
+        changed = call(mutation)
+        assert changed.returncode == 0, changed.stderr
+        checked = call([sys.executable, wrapper, "check", "ds"], data)
+        assert checked.returncode == 1, (checked.returncode, checked.stderr)
+        assert checked.stdout == "", checked.stdout
+        apply_and_check()
+    for count in (0, 4096):
+        base = int(ipaddress.IPv4Address("10.0.0.0"))
+        data = "".join(str(ipaddress.IPv4Address(base + i)) + "\n" for i in range(count))
+        apply_and_check()
+    print("LIVE_NFT_PASS: isolated apply/check, rule/table drift, repair, empty/4096 addresses", flush=True)
+
+
+@unittest.skipUnless(os.environ.get("DS_LIVE_NFT_TEST") == "1", "set DS_LIVE_NFT_TEST=1 for disposable kernel test")
+class LiveNftTests(unittest.TestCase):
+    def test_real_namespace_policy_drift_and_repair(self):
+        unshare = shutil.which("unshare")
+        if not unshare or not shutil.which("nft"):
+            self.skipTest("unshare/nft unavailable")
+        uid = os.getuid()
+        if not (Path("/sys/fs/cgroup") / load_nft().slice_path(uid)).is_dir():
+            self.skipTest("real distraction slice unavailable")
+        env = os.environ.copy()
+        env.pop("DS_CGROUP_ROOT", None)
+        env.pop("PYTHONOPTIMIZE", None)
+        probe = subprocess.run([unshare, "--user", "--map-root-user", "--net", sys.executable,
+                                "-c", "pass"], capture_output=True, text=True, timeout=10, env=env)
+        if probe.returncode:
+            self.skipTest("user/network namespace unavailable: " + probe.stderr.strip())
+        code = ("from tests.test_nft import live_nft_scenario; "
+                "import sys; live_nft_scenario(sys.argv[1],sys.argv[2],int(sys.argv[3]))")
+        result = subprocess.run([unshare, "--user", "--map-root-user", "--net", sys.executable,
+                                 "-c", code, str(WRAPPER), os.readlink("/proc/self/ns/net"), str(uid)],
+                                capture_output=True, text=True, timeout=90, env=env, cwd=ROOT)
+        print(result.stdout, end="")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("LIVE_NFT_PASS:", result.stdout)
 
 
 if __name__ == "__main__":
