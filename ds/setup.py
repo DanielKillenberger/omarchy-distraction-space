@@ -698,34 +698,42 @@ def install():
 def remove():
     wrapper = wrapper_dest()
     sudoers = _sudoers_dest()
-    # The wrapper renders the slice's cgroup rule on every call and nft resolves
-    # that path at load time, so the slice has to be alive for this last flush.
-    # `sync_slice` is idempotent and also restores a unit an earlier partial
-    # remove dropped; with the wrapper already gone there is nothing to render.
-    if wrapper.is_file() and sync_slice() != 0:
-        print("the wrapper cannot flush without the slice", file=sys.stderr)
-        return 1
-    proc = subprocess.run(
-        ["sudo", "-n", str(wrapper), "flush", "ds"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if not _flush_ok(proc):
-        print((proc.stderr or "nft flush failed").strip() or "nft flush failed", file=sys.stderr)
-        return 1
+    # The root half is installed and removed as one set: wrapper, grant, and the
+    # record beside the wrapper. The grant's directory cannot be read from here,
+    # so the two files next to each other stand for the set. When both are gone
+    # an earlier remove already finished this half, and calling sudo again would
+    # only fail once the grant that made it passwordless is gone with it.
+    root_half = wrapper.is_file() or _record_dest(wrapper).is_file()
+    if root_half:
+        # The wrapper renders the slice's cgroup rule on every call and nft
+        # resolves that path at load time, so the slice has to be alive for this
+        # last flush. `sync_slice` is idempotent and restores a unit an earlier
+        # partial remove dropped.
+        if sync_slice() != 0:
+            print("the wrapper cannot flush without the slice", file=sys.stderr)
+            return 1
+        proc = subprocess.run(
+            ["sudo", "-n", str(wrapper), "flush", "ds"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if not _flush_ok(proc):
+            print((proc.stderr or "nft flush failed").strip() or "nft flush failed", file=sys.stderr)
+            return 1
     # The slice goes before the root teardown: while the wrapper and its grant
     # still exist a retry can flush again, so a failure here leaves remove
     # repeatable instead of half done.
     if remove_slice() != 0:
         return 1
-    proc = subprocess.run(
-        ["sudo", "rm", "-f", str(wrapper), str(sudoers), str(_record_dest(wrapper))],
-        check=False,
-    )
-    if proc.returncode != 0:
-        print("sudo rm failed", file=sys.stderr)
-        return 1
+    if root_half:
+        proc = subprocess.run(
+            ["sudo", "rm", "-f", str(wrapper), str(sudoers), str(_record_dest(wrapper))],
+            check=False,
+        )
+        if proc.returncode != 0:
+            print("sudo rm failed", file=sys.stderr)
+            return 1
     clone_rc = remove_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:

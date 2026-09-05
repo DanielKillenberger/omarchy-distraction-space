@@ -395,12 +395,16 @@ class SetupTests(unittest.TestCase):
             ["--user start app-distraction.slice", "--user stop app-distraction.slice", "--user daemon-reload"],
         )
         self.assertTrue(any(ln.endswith("flush ds") for ln in self._sudo_lines()))
-        # The wrapper is gone after the first remove, and so is the unit: the
-        # second run neither starts a unit that has no file nor stops it.
+        # The wrapper, its grant, and the unit are gone after the first remove:
+        # the second run touches neither the manager nor sudo, so it succeeds
+        # even once the passwordless grant no longer exists.
         self.systemctl_log.write_text("", encoding="utf-8")
+        self.sudo_log.write_text("", encoding="utf-8")
+        os.environ["DS_SUDO_DENY"] = "1"
         self.assertEqual(setup.remove(), 0)
         self.assertFalse(self.unit.exists())
         self.assertEqual(self._systemctl_lines(), [])
+        self.assertEqual(self._sudo_lines(), [])
 
     def test_remove_keeps_the_root_files_when_the_slice_cannot_be_stopped(self):
         self.assertEqual(setup.install(), 0)
