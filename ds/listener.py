@@ -11,9 +11,9 @@ import threading
 import time
 from pathlib import Path
 
-from ds import catalog, config, feedback, hold, hypr, lock, net, setup, state, summary, ui
+from ds import catalog, cgroup, config, feedback, hold, hypr, lock, net, setup, state, summary, ui
 
-TICK, PERIOD, _APPLY = 1.0, 30.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
+TICK, PERIOD, _APPLY = 1.0, 60.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
 CLIENT_CAP = 256
 
 
@@ -23,14 +23,20 @@ def _reload_wait():
 
 def cmd_listen(args): return run()
 
-def cmd_reload(args):
+def cmd_reload(args): return _ask("reload")
+
+def cmd_refresh(args): return _ask("refresh")
+
+def _ask(verb):
+    """One verb to the running listener: 0 on an `ok` reply, 1 otherwise."""
+    failed = f"{verb.capitalize()} failed"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connected = False
     try:
         sock.settimeout(_reload_wait())
         sock.connect(str(state.runtime_path("distraction-space.sock")))
         connected = True
-        sock.sendall(b"reload\n")
+        sock.sendall(verb.encode() + b"\n")
         buf = b""
         while b"\n" not in buf:
             chunk = sock.recv(256)
@@ -39,11 +45,11 @@ def cmd_reload(args):
             buf += chunk
         if buf.split(b"\n", 1)[0] == b"ok":
             return 0
-        ui.notify("Reload failed", "The listener rejected the request.")
+        ui.notify(failed, "The listener rejected the request.")
         return 1
     except OSError:
         if connected:
-            ui.notify("Reload failed", "The listener closed the connection.")
+            ui.notify(failed, "The listener closed the connection.")
         else:
             ui.notify("No listener running", "Start it with: distractions listen")
         return 1
@@ -65,7 +71,17 @@ def run():
         lf.close()
 
 def _empty():
-    return {"list": [], "keep_reachable": [], "nudges": {"app_banner": False, "block_page": False}}
+    return {"list": [], "keep_reachable": [], "nudges": {"app_banner": False, "block_page": False},
+            "site_block": {"enabled": True}}
+
+def _apply(addrs):
+    """Every wrapper call, flush included, renders the slice's cgroup rule, so the slice is started first.
+
+    The wrapper is the check: it refuses when the cgroup is missing and `net.apply`
+    reports that as `unavailable`, so a failed start is not a reason to skip the call.
+    """
+    cgroup.ensure_slice()
+    return net.apply(addrs)
 
 def _close(*objs):
     for obj in objs:
@@ -181,6 +197,7 @@ class _Ctx:
         self.clients = []
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
         self.hold_failed_at = 0.0
+        self.links, self.browser, self.released = "off", None, {}
         self.capture, self.mute = hold.Capture(), hold.Mute()
     def _note_invalid(self):
         if not self.noted:
@@ -196,6 +213,9 @@ class _Ctx:
             self.hold_noted = True
     def hold_table(self):
         return hold.key_table(self.exp.get("list") or [])
+    def block_enabled(self):
+        sb = self.exp.get("site_block")
+        return sb.get("enabled") is not False if isinstance(sb, dict) else True
     def sync_hold(self, force=False):
         """Push the plugin's sender keys on every change of effective hold or of the keys.
 
@@ -240,15 +260,14 @@ class _Ctx:
         _scan(self.exp.get("list") or [])
         feedback.start(self.cfg or {"nudges": self.exp.get("nudges") or {}}, lock.is_locked)
         if reason == "reload":
-            self.space("reload")
+            self.space()
         else:
             here = hypr.on_space()
             if here is not None and self.prev is None:
                 self.prev = here
         self.sync_hold(force=True)
-        if self.prev is True:
+        if not self.block_enabled():
             self.flush(reason)
-            self.write_state(True)
             return True
         self.request(reason)
         self.write_state(True)
@@ -305,24 +324,15 @@ class _Ctx:
             net.finish_batch(batch, "stale")
             self._reply_waiters(gen, False)
             return self._follow()
-        here = hypr.on_space()
-        if here is not False:
-            net.finish_batch(batch, "dropped")
-            self.rerun = False
-            self._reply_waiters(gen, False)
-            self.write_state()
-            return
-        result = net.apply(addrs)
+        result = _apply(addrs)
         net.finish_batch(batch, _APPLY.get(result, result))
         self._reply_waiters(gen, True)
         self.write_state()
         self._follow()
     def _follow(self):
-        if self.rerun and hypr.on_space() is False:
+        if self.rerun:
             self.rerun = False
             self._launch(self.latest, self.reason)
-        else:
-            self.rerun = False
     def _adopt_waiters(self, gen):
         now = time.monotonic()
         deadline = now + net.BATCH_DEADLINE + 5
@@ -344,7 +354,7 @@ class _Ctx:
     def flush(self, _reason=None):
         self.gen += 1
         self.latest, self.rerun = self.gen, False
-        net.apply([])
+        _apply([])
         self._drop_waiters()
         self.write_state(True)
     def event(self, line):
@@ -355,7 +365,7 @@ class _Ctx:
         hypr.handle_event(line)
         name = _workspace_name(line)
         if name is not None:
-            self.space("workspace", name)
+            self.space(name)
     def tick(self):
         raw = state.read_json(state.state_path("lock.json"), None)
         if lock.expire_if_due():
@@ -363,15 +373,16 @@ class _Ctx:
             ui.notify("Lock ended", purpose or "")
             lock.run_hook("unlock", _env("unlock", purpose or "", self.summarize()))
             self.write_state(True)
-        self.space("tick")
+        self.space()
         self.capture.tick()
         self.mute.tick()
         self.sync_hold()
         self.write_state()
-        if self.prev is not True and time.monotonic() - self.last_period >= PERIOD:
+        if time.monotonic() - self.last_period >= PERIOD:
             self.last_period = time.monotonic()
-            self.request("periodic")
-    def space(self, reason, name=None):
+            if self.block_enabled():
+                self.request("periodic")
+    def space(self, name=None):
         here = (name == hypr.SPACE) if name is not None else hypr.on_space()
         if here is None:
             return
@@ -382,12 +393,8 @@ class _Ctx:
             return
         if here is True and prev is not True:
             lock.run_hook("enter", _env("enter", held=self.summarize()))
-            self.flush()
         elif here is False and prev is True:
             lock.run_hook("leave", _env("leave"))
-            self.request("workspace")
-        elif here is False and reason == "workspace":
-            self.request("workspace")
         self.prev = here
         self.sync_hold()
         self.write_state()
@@ -400,8 +407,7 @@ class _Ctx:
         state.write_expansion(self.exp)
         return self.enforce("reload")
     def refresh(self):
-        if self.prev is True:
-            self.flush("refresh")
+        if not self.block_enabled():
             return True
         self.request("refresh")
         return self.latest
@@ -413,10 +419,12 @@ class _Ctx:
             "site_block": net.site_block, "listener_pid": os.getpid(),
             "hold": self.hold_on is True, "held": hold.held_counts(), "notification_hold": self.hold_ipc,
             "pass_through": feedback.pass_through_state(),
+            "links": self.links, "browser": self.browser, "released": dict(self.released),
             "updated": state.now_iso(),
         }
         key = (obj["locked"], obj["until"], obj["purpose"], obj["on_space"], obj["site_block"],
-               obj["hold"], obj["notification_hold"], obj["pass_through"], tuple(sorted(obj["held"].items())))
+               obj["hold"], obj["notification_hold"], obj["pass_through"], tuple(sorted(obj["held"].items())),
+               obj["links"], obj["browser"], tuple(sorted(obj["released"].items())))
         if not force and key == self.last_state:
             return
         self.last_state = key
@@ -437,17 +445,26 @@ def _read_cfg():
 
 def _from_cfg(cfg):
     return {"list": catalog.expand(cfg), "keep_reachable": list(cfg.get("keep_reachable") or []),
-            "nudges": dict(cfg.get("nudges") or {})}
+            "nudges": dict(cfg.get("nudges") or {}),
+            "site_block": {"enabled": cfg["site_block"]["enabled"]}}
 
 def _as_exp(obj):
+    """The saved expansion; a version 2 file reads with `desktop: null` and the block on."""
     if isinstance(obj, list):
         obj = {"list": obj}
     if not isinstance(obj, dict):
         return _empty()
     items = obj.get("list") or obj.get("entries") or []
     nudges = obj.get("nudges") if isinstance(obj.get("nudges"), dict) else {}
-    return {"list": items if isinstance(items, list) else [],
-            "keep_reachable": list(obj.get("keep_reachable") or []), "nudges": dict(nudges)}
+    sb = obj.get("site_block") if isinstance(obj.get("site_block"), dict) else {}
+    return {"list": [_with_desktop(e) for e in items] if isinstance(items, list) else [],
+            "keep_reachable": list(obj.get("keep_reachable") or []), "nudges": dict(nudges),
+            "site_block": {"enabled": sb.get("enabled") is not False}}
+
+def _with_desktop(entry):
+    if isinstance(entry, dict) and not isinstance(entry.get("desktop"), str):
+        return {**entry, "desktop": None}
+    return entry
 
 def _hosts(exp):
     seen, out = set(), []

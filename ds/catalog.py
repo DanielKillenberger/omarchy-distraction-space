@@ -39,10 +39,12 @@ def _ident(name, classes, hosts, spec=None):
     spec = spec or {}
     senders = spec.get("senders")
     audio = spec.get("audio")
+    desktop = spec.get("desktop")
     return {
         "name": name, "classes": classes, "hosts": hosts,
         "senders": list(senders) if isinstance(senders, list) else [],
         "audio": dict(audio) if isinstance(audio, dict) else {},
+        "desktop": desktop if isinstance(desktop, str) and desktop else None,
     }
 
 

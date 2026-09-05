@@ -29,6 +29,9 @@ STATUS_KEYS = {
     "held",
     "notification_hold",
     "pass_through",
+    "links",
+    "browser",
+    "released",
     "updated",
 }
 
@@ -77,6 +80,9 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(data["held"], {})
         self.assertEqual(data["notification_hold"], "off")
         self.assertEqual(data["pass_through"], "off")
+        self.assertEqual(data["links"], "off")
+        self.assertIsNone(data["browser"])
+        self.assertEqual(data["released"], {})
 
     def test_status_json_off_space(self):
         box = self._box()
@@ -166,6 +172,9 @@ class StatusTests(unittest.TestCase):
                     "held": {"Telegram": 3, "Discord": "many", "X": True},
                     "notification_hold": "unavailable",
                     "pass_through": "on",
+                    "links": "displaced",
+                    "browser": "brave",
+                    "released": {"0xbeef": _iso(1), "0xdead": 5},
                     "updated": _iso(-1),
                 }
             ),
@@ -180,6 +189,9 @@ class StatusTests(unittest.TestCase):
         self.assertEqual(data["held"], {"Telegram": 3})
         self.assertEqual(data["notification_hold"], "unavailable")
         self.assertEqual(data["pass_through"], "on")
+        self.assertEqual(data["links"], "displaced")
+        self.assertEqual(data["browser"], "brave")
+        self.assertEqual(list(data["released"]), ["0xbeef"])
         r = box.run("status")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("hold=on held=3 notification_hold=unavailable", r.stdout)
@@ -307,6 +319,7 @@ class StubContractTests(unittest.TestCase):
         self.assertEqual(_params(listener.run), [])
         self.assertEqual(_params(listener.cmd_listen), ["args"])
         self.assertEqual(_params(listener.cmd_reload), ["args"])
+        self.assertEqual(_params(listener.cmd_refresh), ["args"])
         self.assertEqual(_params(setup.cmd_setup), ["args"])
 
 

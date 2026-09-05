@@ -21,7 +21,10 @@ DEFAULTS = {
     "list": list(DEFAULT_LIST),
     "keep_reachable": [],
     "nudges": {"app_banner": True, "block_page": True},
-    "site_block": {"pass_through": True},
+    "site_block": {"enabled": True, "pass_through": True},
+    "browser": "auto",
+    "open_links_in_space": True,
+    "containment": {"snap_back": True, "release_minutes": 30},
     "hold_notifications": "off-space",
     "mute_sounds": True,
     "lock": {"default_minutes": 25, "ask_purpose": True, "reason_min_chars": 50},
@@ -55,6 +58,10 @@ def _bool(v):
 
 def _nat(v):
     return type(v) is int and v >= 0
+
+
+def _pos(v):
+    return type(v) is int and v >= 1
 
 
 def _argv(v):
@@ -151,7 +158,15 @@ def validate(cfg):
         _need(k in nudges and _bool(nudges[k]), f"nudges.{k}")
     sb = cfg.get("site_block")
     _need(isinstance(sb, dict), "site_block")
+    _need(_bool(sb.get("enabled")), "site_block.enabled")
     _need(_bool(sb.get("pass_through")), "site_block.pass_through")
+    browser = cfg.get("browser")
+    _need(browser == "auto" or _argv(browser), "browser")
+    _need(_bool(cfg.get("open_links_in_space")), "open_links_in_space")
+    containment = cfg.get("containment")
+    _need(isinstance(containment, dict), "containment")
+    _need(_bool(containment.get("snap_back")), "containment.snap_back")
+    _need(_pos(containment.get("release_minutes")), "containment.release_minutes")
     _need(cfg.get("hold_notifications") in HOLD_VALUES, "hold_notifications")
     _need(_bool(cfg.get("mute_sounds")), "mute_sounds")
     lock = cfg.get("lock")

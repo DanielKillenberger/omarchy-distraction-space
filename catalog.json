@@ -1,6 +1,7 @@
 {
   "Telegram": {
     "class": "org.telegram.desktop",
+    "desktop": "org.telegram.desktop",
     "pwa": "web.telegram.org",
     "hosts": [],
     "senders": ["Telegram Desktop", "org.telegram.desktop"],
@@ -16,6 +17,7 @@
   },
   "Signal": {
     "class": "^signal$",
+    "desktop": "signal-desktop",
     "pwa": "signal.org",
     "hosts": [],
     "senders": ["Signal", "signal"],

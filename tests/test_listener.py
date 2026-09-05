@@ -135,10 +135,17 @@ else:
         time.sleep(0.5)
 """
 
+# The listener starts the slice before every wrapper call; the real user manager stays out of it.
+SYSTEMCTL = r"""
+import os, sys
+from pathlib import Path
+Path(os.environ["DS_SYSTEMCTL_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
+"""
+
 _ENV_KEYS = (
     "DS_HYPR_LOG", "DS_NOTIFY_LOG", "DS_NFT_LOG", "GETENT_LOG", "DS_HOOK_LOG",
     "DS_HYPR_STATE", "DS_SOCKET2", "GETENT_MAP", "GETENT_GATE", "DS_HYPR_FAIL",
-    "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT",
+    "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT", "DS_SYSTEMCTL_LOG",
 )
 
 
@@ -196,6 +203,7 @@ class ListenerTests(unittest.TestCase):
         self.getent_log = self.box.runtime / "getent.log"
         self.hook_log = self.box.runtime / "hook.log"
         self.hypr_state = self.box.runtime / "hypr-state.json"
+        self.systemctl_log = self.box.runtime / "systemctl.log"
         self.sock2_path = self.box.runtime / "socket2.sock"
         self.gate = self.box.runtime / "getent.gate"
         self._orig_env = {k: os.environ.get(k) for k in _ENV_KEYS}
@@ -206,6 +214,7 @@ class ListenerTests(unittest.TestCase):
             "GETENT_LOG": str(self.getent_log),
             "DS_HOOK_LOG": str(self.hook_log),
             "DS_HYPR_STATE": str(self.hypr_state),
+            "DS_SYSTEMCTL_LOG": str(self.systemctl_log),
             "DS_SOCKET2": str(self.sock2_path),
             "GETENT_MAP": json.dumps({"x.com": ["203.0.113.10"], "www.x.com": ["203.0.113.10"]}),
             "DS_FEEDBACK_HTTP_PORT": "0",
@@ -219,6 +228,7 @@ class ListenerTests(unittest.TestCase):
         self.box.fake_bin("omarchy-shell", SHELL_STUB)
         self.box.fake_bin("busctl", QUIET_STUB)
         self.box.fake_bin("pactl", QUIET_STUB)
+        self.box.fake_bin("systemctl", SYSTEMCTL)
         self.hook_py = self.box.bin / "ds-hook.py"
         self.hook_py.write_text("#!/usr/bin/env python3\n" + HOOK, encoding="utf-8")
         self.hook_py.chmod(0o755)
@@ -226,9 +236,15 @@ class ListenerTests(unittest.TestCase):
         self.proc = None
         self.sock2 = None
         self.conn = None
+        self.fired = []
 
     def tearDown(self):
         self._stop()
+        for sock in self.fired:
+            try:
+                sock.close()
+            except OSError:
+                pass
         if self.conn:
             try:
                 self.conn.close()
@@ -345,6 +361,29 @@ class ListenerTests(unittest.TestCase):
         sock.connect(str(self.box.runtime / "distraction-space.sock"))
         return sock
 
+    def _fire(self, verb):
+        """Send a verb and leave the reply unread: the request lands, the caller does not wait."""
+        sock = self._reload_sock()
+        sock.sendall((verb + "\n").encode())
+        self.fired.append(sock)
+
+    def _period_env(self, seconds):
+        site = self.box.runtime / "pysite"
+        site.mkdir(exist_ok=True)
+        (site / "sitecustomize.py").write_text(
+            "import sys\n"
+            f"sys.path.insert(0, {str(ROOT)!r})\n"
+            "from ds import listener\n"
+            f"listener.PERIOD = {float(seconds)!r}\n",
+            encoding="utf-8",
+        )
+        return {"PYTHONPATH": str(site)}
+
+    def _systemctl_lines(self):
+        if not self.systemctl_log.exists():
+            return []
+        return [ln for ln in self.systemctl_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
     def _state(self):
         path = self.box.state_dir / "state.json"
         if not path.exists():
@@ -357,12 +396,12 @@ class ListenerTests(unittest.TestCase):
         return self.nft_log.read_text(encoding="utf-8")
 
     def _nft_cmds(self):
-        text = self._nft()
+        """The wrapper verbs in call order: `replace ds` / `flush ds`."""
         cmds = []
-        for block in text.split("\n--\n"):
+        for block in self._nft().split("\n--\n"):
             line = block.strip().splitlines()
             if line:
-                cmds.append(line[0])
+                cmds.append(" ".join(line[0].split()[-2:]))
         return cmds
 
     def _hooks(self):
@@ -393,28 +432,95 @@ class ListenerTests(unittest.TestCase):
         text = self.notify_log.read_text(encoding="utf-8") if self.notify_log.exists() else ""
         self.assertIn("No listener running", text)
 
-    def test_workspace_off_space_replace_enter_flush_state(self):
+    def test_enter_and_leave_touch_no_network(self):
         self._cfg()
         self._start()
         self._wait_nft("replace ds")
         self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on", 4), self._state())
         st = self._state()
-        self.assertIsNotNone(st)
         self.assertFalse(st["on_space"])
-        self.assertEqual(st["site_block"], "on")
         self.assertEqual(st["listener_pid"], self.proc.pid)
+        self.assertEqual((st["links"], st["browser"], st["released"]), ("off", None, {}))
+        self.assertEqual(self._systemctl_lines(), ["--user start app-distraction.slice"])
+        nft_cmds, hosts = self._nft_cmds(), list(self._getent_hosts())
+        self.assertEqual(nft_cmds, ["replace ds"])
         self._workspace("2", 2)
         self._send("workspacev2>>2,2")
-        self.assertTrue(_wait(lambda: self._nft().count("replace ds") >= 2, 6))
         self._workspace("distraction", 5)
         self._send("workspacev2>>5,distraction")
+        self.assertTrue(_wait(lambda: self._hooks().count("enter") == 1, 4), self._hooks())
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("on_space") is True, 4), self._state())
+        self.assertEqual(self._state()["site_block"], "on")
+        self._workspace("1", 1)
+        self._send("workspacev2>>1,1")
+        self.assertTrue(_wait(lambda: self._hooks().count("leave") == 1, 4), self._hooks())
+        time.sleep(1.2)
+        self.assertEqual(self._nft_cmds(), nft_cmds)
+        self.assertEqual(self._getent_hosts(), hosts)
+        self.assertEqual(self._systemctl_lines(), ["--user start app-distraction.slice"])
+        st = self._state()
+        self.assertFalse(st["on_space"])
+        self.assertEqual(st["site_block"], "on")
+
+    def test_periodic_resolve_runs_on_the_space_with_the_slice_started_first(self):
+        self._cfg()
+        self._start(extra_env=self._period_env(1.0))
+        self._wait_nft("replace ds")
+        self._workspace("distraction", 5)
+        self._send("workspacev2>>5,distraction")
+        self.assertTrue(_wait(lambda: self._hooks().count("enter") == 1, 4), self._hooks())
+        n0 = self._nft().count("replace ds")
+        self.assertTrue(_wait(lambda: self._nft().count("replace ds") >= n0 + 2, 6), self._nft_cmds())
+        self.assertNotIn("flush ds", self._nft())
+        self.assertTrue((self._state() or {}).get("on_space"))
+        self.assertEqual(self._state()["site_block"], "on")
+        cmds = self._nft_cmds()
+        self.assertEqual(self._systemctl_lines()[:len(cmds)], ["--user start app-distraction.slice"] * len(cmds))
+
+    def test_refresh_resolves_without_rereading_config(self):
+        os.environ["GETENT_MAP"] = json.dumps({
+            "x.com": ["203.0.113.10"], "www.x.com": ["203.0.113.10"],
+            "youtube.com": ["203.0.113.20"], "www.youtube.com": ["203.0.113.20"],
+        })
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        n_replace, n_hosts = self._nft().count("replace ds"), len(self._getent_hosts())
+        self._cfg(list=["youtube.com"])
+        r = self.box.run("refresh", timeout=16)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._nft().count("replace ds"), n_replace + 1)
+        self.assertEqual(sorted(self._getent_hosts()[n_hosts:]), ["www.x.com", "x.com"])
+        self.assertNotIn("203.0.113.20", self._nft())
+        r = self.box.run("reload", timeout=16)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._nft().count("replace ds"), n_replace + 2)
+        self.assertIn("youtube.com", self._getent_hosts())
+        self.assertIn("203.0.113.20", self._nft())
+
+    def test_site_block_disabled_flushes_once_and_keeps_hold(self):
+        self._cfg(site_block={"enabled": False, "pass_through": True})
+        self._start()
         self._wait_nft("flush ds")
-        self.assertTrue(_wait(lambda: (self._state() or {}).get("on_space") is True
-                              and (self._state() or {}).get("site_block") == "off", 4),
-                        self._state())
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("hold") is True, 4), self._state())
+        time.sleep(1.2)
+        self.assertEqual(self._nft_cmds(), ["flush ds"])
+        self.assertEqual(self._getent_hosts(), [])
+        self.assertEqual(self._systemctl_lines(), ["--user start app-distraction.slice"])
         st = self._state()
         self.assertEqual(st["site_block"], "off")
-        self.assertTrue(st["on_space"])
+        self.assertEqual(st["notification_hold"], "on")
+        r = self.box.run("refresh", timeout=16)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._nft_cmds(), ["flush ds"])
+        self.assertEqual(self._getent_hosts(), [])
+        r = self.box.run("status", "--json")
+        self.assertEqual(json.loads(r.stdout)["site_block"], "off")
+        self._cfg()
+        r = self.box.run("reload", timeout=16)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._nft_cmds(), ["flush ds", "replace ds"])
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on", 4), self._state())
 
     def test_stale_generation_dropped(self):
         os.environ["GETENT_GATE"] = str(self.gate)
@@ -422,25 +528,26 @@ class ListenerTests(unittest.TestCase):
         self._start()
         self.assertTrue(_wait(lambda: bool(self._getent_hosts()), 4))
         first = list(self._getent_hosts())
-        self._workspace("2", 2)
-        self._send("workspacev2>>2,2")
+        self._fire("refresh")
         time.sleep(0.15)
         self.gate.write_text("1", encoding="utf-8")
         self.assertTrue(_wait(lambda: len(self._getent_hosts()) >= len(first) * 2, 6))
         self.assertTrue(_wait(lambda: "replace ds" in self._nft(), 6))
         self.assertEqual(self._nft().count("replace ds"), 1)
 
-    def test_entered_space_result_dropped(self):
+    def test_entering_the_space_mid_batch_still_applies(self):
         os.environ["GETENT_GATE"] = str(self.gate)
         self._cfg()
         self._start()
         self.assertTrue(_wait(lambda: bool(self._getent_hosts()), 4))
         self._workspace("distraction", 5)
         self._send("workspacev2>>5,distraction")
-        self._wait_nft("flush ds")
+        self.assertTrue(_wait(lambda: self._hooks().count("enter") == 1, 4), self._hooks())
         self.gate.write_text("1", encoding="utf-8")
-        time.sleep(0.8)
-        self.assertNotIn("replace ds", self._nft())
+        self._wait_nft("replace ds")
+        self.assertNotIn("flush ds", self._nft())
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on", 4), self._state())
+        self.assertTrue(self._state()["on_space"])
 
     def test_overlapping_requests_coalesce(self):
         os.environ["GETENT_GATE"] = str(self.gate)
@@ -448,11 +555,9 @@ class ListenerTests(unittest.TestCase):
         self._start()
         self.assertTrue(_wait(lambda: bool(self._getent_hosts()), 4))
         n0 = len(self._getent_hosts())
-        self._workspace("2", 2)
-        self._send("workspacev2>>2,2")
+        self._fire("refresh")
         time.sleep(0.05)
-        self._workspace("3", 3)
-        self._send("workspacev2>>3,3")
+        self._fire("refresh")
         time.sleep(0.1)
         self.gate.write_text("1", encoding="utf-8")
         self.assertTrue(_wait(lambda: len(self._getent_hosts()) >= n0 * 2, 6))
@@ -623,20 +728,15 @@ class ListenerTests(unittest.TestCase):
         addrs = self.box.state_dir / "addrs.json"
         addrs.unlink()
         addrs.mkdir()
-        self._workspace("2", 2)
-        self._send("workspacev2>>2,2")
-        self.assertTrue(_wait(
-            lambda: "Network update failed" in (
-                self.notify_log.read_text(encoding="utf-8") if self.notify_log.exists() else ""
-            ), 4
-        ))
-        self.assertEqual(self._nft(), nft_before)
-        self.assertNotIn("flush ds", nft_before)
+        r = self.box.run("refresh", timeout=16)
+        self.assertEqual(r.returncode, 1, r.stderr)
         text = self.notify_log.read_text(encoding="utf-8")
         self.assertEqual(text.count("Network update failed"), 1)
-        self._workspace("3", 3)
-        self._send("workspacev2>>3,3")
-        time.sleep(0.6)
+        self.assertIn("Refresh failed", text)
+        self.assertEqual(self._nft(), nft_before)
+        self.assertNotIn("flush ds", nft_before)
+        r = self.box.run("refresh", timeout=16)
+        self.assertEqual(r.returncode, 1, r.stderr)
         self.assertEqual(self._nft(), nft_before)
         self.assertEqual(
             self.notify_log.read_text(encoding="utf-8").count("Network update failed"), 1
@@ -781,11 +881,8 @@ class ListenerTests(unittest.TestCase):
             pass
         self._workspace("distraction", 5)
         self.assertTrue(_wait(lambda: self._hooks().count("enter") == 1, 3), self._hooks())
-        self.assertTrue(_wait(
-            lambda: (self._state() or {}).get("on_space") is True
-            and (self._state() or {}).get("site_block") == "off",
-            3,
-        ), self._state())
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("on_space") is True, 3), self._state())
+        self.assertEqual(self._state()["site_block"], "on")
         self.assertFalse((self._state() or {}).get("locked"))
         r = self.box.run("lock", "25", "deep", "work")
         self.assertEqual(r.returncode, 0, r.stderr)
@@ -793,7 +890,7 @@ class ListenerTests(unittest.TestCase):
         st = self._state()
         self.assertEqual(st["purpose"], "deep work")
         self.assertTrue(st["on_space"])
-        self.assertEqual(st["site_block"], "off")
+        self.assertEqual(st["site_block"], "on")
 
     def test_coalesced_reload_waiters_complete_together(self):
         os.environ["GETENT_GATE"] = str(self.gate)
@@ -839,11 +936,23 @@ class ListenerTests(unittest.TestCase):
         t.start()
         time.sleep(0.15)
         self.assertEqual(got, [])
-        self._workspace("2", 2)
-        self._send("workspacev2>>2,2")
+        self._fire("refresh")
         t.join(timeout=2 * bd + 8)
         self.assertFalse(t.is_alive())
         self.assertEqual(got, [b"ok"])
+
+
+class ExpansionTests(unittest.TestCase):
+    def test_version_2_expansion_reads_with_desktop_null_and_the_block_on(self):
+        entry = {"name": "X", "classes": ["^chrome-x\\.com__.*$"], "hosts": ["x.com"], "senders": [], "audio": {}}
+        exp = listener._as_exp({"list": [entry], "keep_reachable": [], "nudges": {"app_banner": True}})
+        self.assertEqual(exp["list"], [{**entry, "desktop": None}])
+        self.assertEqual(exp["site_block"], {"enabled": True})
+        kept = {**entry, "desktop": "org.telegram.desktop"}
+        exp = listener._as_exp({"list": [kept], "site_block": {"enabled": False}})
+        self.assertEqual(exp["list"], [kept])
+        self.assertEqual(exp["site_block"], {"enabled": False})
+        self.assertEqual(listener._as_exp(None)["site_block"], {"enabled": True})
 
 
 class HoldRetryTests(unittest.TestCase):

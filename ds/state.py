@@ -155,6 +155,28 @@ def write_expansion(obj):
     write_json(state_path("expansion.json"), obj)
 
 
+def entries_path():
+    return state_path("entries.json")
+
+
+def read_entries():
+    """The launcher and handler manifest: files setup wrote, each with its backup, and the previous handler."""
+    data = read_json(entries_path(), None)
+    data = data if isinstance(data, dict) else {}
+    files = []
+    for item in data.get("files") if isinstance(data.get("files"), list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not item["path"]:
+            continue
+        backup = item.get("backup")
+        files.append({"path": item["path"], "backup": backup if isinstance(backup, str) and backup else None})
+    previous = data.get("previous_handler")
+    return {"files": files, "previous_handler": previous if isinstance(previous, str) and previous else None}
+
+
+def write_entries(obj):
+    write_json(entries_path(), obj)
+
+
 def request_reload(verb="reload", timeout=2.0):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -196,6 +218,9 @@ def status():
     held = st.get("held")
     ipc = st.get("notification_hold")
     pt = st.get("pass_through")
+    links = st.get("links")
+    browser = st.get("browser")
+    released = st.get("released")
     return {
         "locked": lk["locked"],
         "until": lk["until"],
@@ -207,6 +232,10 @@ def status():
         "held": {k: v for k, v in held.items() if isinstance(k, str) and type(v) is int} if isinstance(held, dict) else {},
         "notification_hold": ipc if ipc in ("on", "off", "unavailable") else "off",
         "pass_through": pt if pt in ("on", "off", "unavailable") else "off",
+        "links": links if links in ("on", "off", "displaced") else "off",
+        "browser": browser if isinstance(browser, str) and browser else None,
+        "released": {k: v for k, v in released.items() if isinstance(k, str) and isinstance(v, str)}
+        if isinstance(released, dict) else {},
         "updated": now_iso(),
     }
 

@@ -24,6 +24,7 @@ COMMANDS = {
     "menu": ui.cmd_menu,
     "listen": listener.cmd_listen,
     "reload": listener.cmd_reload,
+    "refresh": listener.cmd_refresh,
     "setup": setup.cmd_setup,
     "senders": hold.cmd_senders,
     "banners": state.cmd_banners,
@@ -60,7 +61,7 @@ def build_parser():
     lk.add_argument("duration", nargs="?")
     lk.add_argument("purpose", nargs="*")
     sub.add_parser("unlock").add_argument("reason", nargs="*")
-    for name in ("enter", "leave", "toggle", "next", "prev", "menu", "listen", "reload"):
+    for name in ("enter", "leave", "toggle", "next", "prev", "menu", "listen", "reload", "refresh"):
         sub.add_parser(name)
     sub.add_parser("setup").add_argument("--remove", action="store_true")
     sub.add_parser("senders")

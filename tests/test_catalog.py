@@ -76,6 +76,13 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual(missing["senders"], [])
         self.assertEqual(missing["audio"], {})
 
+    def test_desktop_id_on_native_products_only(self):
+        self.assertEqual(expand_entry("Telegram")["desktop"], "org.telegram.desktop")
+        self.assertEqual(expand_entry("Signal")["desktop"], "signal-desktop")
+        for entry in ("YouTube", "Discord", "x.com", "class=^Slack$", {"name": "Site", "hosts": ["example.com"]}):
+            with self.subTest(entry=entry):
+                self.assertIsNone(expand_entry(entry)["desktop"])
+
     def test_unknown_catalog_name_skipped(self):
         self.assertIsNone(expand_entry("NotAProduct"))
         self.assertEqual(expand({"list": ["NotAProduct"]}), [])
