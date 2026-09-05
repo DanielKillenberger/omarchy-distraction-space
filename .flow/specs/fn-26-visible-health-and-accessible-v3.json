@@ -1,11 +1,56 @@
 {
   "branch_name": "fn-26-visible-health-and-accessible-v3",
+  "completion_review_status": "unknown",
+  "completion_reviewed_at": null,
   "created_at": "2026-09-05T19:23:02.786193Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-26-visible-health-and-accessible-v3",
+  "impl_review_rounds": {
+    "fn-26-visible-health-and-accessible-v3.1": 0
+  },
   "next_task": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "1416246747675ebfc8c42b9ac627b9c25a86f5ca6c89aa8c5fdd466bc3dfbbba",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "7981bbe8f580268ff467a873690e35f2a7240bb1",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 6346,
+      "output_sha256": "e32498cca3ab51d93864c6575e1232aa1d32fb06c3bb3899031170ba75e5d4f6",
+      "reservation_id": "354b0aebd75b49778088482c062d8434",
+      "round_consumed": true,
+      "scope": "impl:fn-26-visible-health-and-accessible-v3.1",
+      "superseded_by": null,
+      "task": "fn-26-visible-health-and-accessible-v3.1",
+      "timestamp": "2026-09-05T19:49:20.955101Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-26-visible-health-and-accessible-v3.1": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-26-visible-health-and-accessible-v3.1": 0
+  },
   "spec_path": ".flow/specs/fn-26-visible-health-and-accessible-v3.md",
   "status": "open",
   "title": "Visible health and accessible v3 controls",
@@ -20,5 +65,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T19:37:34.903914Z"
+  "updated_at": "2026-09-05T19:49:21.378635Z"
 }
