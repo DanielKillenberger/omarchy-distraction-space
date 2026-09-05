@@ -1193,6 +1193,9 @@ def _busy() -> int:
     return 1
 
 
+ENTRIES_DEFERRED = 2
+
+
 def refresh_entries(exp: dict, cfg: dict | None, *, strict=False) -> int:
     """The listener's half of the entry sync: what setup wrote, kept written.
 
@@ -1204,10 +1207,13 @@ def refresh_entries(exp: dict, cfg: dict | None, *, strict=False) -> int:
     link check's notice and never fought over here. A setup or remove under
     way owns the files; this sync steps aside until the next period, and a
     remove that finished first leaves no manifest to keep, decided under the
-    same lock so nothing is recreated from an empty record.
+    same lock so nothing is recreated from an empty record. Strict callers receive
+    ENTRIES_DEFERRED on lock contention, distinguishing postponement from failure.
     """
     with _entries_lock(0) as held:
-        return _refresh_entries(exp, cfg, strict=strict) if held else int(strict)
+        if held:
+            return _refresh_entries(exp, cfg, strict=strict)
+        return ENTRIES_DEFERRED if strict else 0
 
 
 def _refresh_entries(exp: dict, cfg: dict | None, *, strict=False) -> int:

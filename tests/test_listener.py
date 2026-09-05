@@ -530,6 +530,7 @@ class ListenerTests(unittest.TestCase):
         self._start()
         self._wait_nft("replace ds")
         self.assertTrue(_wait(lambda: len((self._state() or {}).get("observed_at", {})) == 3))
+        self.assertTrue(self._state()["hold"], "hold starts active before the stalled transition")
         started = self.box.runtime / "side-effect.started"
         gate = self.box.runtime / "side-effect.gate"
         self.box.fake_bin(tool, f"""
@@ -637,6 +638,48 @@ time.sleep(3600)
 
     def test_shutdown_cancels_and_reaps_browser_lookup(self):
         self._assert_shutdown_stall("xdg-settings")
+
+    def test_entries_lock_defers_without_failure_and_recovers(self):
+        self._cfg()
+        self._register_handler()
+        self._start(extra_env=self._period_env(1))
+        self.assertTrue(_wait(lambda: len((self._state() or {}).get("observed_at", {})) == 3))
+        with setup._entries_lock(0) as held:
+            self.assertTrue(held)
+            for _ in range(2):
+                self.assertEqual(self._reload("refresh"), b"deferred")
+                self.assertEqual(self._state()["launcher_refresh"], "deferred")
+            response = self.box.run("refresh", timeout=5)
+            self.assertEqual(response.returncode, 1)
+            self.assertEqual(self._notices("Refresh failed"), [])
+            self.assertEqual(self._notices("Launcher refresh failed"), [])
+            self.assertTrue(self._notices("Refresh deferred"))
+        self.assertEqual(self._reload("refresh"), b"ok")
+        self.assertEqual(self._state()["launcher_refresh"], "ok")
+
+    def test_launcher_failure_notice_once_per_failure_streak(self):
+        self._cfg()
+        self._register_handler()
+        self._start()
+        self.assertTrue(_wait(lambda: len((self._state() or {}).get("observed_at", {})) == 3))
+        fail = "import sys; sys.exit(1)"
+        self.box.fake_bin("update-desktop-database", fail)
+        for _ in range(2):
+            self.assertEqual(self._reload("refresh"), b"error")
+            self.assertEqual(self._state()["launcher_refresh"], "unavailable")
+        self.assertEqual(len(self._notices("Launcher refresh failed")), 1)
+        self.box.fake_bin("update-desktop-database", UPDATE_DESKTOP_DATABASE)
+        self.assertEqual(self._reload("refresh"), b"ok")
+        self.box.fake_bin("update-desktop-database", fail)
+        (self.apps / "x.com.desktop").write_text("[Desktop Entry]\nName=drift\n")
+        self.assertEqual(self._reload("refresh"), b"error")
+        self.assertEqual(len(self._notices("Launcher refresh failed")), 2)
+
+    def test_startup_does_not_claim_entry_refresh(self):
+        self._cfg()
+        self._start()
+        self.assertTrue(_wait(lambda: len((self._state() or {}).get("observed_at", {})) == 3))
+        self.assertEqual(self._state()["launcher_refresh"], "off")
 
     def test_worker_command_timeouts_report_failure_then_recover(self):
         self._cfg()

@@ -56,8 +56,13 @@ def _ask(line):
             if not chunk:
                 break
             buf += chunk
-        if buf.split(b"\n", 1)[0] == b"ok":
+        reply = buf.split(b"\n", 1)[0]
+        if reply == b"ok":
             return 0
+        if reply == b"deferred":
+            ui.notify(f"{line.split()[0].capitalize()} deferred",
+                      "Setup or remove is updating the launchers. Retry shortly.")
+            return 1
         ui.notify(failed, "The listener rejected the request.")
         return 1
     except OSError:
@@ -90,6 +95,7 @@ def _empty():
 def _apply(addrs, current=lambda: True):
     """Start the slice before replace; only the current generation may apply."""
     if addrs and not cgroup.ensure_slice():
+        net._notice_unavailable()
         return "unavailable"
     return net._apply_result(addrs) if current() else None
 
@@ -212,6 +218,7 @@ class _Ctx:
         self.observed_at = {}
         self.disabled_flushed = False
         self.browser_dirty, self.launcher_refresh = True, "off"
+        self.launcher_noted = False
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
         self.hold_failed_at = 0.0
         self.links, self.browser = "off", None
@@ -345,7 +352,7 @@ class _Ctx:
             net.command_context.cancel = self.stopping
             batch = {"generation": gen, "reason": reason, "started": time.monotonic()}
             item = {"batch": batch, "result": None, "links": None, "browser": None,
-                    "entries_ok": True, "links_ok": True, "failed": False,
+                    "entries": "off", "links_ok": True, "failed": False,
                     "observed": {}, "browser_dirty": browser_dirty}
             try:
                 if enabled:
@@ -365,9 +372,11 @@ class _Ctx:
             if current():
                 try:
                     if reason != "start":
-                        item["entries_ok"] = setup.refresh_entries(exp, cfg, strict=True) == 0
+                        code = setup.refresh_entries(exp, cfg, strict=True)
+                        item["entries"] = ("deferred" if code == setup.ENTRIES_DEFERRED
+                                           else "ok" if code == 0 else "unavailable")
                 except Exception:
-                    item["entries_ok"] = False
+                    item["entries"] = "unavailable"
                 try:
                     item["links"], item["links_ok"] = _observe_links(cfg)
                 except Exception:
@@ -406,11 +415,16 @@ class _Ctx:
         if item["failed"]:
             self._note_resolve()
         net.finish_batch(batch, _APPLY.get(result, result))
-        if not item["entries_ok"]:
+        self.launcher_refresh = item["entries"]
+        if self.launcher_refresh == "unavailable" and not self.launcher_noted:
             ui.notify("Launcher refresh failed", "The listener will retry on the next refresh.")
-        self.launcher_refresh = "ok" if item["entries_ok"] else "unavailable"
+            self.launcher_noted = True
+        elif self.launcher_refresh == "ok":
+            self.launcher_noted = False
         self.write_state()
-        self._reply_waiters(gen, result in ("on", "off") and item["entries_ok"] and item["links_ok"])
+        other_ok = result in ("on", "off") and item["links_ok"]
+        self._reply_waiters(gen, other_ok and self.launcher_refresh in ("off", "ok"),
+                            deferred=other_ok and self.launcher_refresh == "deferred")
         self._follow(periodic=True)
     def _follow(self, periodic=False):
         if self.rerun:
@@ -426,8 +440,8 @@ class _Ctx:
             if isinstance(c.gen, int):
                 c.gen = gen
                 c.deadline = min(c.deadline, deadline)
-    def _reply_waiters(self, gen, ok):
-        msg = b"ok\n" if ok else b"error\n"
+    def _reply_waiters(self, gen, ok, *, deferred=False):
+        msg = b"deferred\n" if deferred else b"ok\n" if ok else b"error\n"
         for c in self.clients:
             if c.gen == gen:
                 _send_reply(c.sock, msg)
