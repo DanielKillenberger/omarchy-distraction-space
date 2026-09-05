@@ -501,10 +501,14 @@ def contain(client, klass=None, opened=False):
     name = _entry_name(entry) if isinstance(entry, dict) else None
     if layer == "adopt":
         landed = _adopt(client, name)
+    elif _on_space(client):
+        # Already there: a fresh window the rule placed is announced, a scan or
+        # a move event of a window that was there all along is not.
+        landed = opened
     else:
-        # A scan or a move event announces only a window that actually moved.
-        landed = not _on_space(client) and move_to_space(client.get("address"))
-    if name and (landed or opened):
+        # Off the space, fresh or not: only a move Hyprland accepted has landed.
+        landed = move_to_space(client.get("address"))
+    if name and landed:
         _feedback().opened(name)
     return layer
 
@@ -542,9 +546,9 @@ def _adopt(client, name):
             _log(f"adopt: close of {address} refused; retried on its next event")
         return True
     _log(f"adopt: open {name} failed ({why}); window {address} moved by class")
-    if not _on_space(client):
-        move_to_space(address)
-    return True
+    # Nothing new opened in the space: the window has landed only when the
+    # fallback move actually happened.
+    return not _on_space(client) and move_to_space(address)
 
 
 def _open(name):

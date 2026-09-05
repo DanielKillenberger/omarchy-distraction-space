@@ -351,6 +351,14 @@ class HyprTests(unittest.TestCase):
         self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xdead"), hypr.move_window_lua("0xf00d")])
         self.assertEqual(len(self._log_lines("adopt:")), 2)
         self.assertEqual(len(self._open_calls()), 1)
+        # A failed open whose fallback move is refused too: nothing landed, no banner.
+        self._state(clients=[self._client("0xbad", FOREIGN_WA, "3")])
+        os.environ["DS_HYPR_FAIL"] = "hl.dsp.window.move"
+        before = len(self._opened_titles())
+        hypr.handle_event(f"openwindow>>0xbad,3,{FOREIGN_WA},WhatsApp")
+        self.assertEqual(len(self._open_calls()), 2)
+        self.assertEqual(len(self._log_lines("adopt:")), 3)
+        self.assertEqual(len(self._opened_titles()), before)
 
     def test_refused_close_is_retried_without_a_second_open(self):
         hypr.apply_rules([WHATSAPP])
@@ -438,6 +446,11 @@ class HyprTests(unittest.TestCase):
         hypr.handle_event(f"openwindow>>0xaaa,1,{NATIVE},Telegram")
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertIn("hyprctl", log)
+        # The window is still on workspace 1: nothing opened in the space, no banner.
+        self.assertEqual(self._opened_titles(), [])
+        # A fresh window the rule already placed on the space is announced without a move.
+        self._state(clients=[self._client("0xbbb", NATIVE, hypr.SPACE)])
+        hypr.handle_event(f"openwindow>>0xbbb,{hypr.SPACE},{NATIVE},Telegram")
         self.assertEqual(self._opened_titles(), [f"Telegram {OPENED}"])
 
         os.environ["DS_HYPR_FAIL"] = "-- omarchy-ds "  # both the set and the disable fragments
