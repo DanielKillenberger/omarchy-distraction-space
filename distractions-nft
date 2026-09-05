@@ -88,6 +88,13 @@ def _elements(addrs: list[str]) -> str:
     return "    elements = { " + ", ".join(addrs) + " }\n"
 
 
+def render_destroy() -> str:
+    """`flush ds`: the table goes away outright. Nothing is rendered in its place, so
+    switching the block off needs neither the slice nor a kernel that takes the
+    cgroup matcher; the next `replace` rebuilds the table from scratch."""
+    return f"destroy table {FAMILY} {TABLE}\n"
+
+
 def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
     slice_accept = f'socket cgroupv2 level {SLICE_LEVEL} "{cgroup}" accept'
     return (
@@ -170,9 +177,8 @@ def main(argv: list[str] | None = None) -> int:
     if command == "flush":
         if text.strip():
             _fail("refused: flush takes no stdin")
-        v4, v6 = [], []
-    else:
-        v4, v6 = parse_replace_stdin(text)
+        return commit(render_destroy())
+    v4, v6 = parse_replace_stdin(text)
     _require_slice(cgroup)
     return commit(render_table(v4, v6, cgroup))
 

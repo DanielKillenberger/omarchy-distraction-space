@@ -1129,13 +1129,7 @@ def remove():
     # only fail once the grant that made it passwordless is gone with it.
     root_half = wrapper.is_file() or _record_dest(wrapper).is_file()
     if root_half:
-        # The wrapper renders the slice's cgroup rule on every call and nft
-        # resolves that path at load time, so the slice has to be alive for this
-        # last flush. `sync_slice` is idempotent and restores a unit an earlier
-        # partial remove dropped.
-        if sync_slice() != 0:
-            print("the wrapper cannot flush without the slice", file=sys.stderr)
-            return 1
+        # `flush ds` destroys the table outright and needs no slice.
         proc = subprocess.run(
             ["sudo", "-n", str(wrapper), "flush", "ds"],
             capture_output=True,

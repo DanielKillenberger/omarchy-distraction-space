@@ -49,7 +49,7 @@ Each web app asks for a login once, because listed web products now run in their
 omarchy plugin remove io.github.danielkillenberger.distraction-space
 ```
 
-`setup --remove` hands the default browser back to the one it recorded, deletes exactly the launcher and handler files in `entries.json` and moves every backup home, flushes the nft sets, stops and deletes the slice unit, removes the wrapper, the sudoers grant, and that record with sudo, and removes the notification-service clone it created. The browser profile at `~/.local/share/omarchy/distraction-space/browser` stays, and remove prints its path so you can delete it yourself. Run it before `omarchy plugin remove`, because the plugin directory holds the script that does the removing. Delete the three Hyprland snippets by hand, the same way they went in.
+`setup --remove` hands the default browser back to the one it recorded, deletes exactly the launcher and handler files in `entries.json` and moves every backup home, destroys the nft table, stops and deletes the slice unit, removes the wrapper, the sudoers grant, and that record with sudo, and removes the notification-service clone it created. The browser profile at `~/.local/share/omarchy/distraction-space/browser` stays, and remove prints its path so you can delete it yourself. Run it before `omarchy plugin remove`, because the plugin directory holds the script that does the removing. Delete the three Hyprland snippets by hand, the same way they went in.
 
 ## What it does
 

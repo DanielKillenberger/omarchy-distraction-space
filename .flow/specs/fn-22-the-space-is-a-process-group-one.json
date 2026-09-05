@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-22-the-space-is-a-process-group-one",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "needs_work",
+  "completion_reviewed_at": "2026-09-05T14:22:21.738909Z",
   "created_at": "2026-09-04T21:59:34.398472Z",
   "default_impl": null,
   "default_review": null,
@@ -20,7 +20,7 @@
     "fn-22-the-space-is-a-process-group-one.9": 0
   },
   "next_task": 1,
-  "plan_review_rounds": 0,
+  "plan_review_rounds": 1,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "review_attempts": [
@@ -1304,6 +1304,67 @@
       "task": "fn-22-the-space-is-a-process-group-one.9",
       "timestamp": "2026-09-05T14:13:01.593019Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "e1d4aded0b95840f70d90362cd6bb6557c47b685ebf42dacd74a991ea6c6e0cd",
+      "backend": "codex",
+      "base_sha": "982e239d2ef0f680e99d424d3752f470a4a3221f",
+      "counter_kind": "plan",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-bccac372f70efacf1469a8658196f3f3",
+            "classification": "introduced",
+            "findingId": "finding-bccac372f70efacf1469a8658196f3f3",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-05491be55b44099bad624486ac1d948c",
+            "classification": "introduced",
+            "findingId": "finding-05491be55b44099bad624486ac1d948c",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-0ceb37e05ba5ef43fd4b0b6473aea487",
+            "classification": "introduced",
+            "findingId": "finding-0ceb37e05ba5ef43fd4b0b6473aea487",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "b9d7d3ab8a0bc6d75da0c6c3df9c05a6828b0eef",
+      "head_sha_observed": true,
+      "kind": "completion",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 639254,
+      "output_sha256": "f927f6c5f977d9f17f6af141f45bf4d30baa4b65be8b2c0ebf14563a4ffcc195",
+      "reservation_id": "be17ca92faa44267b34a6c16a42e0fb2",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-05T14:22:21.709484Z",
+      "tool_calls": 19,
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -1320,6 +1381,7 @@
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "completion": 0,
     "impl:fn-22-the-space-is-a-process-group-one.1": 0,
     "impl:fn-22-the-space-is-a-process-group-one.2": 0,
     "impl:fn-22-the-space-is-a-process-group-one.3": 0,
@@ -1344,5 +1406,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T14:13:01.595598Z"
+  "updated_at": "2026-09-05T14:22:21.749797Z"
 }

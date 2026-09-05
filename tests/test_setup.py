@@ -752,11 +752,8 @@ class SetupTests(unittest.TestCase):
         self.sudo_log.write_text("", encoding="utf-8")
         self.assertEqual(setup.remove(), 0)
         self.assertFalse(self.unit.exists())
-        # The flush renders the slice's cgroup rule, so the slice is alive for it and stopped after.
-        self.assertEqual(
-            self._systemctl_lines(),
-            ["--user start app-distraction.slice", "--user stop app-distraction.slice", "--user daemon-reload"],
-        )
+        # The flush is a bare destroy and needs no slice: only the stop and the reload.
+        self.assertEqual(self._systemctl_lines(), ["--user stop app-distraction.slice", "--user daemon-reload"])
         self.assertTrue(any(ln.endswith("flush ds") for ln in self._sudo_lines()))
         # The wrapper, its grant, and the unit are gone after the first remove:
         # the second run touches neither the manager nor sudo, so it succeeds
@@ -787,15 +784,15 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.unit.exists())
         self.assertFalse(self.wrapper.exists())
 
-    def test_remove_restores_a_missing_unit_so_the_flush_can_render(self):
+    def test_remove_with_a_missing_unit_touches_no_manager_and_still_flushes(self):
         self.assertEqual(setup.install(), 0)
         self.unit.unlink()
         self.systemctl_log.write_text("", encoding="utf-8")
+        self.sudo_log.write_text("", encoding="utf-8")
         self.assertEqual(setup.remove(), 0)
-        self.assertEqual(
-            self._systemctl_lines(),
-            ["--user daemon-reload", "--user start app-distraction.slice", "--user stop app-distraction.slice", "--user daemon-reload"],
-        )
+        # Nothing of ours to stop, and the flush needs no slice to render.
+        self.assertEqual(self._systemctl_lines(), [])
+        self.assertTrue(any(ln.endswith("flush ds") for ln in self._sudo_lines()))
         self.assertFalse(self.unit.exists())
         self.assertFalse(self.wrapper.exists())
 
@@ -809,9 +806,11 @@ class SetupTests(unittest.TestCase):
         self.assertTrue(self._rescan_text().strip().endswith("shell rescanPlugins"))
         self.sudo_log.write_text("", encoding="utf-8")
         self.assertEqual(setup.remove(), 1)
+        # The flush needs no slice and runs; the slice step fails; the root teardown never starts.
         self.assertTrue(self.wrapper.is_file())
         self.assertTrue(self.sudoers.is_file())
-        self.assertEqual(self._sudo_lines(), [])
+        self.assertTrue(all(ln.endswith("flush ds") for ln in self._sudo_lines()), self._sudo_lines())
+        self.assertFalse(any(ln.startswith("rm ") for ln in self._sudo_lines()))
 
     def test_grant_is_validated_and_activated_as_one_root_owned_file(self):
         """The file visudo accepted is the file that lands: no name is resolved twice."""

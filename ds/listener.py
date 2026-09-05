@@ -88,12 +88,14 @@ def _empty():
             "site_block": {"enabled": True}}
 
 def _apply(addrs):
-    """Every wrapper call, flush included, renders the slice's cgroup rule, so the slice is started first.
+    """`replace` renders the slice's cgroup rule, so the slice is started before it.
 
     The wrapper is the check: it refuses when the cgroup is missing and `net.apply`
-    reports that as `unavailable`, so a failed start is not a reason to skip the call.
+    reports that as `unavailable`, so a failed start is not a reason to skip the
+    call. `flush` only destroys the table and needs no slice at all.
     """
-    cgroup.ensure_slice()
+    if addrs:
+        cgroup.ensure_slice()
     return net.apply(addrs)
 
 def _close(*objs):

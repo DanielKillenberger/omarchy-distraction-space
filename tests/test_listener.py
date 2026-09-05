@@ -630,7 +630,7 @@ class ListenerTests(unittest.TestCase):
         time.sleep(1.2)
         self.assertEqual(self._nft_cmds(), ["flush ds"])
         self.assertEqual(self._getent_hosts(), [])
-        self.assertEqual(self._systemctl_lines(), ["--user start app-distraction.slice"])
+        self.assertEqual(self._systemctl_lines(), [])  # a flush needs no slice
         st = self._state()
         self.assertEqual(st["site_block"], "off")
         self.assertEqual(st["notification_hold"], "on")

@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -409,6 +410,9 @@ def pick_browser(cfg):
     if isinstance(raw, list) and raw and all(isinstance(x, str) and x for x in raw):
         return list(raw)
     browser_id = _default_browser_id()
+    if browser_id == HANDLER_ID:
+        # Setup made this plugin the default; the browser it displaced is on record.
+        browser_id = state.read_entries().get("previous_handler") or ""
     if not browser_id.startswith(CHROMIUM_FAMILY):
         browser_id = DEFAULT_BROWSER_ID
     argv = exec_argv(browser_id)
@@ -425,20 +429,42 @@ def profile_flags(url):
 
 # --- launching ---------------------------------------------------------------
 
-def _detached(argv):
-    """Start argv in its own session with its streams closed; False on any OSError.
-
-    A missing binary is not the only way a launch fails (permission, EMFILE),
-    so the guard is `OSError`, not `FileNotFoundError`.
-    """
+def _settle_seconds():
     try:
-        subprocess.Popen(
+        return max(0.0, float(os.environ.get("DS_LAUNCH_SETTLE", "1.0")))
+    except ValueError:
+        return 1.0
+
+
+def _detached(argv, program=None):
+    """Start argv in its own session with its streams closed; False when it did not start.
+
+    `program` is the binary whose start is being judged when argv wraps it (the
+    scope launcher in front of a browser): it must resolve to an executable
+    first. Then the child gets a short settle window: one that exits non-zero
+    within it did not start; one that exits zero at once handed off to a
+    running instance; one still running is up. A missing binary is not the only
+    way a launch fails (permission, EMFILE), so the guard is `OSError`.
+    """
+    target = program or argv[0]
+    if not shutil.which(target):
+        _log(f"{target}: not an executable on PATH")
+        return False
+    try:
+        proc = subprocess.Popen(
             argv,
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
     except OSError as e:
         _log(f"{argv[0]}: {e}")
+        return False
+    try:
+        rc = proc.wait(timeout=_settle_seconds())
+    except subprocess.TimeoutExpired:
+        return True
+    if rc != 0:
+        _log(f"{target}: exited {rc} at start")
         return False
     return True
 
@@ -450,7 +476,7 @@ def launch_in_slice(argv):
     A Chromium that hands the launch to its running instance exits at once and
     the scope ends empty; that is not a failure.
     """
-    return _detached(SCOPE_ARGV + list(argv))
+    return _detached(SCOPE_ARGV + list(argv), program=argv[0])
 
 
 def profile_class(host):

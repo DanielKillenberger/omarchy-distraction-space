@@ -23,7 +23,7 @@ from ds import catalog, launch, state
 
 _ENV_KEYS = (
     "DS_SYSTEMD_RUN_LOG", "DS_FORWARD_LOG", "DS_NOTIFY_LOG", "DS_HYPR_LOG", "DS_HYPR_STATE",
-    "DS_XDG_BROWSER", "XDG_DATA_HOME", "XDG_DATA_DIRS",
+    "DS_XDG_BROWSER", "XDG_DATA_HOME", "XDG_DATA_DIRS", "DS_LAUNCH_SETTLE", "DS_FAKE_RC",
 )
 
 LOGGER = r"""
@@ -33,7 +33,10 @@ p = Path(os.environ[%r])
 p.parent.mkdir(parents=True, exist_ok=True)
 with p.open("a", encoding="utf-8") as f:
     f.write(json.dumps([os.path.basename(sys.argv[0])] + sys.argv[1:]) + "\n")
+sys.exit(int(os.environ.get("DS_FAKE_RC", "0")))
 """
+
+NOOP = "import sys\nsys.exit(0)\n"
 
 XDG_SETTINGS = r"""
 import os, sys
@@ -96,6 +99,11 @@ class LaunchTests(unittest.TestCase):
         })
         os.environ.pop("DS_XDG_BROWSER", None)
         self.box.fake_bin("systemd-run", LOGGER % "DS_SYSTEMD_RUN_LOG")
+        # The browsers the desktop files and the config name: a launch checks the
+        # binary is on PATH, and the real machine's browsers must not stand in.
+        for binary in ("google-chrome-stable", "chromium", "brave"):
+            self.box.fake_bin(binary, NOOP)
+        os.environ["DS_LAUNCH_SETTLE"] = "0.2"
         self.box.fake_bin("omarchy-launch-browser", LOGGER % "DS_FORWARD_LOG")
         self.box.fake_bin("firefox-fake", LOGGER % "DS_FORWARD_LOG")
         self.box.fake_bin("omarchy-notification-send", LOGGER % "DS_NOTIFY_LOG")
@@ -231,6 +239,36 @@ class LaunchTests(unittest.TestCase):
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertEqual(log.count("not network-restricted"), 1)
         self.assertIn("Discord", log)
+
+    def test_auto_pick_behind_the_plugin_handler_uses_the_recorded_browser(self):
+        # After setup the default is this plugin's own handler; the pick must
+        # follow the recorded previous browser, not fall through to chromium.
+        state.write_entries({"files": [], "previous_handler": "google-chrome.desktop"})
+        r = self.box.run("open", "https://youtu.be/abc", extra_env={"DS_XDG_BROWSER": launch.HANDLER_ID})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches()[0][len(SLICE_PREFIX)], "google-chrome-stable")
+        # No record behind the handler: the chromium fallback, as for any unknown id.
+        self._desktop("chromium", "chromium %U")
+        state.write_entries({"files": [], "previous_handler": None})
+        r = self.box.run("open", "https://youtu.be/abc", extra_env={"DS_XDG_BROWSER": launch.HANDLER_ID})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches(2)[1][len(SLICE_PREFIX)], "chromium")
+
+    def test_launch_reports_a_browser_that_did_not_start(self):
+        # A configured binary that is not on PATH: no scope is started at all.
+        self.box.config_file.write_text(json.dumps({"browser": ["/definitely/missing/browser"]}), encoding="utf-8")
+        r = self.box.run("open", "https://youtu.be/abc")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(self._lines(self.run_log), [])
+        self.assertEqual(len(self._lines(self.notify_log)), 1)
+        self.box.config_file.unlink()
+        # The scope launcher exits non-zero inside the settle window: the launch failed.
+        r = self.box.run("open", "https://youtu.be/abc", extra_env={"DS_FAKE_RC": "1"})
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(len(self._lines(self.notify_log)), 2)
+        # A zero exit at once is Chromium's single-instance handoff: success.
+        r = self.box.run("open", "https://youtu.be/abc")
+        self.assertEqual(r.returncode, 0, r.stderr)
 
     def test_browser_override_missing_browser_and_usage(self):
         self.box.config_file.write_text(json.dumps({"browser": ["brave", "--foo"]}), encoding="utf-8")

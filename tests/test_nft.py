@@ -205,18 +205,21 @@ class NftTests(unittest.TestCase):
 
     def test_missing_slice_cgroup_exits_1_before_any_nft_call(self):
         shutil.rmtree(self.cgroup_root / CGROUP)
-        for args, stdin in ((["replace", "ds"], "203.0.113.1\n"), (["flush", "ds"], "")):
-            with self.subTest(args=args):
-                result = self.run_wrapper(args, stdin)
-                self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertEqual(result.stderr.strip(), "refused: slice cgroup missing")
-                self.assertFalse((self.root / "calls.log").exists())
-                self.assertFalse((self.root / "stdin.log").exists())
+        result = self.run_wrapper(["replace", "ds"], "203.0.113.1\n")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertEqual(result.stderr.strip(), "refused: slice cgroup missing")
+        self.assertFalse((self.root / "calls.log").exists())
+        self.assertFalse((self.root / "stdin.log").exists())
         # A file where the directory should be is not a cgroup either.
         (self.cgroup_root / CGROUP).write_text("", encoding="utf-8")
         result = self.run_wrapper(["replace", "ds"], "203.0.113.1\n")
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertFalse((self.root / "calls.log").exists())
+        # `flush` renders nothing that needs the slice: it destroys the table and
+        # succeeds with the cgroup gone, which is what lets the block be switched off.
+        result = self.run_wrapper(["flush", "ds"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.stdin_log().strip(), "destroy table inet omarchy_ds")
 
     def test_empty_sets_render_table_that_matches_nothing(self):
         script = self.nft.render_table([], [], CGROUP)
@@ -224,11 +227,10 @@ class NftTests(unittest.TestCase):
         self.assertIn("set omarchy_ds_v4", script)
         self.assertIn("set omarchy_ds_v6", script)
         self.assertNotIn("elements =", script)
+        # `flush` is a bare destroy: no sets, no chains, no cgroup rule left behind.
         result = self.run_wrapper(["flush", "ds"])
         self.assertEqual(result.returncode, 0, result.stderr)
-        logged = self.stdin_log()
-        self.assertNotIn("elements =", logged)
-        self.assertIn("ip daddr @omarchy_ds_v4 reject", logged)
+        self.assertEqual(self.stdin_log().strip(), "destroy table inet omarchy_ds")
 
     def test_refuses_argv_outside_contract(self):
         cases = [
