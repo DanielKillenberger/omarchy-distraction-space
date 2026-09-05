@@ -460,7 +460,10 @@ def _links_state(cfg):
         return "off"
     if not any(Path(item["path"]).name == setup.HANDLER_ID for item in state.read_entries()["files"]):
         return "off"
-    return "on" if setup.default_handler() == setup.HANDLER_ID else "displaced"
+    answered, handler = setup.default_handler()
+    # An unanswered query is not proof of displacement, but it is not proof the
+    # handler still holds either; the notice tells the person to run setup.
+    return "on" if answered and handler == setup.HANDLER_ID else "displaced"
 
 def _read_cfg():
     if not config.config_path().exists():

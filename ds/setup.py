@@ -701,10 +701,43 @@ def _xdg_settings(*args: str) -> tuple[int, str]:
     return proc.returncode, (proc.stdout or "").strip()
 
 
-def default_handler() -> str | None:
-    """The desktop id `xdg-settings` reports as the default browser, or None when it cannot say."""
+def default_handler() -> tuple[bool, str | None]:
+    """`(answered, id)`: the desktop id `xdg-settings` reports as the default browser.
+
+    `answered` is False when the tool could not say. Nothing that depends on the
+    answer may then change the default or delete the file that holds it, since
+    there is no record to hand back.
+    """
     rc, out = _xdg_settings("get", "default-web-browser")
-    return out if rc == 0 and out else None
+    if rc != 0:
+        return False, None
+    return True, (out or None)
+
+
+def _owned_files(old: dict) -> list[dict] | None:
+    """The manifest's files, or None when any entry points outside the plugin's own directories.
+
+    Every path must be a direct child of the applications directory and every
+    backup the same name under the backup directory. Anything else is a record
+    this plugin did not write, and remove must never unlink or move what it says.
+    """
+    apps, backups = applications_dir(), _backup_dir()
+    out = []
+    for item in old["files"]:
+        path = Path(item["path"])
+        if not path.is_absolute() or path.parent != apps or path.name in ("", ".", ".."):
+            return None
+        backup = item["backup"]
+        if backup is not None and Path(backup) != backups / path.name:
+            return None
+        out.append({"path": str(path), "backup": backup})
+    return out
+
+
+def _refuse_manifest() -> int:
+    print(f"refusing: {state.entries_path()} names files outside {applications_dir()}; "
+          "delete or fix that record and rerun", file=sys.stderr)
+    return 1
 
 
 _EXEC_PLAIN = re.compile(r"^[A-Za-z0-9_./:=+@,-]+$")
@@ -723,10 +756,19 @@ def _icon_name(name: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
 
 
-def _class_prefix(handler: str | None) -> str:
-    """The window-class prefix the distraction browser will carry, from the default browser's desktop id."""
-    stem = (handler or "").removesuffix(".desktop")
-    if stem.startswith("google-chrome"):
+def _class_prefix(cfg: dict, handler: str | None) -> str:
+    """The window-class prefix the distraction browser will carry.
+
+    A configured `browser` argv names the binary `open` runs, so its basename
+    decides; otherwise the default browser's desktop id does, the same case list
+    `open` follows when the config says `auto`.
+    """
+    raw = (cfg or {}).get("browser")
+    if isinstance(raw, list) and raw and isinstance(raw[0], str) and raw[0]:
+        stem = Path(raw[0]).name
+    else:
+        stem = (handler or "").removesuffix(".desktop")
+    if stem.startswith("google-chrome") or stem == "chrome":
         return "chrome"
     for family in ("brave", "microsoft-edge", "opera", "vivaldi", "helium", "chromium"):
         if stem.startswith(family):
@@ -746,12 +788,12 @@ def _app_host(entry: dict) -> str | None:
     return None
 
 
-def _wm_class(entry: dict, handler: str | None) -> str | None:
+def _wm_class(entry: dict, cfg: dict, handler: str | None) -> str | None:
     if entry.get("desktop"):
         klass = (entry.get("classes") or [None])[0]
         return klass if isinstance(klass, str) and _EXEC_PLAIN.match(klass) else None
     host = _app_host(entry)
-    return f"{_class_prefix(handler)}-{host}__-Distraction" if host else None
+    return f"{_class_prefix(cfg, handler)}-{host}__-Distraction" if host else None
 
 
 def _entry_file(entry: dict) -> str:
@@ -760,7 +802,7 @@ def _entry_file(entry: dict) -> str:
     return f"{desktop}.desktop" if desktop else f"{entry['name']}.desktop"
 
 
-def _render_entry(entry: dict, handler: str | None) -> str:
+def _render_entry(entry: dict, cfg: dict, handler: str | None) -> str:
     name = entry["name"]
     exec_line = " ".join(_exec_arg(a) for a in (str(ROOT / "distractions"), "open", name))
     lines = [
@@ -774,7 +816,7 @@ def _render_entry(entry: dict, handler: str | None) -> str:
         "Terminal=false",
         "StartupNotify=true",
     ]
-    wm = _wm_class(entry, handler)
+    wm = _wm_class(entry, cfg, handler)
     if wm:
         lines.append(f"StartupWMClass={wm}")
     return "\n".join(lines) + "\n"
@@ -807,7 +849,7 @@ def _plan(exp: dict, cfg: dict, handler: str | None) -> list[tuple[Path, str]]:
         if path in seen:
             continue
         seen.add(path)
-        plan.append((path, _render_entry(entry, handler)))
+        plan.append((path, _render_entry(entry, cfg, handler)))
     if cfg["open_links_in_space"]:
         plan.append((apps / HANDLER_ID, _render_handler()))
     return plan
@@ -826,14 +868,27 @@ def _write_text(path: Path, text: str) -> None:
         raise
 
 
+UDD_TIMEOUT = 60.0
+
+
 def _update_desktop_database(apps: Path) -> None:
+    """Best effort: the entries are already in place and the record written; a slow
+    or missing cache refresh changes nothing about what setup owns."""
     tool = shutil.which("update-desktop-database")
-    if tool:
-        subprocess.run([tool, str(apps)], capture_output=True, check=False, timeout=60)
+    if not tool:
+        return
+    try:
+        subprocess.run([tool, str(apps)], capture_output=True, check=False, timeout=UDD_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"update-desktop-database did not finish: {e}; the menu refreshes on its own later", file=sys.stderr)
 
 
 def _rollback(journal: list[tuple]) -> None:
-    """Undo this run's writes and moves, newest first; the old manifest on disk stays the record."""
+    """Undo this run's writes and moves, newest first; the old manifest on disk stays the record.
+
+    Every file this run replaced or dropped was moved aside first, so reversing
+    the journal puts the exact pre-run bytes back, owned entries included.
+    """
     for step in reversed(journal):
         try:
             if step[0] == "wrote":
@@ -854,14 +909,20 @@ def _write_links(links: str) -> None:
             print(f"cannot record links in state: {e}", file=sys.stderr)
 
 
-def _restore_handler(previous: str | None) -> None:
-    """Hand the default browser back; only called while the plugin's handler holds it."""
+def _restore_handler(previous: str | None) -> bool:
+    """Hand the default browser back; only called while the plugin's handler holds it.
+
+    False means the default still points at the plugin's handler, so the caller
+    must leave that handler file in place.
+    """
     if not previous:
         print("no previous default browser is recorded; choose one with: xdg-settings set default-web-browser <id>.desktop", file=sys.stderr)
-        return
+        return False
     rc, _out = _xdg_settings("set", "default-web-browser", previous)
     if rc != 0:
         print(f"xdg-settings could not restore {previous} as the default browser (exit {rc})", file=sys.stderr)
+        return False
+    return True
 
 
 def sync_entries(exp: dict, cfg: dict) -> int:
@@ -874,46 +935,74 @@ def sync_entries(exp: dict, cfg: dict) -> int:
     and only then is the default browser switched.
     """
     old = state.read_entries()
-    owned = {item["path"]: item["backup"] for item in old["files"]}
-    handler = default_handler()
-    previous = handler if handler and handler != HANDLER_ID else old["previous_handler"]
-    plan = _plan(exp, cfg, handler if handler and handler != HANDLER_ID else previous)
+    owned_files = _owned_files(old)
+    if owned_files is None:
+        return _refuse_manifest()
+    owned = {item["path"]: item["backup"] for item in owned_files}
+    answered, handler = default_handler()
+    if answered and handler and handler != HANDLER_ID:
+        previous = handler
+    else:
+        previous = old["previous_handler"]
+    plan = _plan(exp, cfg, previous)
     wanted = {str(path) for path, _text in plan}
-    apps, backups, journal, files = applications_dir(), _backup_dir(), [], []
+    apps, backups, journal, files, staged = applications_dir(), _backup_dir(), [], [], []
+
+    def move(src: Path, dst: Path) -> None:
+        shutil.move(str(src), str(dst))
+        journal.append(("moved", str(src), str(dst)))
+
+    def stage(path: Path) -> None:
+        # An owned file about to be replaced or dropped is moved aside whole, so a
+        # rollback puts its exact bytes back and success discards the copy.
+        backups.mkdir(parents=True, exist_ok=True)
+        dest = backups / f".stage-{path.name}"
+        _unlink(dest)
+        move(path, dest)
+        staged.append(dest)
+
     try:
         apps.mkdir(parents=True, exist_ok=True)
         for path_s, backup in owned.items():
             if path_s in wanted:
                 continue
-            _unlink(Path(path_s))
+            path = Path(path_s)
+            if path.is_file() or path.is_symlink():
+                stage(path)
             if backup and (Path(backup).exists() or Path(backup).is_symlink()):
-                shutil.move(backup, path_s)
-                journal.append(("moved", backup, path_s))
+                move(Path(backup), path)
         for path, text in plan:
             backup = owned.get(str(path))
             # A file or link is moved aside whole; anything else (a directory) is
             # not a launcher entry and the write below refuses it.
-            existed = path.is_file() or path.is_symlink()
-            if existed and str(path) not in owned:
-                dest = backups / path.name
+            present = path.is_file() or path.is_symlink()
+            if present and str(path) not in owned:
                 backups.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(path), str(dest))
-                journal.append(("moved", str(path), str(dest)))
-                backup, existed = str(dest), False
+                dest = backups / path.name
+                move(path, dest)
+                backup = str(dest)
+            elif present:
+                stage(path)
             _write_text(path, text)
-            if not existed:
-                journal.append(("wrote", str(path)))
+            journal.append(("wrote", str(path)))
             files.append({"path": str(path), "backup": backup})
-        _update_desktop_database(apps)
         state.write_entries({"files": files, "previous_handler": previous})
     except OSError as e:
         print(f"cannot write launcher entries under {apps}: {e}", file=sys.stderr)
         _rollback(journal)
         return 1
+    for dest in staged:
+        _unlink(dest)
+    _update_desktop_database(apps)
     if not cfg["open_links_in_space"]:
-        if handler == HANDLER_ID:
+        if answered and handler == HANDLER_ID:
             _restore_handler(old["previous_handler"])
         _write_links("off")
+        return 0
+    if not answered:
+        print("links: displaced -- xdg-settings could not report the default browser, so it was left alone; "
+              "rerun: distractions setup", file=sys.stderr)
+        _write_links("displaced")
         return 0
     rc = 0
     if handler != HANDLER_ID:
@@ -927,10 +1016,22 @@ def sync_entries(exp: dict, cfg: dict) -> int:
 def remove_entries() -> int:
     """`setup --remove`: the previous default back, exactly the manifest's files gone, every backup home."""
     old = state.read_entries()
-    if old["files"] and default_handler() == HANDLER_ID:
-        _restore_handler(old["previous_handler"])
+    files = _owned_files(old)
+    if files is None:
+        return _refuse_manifest()
+    if files:
+        # The handler file is deleted below, so the default must be known to point
+        # elsewhere first: an unanswered query or a failed restore keeps everything.
+        answered, handler = default_handler()
+        if not answered:
+            print("xdg-settings could not report the default browser; the launcher entries and the "
+                  "handler stay in place until it can", file=sys.stderr)
+            return 1
+        if handler == HANDLER_ID and not _restore_handler(old["previous_handler"]):
+            print("the default browser still points at the handler; nothing was removed", file=sys.stderr)
+            return 1
     try:
-        for item in old["files"]:
+        for item in files:
             path = Path(item["path"])
             _unlink(path)
             if item["backup"]:
@@ -939,9 +1040,9 @@ def remove_entries() -> int:
                     shutil.move(str(backup), str(path))
                 else:
                     print(f"backup {backup} is missing; {path} stays removed", file=sys.stderr)
-        if old["files"]:
-            _update_desktop_database(applications_dir())
         _unlink(state.entries_path())
+        if files:
+            _update_desktop_database(applications_dir())
     except OSError as e:
         print(f"cannot remove launcher entries: {e}", file=sys.stderr)
         return 1

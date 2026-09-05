@@ -173,9 +173,10 @@ sys.exit(1)
 """
 
 UPDATE_DESKTOP_DATABASE = r"""
-import os, sys
+import os, sys, time
 from pathlib import Path
 Path(os.environ["DS_UDD_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
+time.sleep(float(os.environ.get("DS_UDD_SLEEP", "0")))
 """
 
 OMARCHY_YOUTUBE = (
@@ -439,6 +440,108 @@ class SetupTests(unittest.TestCase):
         self.assertFalse((self.apps / setup.HANDLER_ID).exists())
         self.assertEqual(self._default(), "google-chrome.desktop")
         self.assertEqual(self._links(), "off")
+
+    def test_unanswered_default_query_never_changes_the_default(self):
+        # xdg-settings cannot say what the default is: the entries land, the
+        # default is left alone, and links read displaced until it can answer.
+        self.xdg_default.unlink()
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertEqual(len([ln for ln in err.splitlines() if "displaced" in ln]), 1)
+        self.assertEqual(self._links(), "displaced")
+        self.assertTrue((self.apps / setup.HANDLER_ID).is_file())
+        self.assertIsNone(self._entries()["previous_handler"])
+        self.assertFalse(any(ln.startswith("set ") for ln in self._xdg_lines()))
+        # Remove cannot prove the default points elsewhere, so it deletes nothing.
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(setup.remove_entries(), 1)
+        self.assertTrue((self.apps / setup.HANDLER_ID).is_file())
+        self.assertIsNotNone(self._entries())
+        self.xdg_default.write_text("google-chrome.desktop\n", encoding="utf-8")
+        self.assertEqual(setup.remove_entries(), 0)
+        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+        self.assertIsNone(self._entries())
+
+    def test_remove_keeps_everything_while_the_default_still_points_at_the_handler(self):
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        os.environ["DS_XDG_SET_RC"] = "4"
+        self.addCleanup(os.environ.pop, "DS_XDG_SET_RC", None)
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self.assertEqual(setup.remove_entries(), 1)
+        self.assertTrue((self.apps / setup.HANDLER_ID).is_file())
+        self.assertTrue((self.apps / "YouTube.desktop").is_file())
+        self.assertIsNotNone(self._entries())
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        del os.environ["DS_XDG_SET_RC"]
+        self.assertEqual(setup.remove_entries(), 0)
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+
+    def test_manifest_naming_a_foreign_path_is_refused_whole(self):
+        victim = self.box.runtime / "victim.txt"
+        victim.write_text("keep me\n", encoding="utf-8")
+        inside = self.apps / "YouTube.desktop"
+        inside.write_text(OMARCHY_YOUTUBE, encoding="utf-8")
+        manifest = self.box.state_dir / "entries.json"
+        manifest.parent.mkdir(parents=True, exist_ok=True)
+        for record in (
+            {"files": [{"path": str(victim), "backup": None}], "previous_handler": None},
+            {"files": [{"path": str(self.apps / ".." / "victim.txt"), "backup": None}], "previous_handler": None},
+            {"files": [{"path": str(inside), "backup": str(victim)}], "previous_handler": None},
+        ):
+            with self.subTest(record=record):
+                manifest.write_text(json.dumps(record), encoding="utf-8")
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    self.assertEqual(setup.remove_entries(), 1)
+                    rc, _ = self._install()
+                self.assertEqual(rc, 1)
+                self.assertIn(str(manifest), err.getvalue())
+                self.assertEqual(victim.read_text(encoding="utf-8"), "keep me\n")
+                self.assertEqual(inside.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
+                self.assertTrue(manifest.is_file())
+
+    def test_rollback_restores_owned_entries_and_a_dropped_entry(self):
+        omarchy = self.apps / "YouTube.desktop"
+        omarchy.write_text(OMARCHY_YOUTUBE, encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        first = self._entries()
+        backup = self.box.state_dir / "entries-backup" / "YouTube.desktop"
+        telegram = self.apps / "org.telegram.desktop.desktop"
+        # Owned files drift, then the run fails on the handler: every owned file
+        # comes back with its drifted bytes and the dropped entry is un-dropped.
+        omarchy.write_text("drifted youtube\n", encoding="utf-8")
+        telegram.write_text("drifted telegram\n", encoding="utf-8")
+        handler = self.apps / setup.HANDLER_ID
+        handler.unlink()
+        handler.mkdir()
+        self._cfg(list=["Telegram"])
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertEqual(omarchy.read_text(encoding="utf-8"), "drifted youtube\n")
+        self.assertEqual(telegram.read_text(encoding="utf-8"), "drifted telegram\n")
+        self.assertEqual(backup.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
+        self.assertEqual(self._entries(), first)
+        self.assertEqual(sorted(p.name for p in backup.parent.iterdir()), ["YouTube.desktop"])
+
+    def test_desktop_database_refresh_is_best_effort(self):
+        os.environ["DS_UDD_SLEEP"] = "1"
+        self.addCleanup(os.environ.pop, "DS_UDD_SLEEP", None)
+        with patch.object(setup, "UDD_TIMEOUT", 0.2):
+            rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertIn("update-desktop-database did not finish", err)
+        self.assertIsNotNone(self._entries())
+        self.assertEqual(self._links(), "on")
+
+    def test_wm_class_follows_the_configured_browser(self):
+        self._cfg(browser=["/usr/bin/brave", "--foo"])
+        self.assertEqual(self._install(), (0, ""))
+        youtube = (self.apps / "YouTube.desktop").read_text(encoding="utf-8")
+        self.assertIn("StartupWMClass=brave-youtube.com__-Distraction\n", youtube)
 
     def test_write_failure_mid_run_leaves_no_manifest_and_no_plugin_files(self):
         omarchy = self.apps / "YouTube.desktop"
