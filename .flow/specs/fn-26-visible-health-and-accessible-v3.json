@@ -1,0 +1,24 @@
+{
+  "branch_name": "fn-26-visible-health-and-accessible-v3",
+  "created_at": "2026-09-05T19:23:02.786193Z",
+  "depends_on_epics": [],
+  "id": "fn-26-visible-health-and-accessible-v3",
+  "next_task": 1,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": null,
+  "spec_path": ".flow/specs/fn-26-visible-health-and-accessible-v3.md",
+  "status": "open",
+  "title": "Visible health and accessible v3 controls",
+  "tracker": {
+    "baseHashFlow": null,
+    "baseHashTracker": null,
+    "depRelations": [],
+    "id": null,
+    "identifier": null,
+    "lastSyncedAt": null,
+    "mergeBaseFlow": null,
+    "mergeBaseTracker": null,
+    "url": null
+  },
+  "updated_at": "2026-09-05T19:24:31.846579Z"
+}

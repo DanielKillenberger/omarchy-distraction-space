@@ -1396,8 +1396,9 @@ def ask_links(cfg: dict, assume_yes: bool) -> dict | None:
     the question asked; the answer goes into the file so it is never asked
     again. `--yes` or no terminal takes the config value, true by default, and
     prints the explanation as a notice. Once the file has the key, a rerun
-    prints the current choice and the key that changes it. `--yes` also keeps
-    the root transaction from asking for a password (`sudo -n`). None when the
+    prints the current choice and the key that changes it. `--yes` and no
+    terminal also keep the root transaction from asking for a password
+    (`sudo -n`), see `install`. None when the
     answer could not be written: an answer that lives only in this run would
     be asked again, or overridden by a later `--yes`, so setup stops here,
     before anything is installed.
@@ -1444,9 +1445,13 @@ def install(assume_yes: bool = False):
         if cfg is None:
             return 1
     grant_bytes = grant.encode("utf-8")
+    # No terminal and --yes both mean nobody is there to type a password:
+    # the root transaction runs with `sudo -n` and fails instead of prompting.
+    quiet = assume_yes or not sys.stdin.isatty()
     if not _already_current(source, grant_bytes, wrapper):
-        if _root_transaction(source, grant_bytes, wrapper, sudoers, prompt=not assume_yes) != 0:
-            print("sudo setup transaction failed" + ("; --yes never asks for a password, so run setup without it once" if assume_yes else ""), file=sys.stderr)
+        if _root_transaction(source, grant_bytes, wrapper, sudoers, prompt=not quiet) != 0:
+            why = "--yes" if assume_yes else "a setup without a terminal"
+            print("sudo setup transaction failed" + (f"; {why} never asks for a password, so run setup from a terminal once" if quiet else ""), file=sys.stderr)
             return 1
     slice_rc = sync_slice()
     entries_rc = sync_entries({"list": catalog.expand(cfg)}, cfg) if cfg is not None else 1

@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import ROOT, Sandbox
+from harness import ROOT, ClosedTty, Sandbox, Tty
 
 sys.path.insert(0, str(ROOT))
 from ds import launch, setup
@@ -199,20 +199,14 @@ OMARCHY_BASECAMP = (
 )
 
 
-class Tty(io.StringIO):
-    """stdin as a terminal: what the person types, or nothing at all."""
-
-    def isatty(self):
-        return True
-
-
-class ClosedTty(Tty):
-    def readline(self):
-        raise AssertionError("setup prompted")
-
-
 class SetupTests(unittest.TestCase):
     def setUp(self):
+        # The runner's stdin is a pipe, which setup reads as "nobody is here to
+        # type a password"; every test runs as a person at a terminal who is
+        # never asked anything unless it patches stdin itself.
+        tty = patch("sys.stdin", ClosedTty())
+        tty.start()
+        self.addCleanup(tty.stop)
         self.box = Sandbox()
         self.addCleanup(self.box.cleanup)
         self.box.apply_env()
@@ -445,8 +439,23 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(self._install(), (0, ""))
         self.assertTrue(self.wrapper.is_file())
 
+    def test_a_non_terminal_never_asks_for_a_password_either(self):
+        self._unanswered()
+        with patch("sys.stdin", io.StringIO("")):
+            rc, err = self._install()
+        # The fake sudo refuses -n for anything but the flush: a piped setup with
+        # no root files in place fails instead of reaching for a password.
+        self.assertEqual(rc, 1)
+        self.assertIn("a setup without a terminal never asks for a password", err)
+        self.assertFalse(self.wrapper.exists())
+        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+
     def test_yes_and_a_non_terminal_never_prompt_and_print_the_explanation_as_a_notice(self):
-        # The non-terminal run installs the root files; --yes then finds them current.
+        # A terminal run lays down the root files once; the quiet runs find them
+        # current and never reach sudo.
+        self._unanswered()
+        with patch("sys.stdin", Tty("y\n")):
+            self.assertEqual(self._install(), (0, ""))
         for name, assume_yes, stdin in (("no terminal", False, io.StringIO("n\n")), ("--yes", True, ClosedTty())):
             with self.subTest(name):
                 before = self._unanswered()
@@ -1225,7 +1234,14 @@ class SetupTests(unittest.TestCase):
             "DS_RESCAN_LOG": str(self.rescan_log),
             "DS_LOCK_PREFIX": str(self.prefix),
         }
-        r = self.box.run("setup", extra_env=extra)
+        # A real terminal on stdin: the CLI path decides about `sudo -n` the way
+        # a person's shell would, and the fake sudo refuses -n for the transaction.
+        master, slave = os.openpty()
+        self.addCleanup(os.close, master)
+        try:
+            r = self.box.run("setup", extra_env=extra, stdin=slave)
+        finally:
+            os.close(slave)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(self.wrapper.is_file())
         self.assertTrue(self.sudoers.is_file())
@@ -1247,7 +1263,14 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(sudo_lines[-1].endswith("rescanPlugins"))
 
         (self.box.bin / "omarchy-shell").unlink()
-        r = self.box.run("setup", extra_env=extra)
+        # A real terminal on stdin: the CLI path decides about `sudo -n` the way
+        # a person's shell would, and the fake sudo refuses -n for the transaction.
+        master, slave = os.openpty()
+        self.addCleanup(os.close, master)
+        try:
+            r = self.box.run("setup", extra_env=extra, stdin=slave)
+        finally:
+            os.close(slave)
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertTrue(self.wrapper.is_file())
         self.assertTrue(self.sudoers.is_file())

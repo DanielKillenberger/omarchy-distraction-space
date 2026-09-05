@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import os
 import subprocess
 import sys
@@ -11,6 +12,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _ENV_KEYS = ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "PATH")
+
+
+class Tty(io.StringIO):
+    """stdin as a terminal: what the person types, or nothing at all."""
+
+    def isatty(self):
+        return True
+
+
+class ClosedTty(Tty):
+    """A terminal where nobody types: setup may run, but a prompt is a test failure."""
+
+    def readline(self):
+        raise AssertionError("setup prompted")
 
 
 class Sandbox:
@@ -98,7 +113,7 @@ class Sandbox:
         path.chmod(0o755)
         return path
 
-    def run(self, *args, input=None, timeout=60, extra_env=None) -> subprocess.CompletedProcess:
+    def run(self, *args, input=None, timeout=60, extra_env=None, stdin=None) -> subprocess.CompletedProcess:
         return subprocess.run(
             [sys.executable, str(ROOT / "distractions"), *args],
             capture_output=True,
@@ -107,6 +122,7 @@ class Sandbox:
             input=input,
             timeout=timeout,
             env=self.env(extra=extra_env),
+            **({"stdin": stdin} if input is None and stdin is not None else {}),
         )
 
     def popen(self, *args, extra_env=None) -> subprocess.Popen:

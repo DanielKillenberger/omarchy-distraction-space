@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from harness import ROOT, Sandbox
+from harness import ROOT, Sandbox, Tty
 from test_setup import SUDO, VISUDO
 
 sys.path.insert(0, str(ROOT))
@@ -126,6 +126,10 @@ def _sha(path: Path) -> str:
 
 class CloneTests(unittest.TestCase):
     def setUp(self):
+        # A person at the terminal who answers yes to the one setup question.
+        tty = mock.patch("sys.stdin", Tty("y\n" * 3))
+        tty.start()
+        self.addCleanup(tty.stop)
         self.box = Sandbox()
         self.addCleanup(self.box.cleanup)
         self.box.apply_env()
