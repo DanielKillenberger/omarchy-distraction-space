@@ -10,7 +10,7 @@
   "id": "fn-22-the-space-is-a-process-group-one",
   "impl_review_rounds": {
     "fn-22-the-space-is-a-process-group-one.1": 0,
-    "fn-22-the-space-is-a-process-group-one.2": 1,
+    "fn-22-the-space-is-a-process-group-one.2": 0,
     "fn-22-the-space-is-a-process-group-one.7": 0
   },
   "next_task": 1,
@@ -257,10 +257,54 @@
       "task": "fn-22-the-space-is-a-process-group-one.2",
       "timestamp": "2026-09-05T11:26:23.163412Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "54afb20781d1fc06edf6b434a0f3e6b42656d93977cf964396c51d948ef547aa",
+      "backend": "cursor",
+      "base_sha": "babecbfaf0afc57ab6ea586d26600ec95cacebe2",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-a24809889a29cc900f714583b010f59b",
+            "classification": "introduced",
+            "findingId": "finding-a24809889a29cc900f714583b010f59b",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "b5bd939348d8421d18725ca5ce364e784764c5f5",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 529,
+      "output_sha256": "43f43265805e3e1bff11ce455b76bce9de02e95d8f2f48bfdd304a0f20f872c4",
+      "reservation_id": "8853795ddaa9414e88fb757c56d9ee65",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.2",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.2",
+      "timestamp": "2026-09-05T11:30:38.520199Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-22-the-space-is-a-process-group-one.1": 1,
+    "impl:fn-22-the-space-is-a-process-group-one.2": 1,
     "impl:fn-22-the-space-is-a-process-group-one.7": 1
   },
   "review_pending_rounds": {},
@@ -284,5 +328,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T11:26:23.165634Z"
+  "updated_at": "2026-09-05T11:30:38.522437Z"
 }

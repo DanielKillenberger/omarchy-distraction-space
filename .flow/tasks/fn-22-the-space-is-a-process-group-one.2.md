@@ -45,9 +45,30 @@ Removes every network action from the enter/leave path (R8), adds the switch (R9
 
 
 ## Done summary
-TBD
+Removed every network action from the enter and leave path (R8), added the `site_block.enabled` switch (R9), the `refresh` verb, and the version 3 config, state, and catalog fields (R14). Resolution now runs on start, reload, `refresh`, and every 60 s regardless of workspace, and every wrapper call starts the slice first.
 
+### What changed (commits 1d17177, b5bd939; base babecbf; the worker's commit 1afd108 was cherry-picked onto the target as 1d17177)
+- `ds/listener.py`: `space()` runs only the enter/leave hooks; `take_result` and `_follow` no longer drop or defer on the workspace; `PERIOD = 60.0`; `tick` requests `periodic` when the block is enabled; `refresh()` requests without `_read_cfg()`; `_apply()` wraps `net.apply` with `cgroup.ensure_slice()` for replace and flush alike. With `site_block.enabled: false`, `enforce` flushes once on start and reload and never resolves. `write_state` carries `links`, `browser`, `released` from `_Ctx` attributes later tasks set. The expansion carries `site_block.enabled`; `_as_exp` defaults it and `desktop: null` for a version 2 file. After review: a refused wrapper call replies `error` to whoever asked, `flush` returns whether the wrapper accepted it, `enforce` propagates that on the disabled path, and `refresh` with the block off retries a refused flush.
+- `ds/config.py`: `DEFAULTS` gains `site_block.enabled`, `browser`, `open_links_in_space`, `containment.{snap_back,release_minutes}`; `validate` refuses a non-bool switch, a `browser` that is neither `"auto"` nor a non-empty argv of non-empty strings, and a `release_minutes` below 1.
+- `ds/state.py`: `status()` adds `links`, `browser`, `released`; `entries_path`/`read_entries`/`write_entries`.
+- `ds/catalog.py` + `catalog.json`: `desktop` per product (Telegram, Signal), `None` otherwise.
+- `distractions`: `refresh` subcommand.
+- Tests: listener (fake `systemctl`, enter/leave pins, periodic resolve on the space, refresh vs reload, block disabled, mid-batch enter, failed batch, v2 expansion, wrapper refusal on both paths via a file-toggled fake sudo), config, status, catalog.
+
+### Review
+cursor / gpt-5.6-sol-high, two rounds: round 1 NEEDS_WORK (apply failures replied ok), round 2 SHIP with R8, R9, R14 met.
+
+### Side effect worth knowing
+`sync_hold`'s unavailable-retry shares `PERIOD`, so it retries once per 60 s instead of 30 s. Docs still describe the version 2 schedule; task .9 owns them.
+
+### Gates
+- baseline: green via handoff (6a1f7011)
+- verify: `PATH=/usr/bin:$PATH python3 -m unittest discover -s tests` at b5bd939 on the integrated target (with .7), 322 tests, OK; receipt `.flow/tmp/green-receipts/b5bd9393-unittest.json`
+- classify: FULL
+
+stage: impl-review - ran (cursor gpt-5.6-sol-high, 2 rounds, SHIP)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 1d17177, b5bd939
+- Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (verify: green, 322 tests at b5bd939 on the integrated target; receipt .flow/tmp/green-receipts/b5bd9393-unittest.json), PATH=/usr/bin:$PATH python3 -m unittest tests.test_listener tests.test_config tests.test_status tests.test_catalog
 - PRs:
