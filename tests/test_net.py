@@ -159,7 +159,7 @@ class NetTests(unittest.TestCase):
             with self.subTest(error=error), mock.patch.object(net, "run_command", side_effect=error), \
                  mock.patch.object(net, "_notice_unavailable"):
                 net.site_block = "off"
-                self.assertEqual(net.apply(["203.0.113.10"], publish=False), "unavailable")
+                self.assertEqual(net._apply_result(["203.0.113.10"]), "unavailable")
                 self.assertEqual(net.site_block, "off")
 
     def test_empty_final_set_sends_flush_not_empty_replace(self):

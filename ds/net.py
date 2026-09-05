@@ -294,8 +294,7 @@ def finish_batch(batch, outcome):
     )
 
 
-def apply(addresses, *, publish=True):
-    global site_block
+def _apply_result(addresses):
     addrs = [a for a in (addresses or []) if a]
     wrapper = str(setup.wrapper_dest())
     try:
@@ -308,11 +307,15 @@ def apply(addresses, *, publish=True):
         result = ("on" if addrs else "off") if proc.returncode == 0 else "unavailable"
     except (OSError, subprocess.TimeoutExpired):
         result = "unavailable"
-    if publish:
-        site_block = result
     if result == "unavailable":
         _notice_unavailable()
     return result
+
+
+def apply(addresses):
+    global site_block
+    site_block = _apply_result(addresses)
+    return site_block
 
 
 def shutdown():

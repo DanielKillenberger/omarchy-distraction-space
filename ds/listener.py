@@ -91,7 +91,7 @@ def _apply(addrs, current=lambda: True):
     """Start the slice before replace; only the current generation may apply."""
     if addrs and not cgroup.ensure_slice():
         return "unavailable"
-    return net.apply(addrs, publish=False) if current() else None
+    return net._apply_result(addrs) if current() else None
 
 def _close(*objs):
     for obj in objs:
