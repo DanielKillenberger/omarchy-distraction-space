@@ -838,8 +838,12 @@ def _render_handler() -> str:
     ]) + "\n"
 
 
-def _plan(exp: dict, cfg: dict, handler: str | None) -> list[tuple[Path, str]]:
-    """Every file this run wants under the applications directory, in write order."""
+def _plan(exp: dict, cfg: dict, handler: str | None, keep_handler: bool = False) -> list[tuple[Path, str]]:
+    """Every file this run wants under the applications directory, in write order.
+
+    `keep_handler` keeps the handler entry although the switch is off: the default
+    browser still points at it and could not be handed back this run.
+    """
     apps, plan, seen = applications_dir(), [], set()
     for entry in exp.get("list") or []:
         name = entry.get("name") if isinstance(entry, dict) else None
@@ -850,7 +854,7 @@ def _plan(exp: dict, cfg: dict, handler: str | None) -> list[tuple[Path, str]]:
             continue
         seen.add(path)
         plan.append((path, _render_entry(entry, cfg, handler)))
-    if cfg["open_links_in_space"]:
+    if cfg["open_links_in_space"] or keep_handler:
         plan.append((apps / HANDLER_ID, _render_handler()))
     return plan
 
@@ -944,7 +948,17 @@ def sync_entries(exp: dict, cfg: dict) -> int:
         previous = handler
     else:
         previous = old["previous_handler"]
-    plan = _plan(exp, cfg, previous)
+    # Switching links off while the default still points at the handler: hand
+    # the default back BEFORE the handler file goes, and keep the file whenever
+    # that cannot be shown to have happened.
+    keep_handler = False
+    if not cfg["open_links_in_space"]:
+        holds = any(Path(p).name == HANDLER_ID for p in owned)
+        if answered and handler == HANDLER_ID:
+            keep_handler = not _restore_handler(old["previous_handler"])
+        elif not answered and holds:
+            keep_handler = True
+    plan = _plan(exp, cfg, previous, keep_handler=keep_handler)
     wanted = {str(path) for path, _text in plan}
     apps, backups, journal, files, staged = applications_dir(), _backup_dir(), [], [], []
 
@@ -995,9 +1009,12 @@ def sync_entries(exp: dict, cfg: dict) -> int:
         _unlink(dest)
     _update_desktop_database(apps)
     if not cfg["open_links_in_space"]:
-        if answered and handler == HANDLER_ID:
-            _restore_handler(old["previous_handler"])
-        _write_links("off")
+        if keep_handler:
+            print("links: displaced -- the default browser still points at the handler, so the handler "
+                  "stays until it is handed back; rerun: distractions setup", file=sys.stderr)
+            _write_links("displaced")
+        else:
+            _write_links("off")
         return 0
     if not answered:
         print("links: displaced -- xdg-settings could not report the default browser, so it was left alone; "

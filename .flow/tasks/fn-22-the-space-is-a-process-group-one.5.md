@@ -45,9 +45,29 @@ Collapses the banner code to the two kinds the spec names (R10) and deletes the 
 
 
 ## Done summary
-TBD
+Collapsed the banner code to the two kinds the spec names (R10) and deleted the attribution and provenance apparatus (R11). `ds/feedback.py` now exposes `opened(entry_name)` and `blocked(host)`; both go through one `_fire` path with a single `_banner_at` table keyed by list entry name, `BANNER_DEBOUNCE_S = 60`, the `nudges.app_banner` / `nudges.block_page` gates, and a `hypr.on_space()` check that skips on the space and logs when Hyprland cannot answer.
 
+### What changed (commits 28bb369, 31235f1; base 3556e38; the worker's db5db87 was cherry-picked as 28bb369)
+- `ds/feedback.py`: Opened titled `<Product> opened in the distraction space`, body `Super+Ctrl+Shift+D enters.` or `Locked until HH:MM.` / `Locked until you unlock.`, action `distractions enter`. Blocked titled `Blocked here`, body names the product and the key, action `distractions open https://<host>/` on the normalized SNI host. One synchronous log line per decision: `banner: host=<h> entry=<name> decision=shown|debounced`. Deleted `_inode_for_port`, `_pid_for_inode`, `_ppid_of`, `_walk_to_hypr_owner`, `_attribute`, `_provenance`, `_prov_submit`, `_prov_writer`, `_prov_flush`, `_prov_at`, `PROVENANCE_PER_MIN`, `_PPID_WALK`, `_proc_root`, `_banner_identity`, and the `peer_port` read. `_maybe_banner(host)` stays as a shim onto `blocked()`. After review: the lock callback is recorded before the routers decide not to bind, so the Opened banner reads the lock with both routers off.
+- `ds/state.py`: unchanged; `cmd_banners` already prints every `banner:` line and the test pins v3 and v2 lines together.
+- Tests: 23 attribution/provenance tests removed, 12 added (symbol removal, Blocked fire/debounce/refire with exact log lines, action-host normalization, unlisted host, `block_page` off, on-space and unknown-workspace skips, Opened action/debounce/shared table, lock body, lock with both routers off, `app_banner` off, unwritable log, the shim). Every fn-18 router test kept.
+
+### Decisions worth a reviewer's eye
+- An unlisted SNI raises no banner and no log line; the Blocked action opens the site in the space, which means nothing for an unlisted host.
+- Opened and Blocked share one debounce slot per entry.
+- `ds/hypr.py` has its own window banner; task .6 replaces it with `feedback.opened`.
+
+### Review
+cursor / gpt-5.6-sol-high, two rounds: round 1 NEEDS_WORK (lock callback lost when both routers are off), round 2 SHIP; R11 met, R10 partial pending task .6's window wiring by design.
+
+### Gates
+- baseline: green via handoff (b5bd9393)
+- verify: `PATH=/usr/bin:$PATH python3 -m unittest discover -s tests` at 31235f1 on the integrated target, 321 tests, OK; receipt `.flow/tmp/green-receipts/31235f10-unittest.json`
+- classify: FULL
+
+stage: impl-review - ran (cursor gpt-5.6-sol-high, 2 rounds, SHIP)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 28bb369, 31235f1
+- Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (verify: green, 321 tests at 31235f1 on the integrated target; receipt .flow/tmp/green-receipts/31235f10-unittest.json), PATH=/usr/bin:$PATH python3 -m unittest tests.test_feedback tests.test_banners
 - PRs:

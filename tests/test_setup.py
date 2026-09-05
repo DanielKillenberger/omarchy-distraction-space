@@ -543,6 +543,39 @@ class SetupTests(unittest.TestCase):
         youtube = (self.apps / "YouTube.desktop").read_text(encoding="utf-8")
         self.assertIn("StartupWMClass=brave-youtube.com__-Distraction\n", youtube)
 
+    def test_switching_links_off_hands_the_default_back_before_the_handler_goes(self):
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        handler = self.apps / setup.HANDLER_ID
+        # The hand-back fails: the handler file stays, the record still names it,
+        # and links read displaced rather than off.
+        self._cfg(open_links_in_space=False)
+        os.environ["DS_XDG_SET_RC"] = "4"
+        self.addCleanup(os.environ.pop, "DS_XDG_SET_RC", None)
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertEqual(len([ln for ln in err.splitlines() if "displaced" in ln]), 1)
+        self.assertTrue(handler.is_file())
+        self.assertIn(str(handler), [f["path"] for f in self._entries()["files"]])
+        self.assertEqual(self._entries()["previous_handler"], "google-chrome.desktop")
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        self.assertEqual(self._links(), "displaced")
+        # Once the hand-back works the handler goes and links read off.
+        del os.environ["DS_XDG_SET_RC"]
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        self.assertFalse(handler.exists())
+        self.assertEqual(self._links(), "off")
+        # With the query unanswered and the handler owned, the file stays too.
+        self._cfg(open_links_in_space=True)
+        self.assertEqual(self._install(), (0, ""))
+        self._cfg(open_links_in_space=False)
+        self.xdg_default.unlink()
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertTrue(handler.is_file())
+        self.assertEqual(self._links(), "displaced")
+
     def test_write_failure_mid_run_leaves_no_manifest_and_no_plugin_files(self):
         omarchy = self.apps / "YouTube.desktop"
         omarchy.write_text(OMARCHY_YOUTUBE, encoding="utf-8")
