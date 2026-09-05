@@ -1,11 +1,79 @@
 {
   "branch_name": "fn-22-the-space-is-a-process-group-one",
+  "completion_review_status": "unknown",
+  "completion_reviewed_at": null,
   "created_at": "2026-09-04T21:59:34.398472Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-22-the-space-is-a-process-group-one",
+  "impl_review_rounds": {
+    "fn-22-the-space-is-a-process-group-one.1": 1
+  },
   "next_task": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "c29c4da4f3ad4c0d8e64e03f5e259e240ed763c332927a936e53510ce465fe58",
+      "backend": "cursor",
+      "base_sha": "c29e0224e70f7f9d67cadafc51dba9cbcd0a60ab",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-01b2c260ee071690a66c57217f6839aa",
+            "classification": "introduced",
+            "findingId": "finding-01b2c260ee071690a66c57217f6839aa",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-7c8c0f77ffde74dee3e25c12850fe486",
+            "classification": "introduced",
+            "findingId": "finding-7c8c0f77ffde74dee3e25c12850fe486",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "53c409d0f41dc4153ae07c8594df7b0d49a8616f",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1554,
+      "output_sha256": "39d0ff0245baf3ccc7337542bf04776a8e6786174c91edda965741394a9adde4",
+      "reservation_id": "9d5380c1f4cf4a5fb2aecca42603297e",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.1",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.1",
+      "timestamp": "2026-09-05T10:53:39.107177Z",
+      "verdict": "NEEDS_WORK"
+    }
+  ],
+  "review_hash_epoch": {},
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-22-the-space-is-a-process-group-one.1": 0
+  },
   "spec_path": ".flow/specs/fn-22-the-space-is-a-process-group-one.md",
   "status": "open",
   "title": "The space is a process group: one boundary for windows, links, network, and sound",
@@ -20,5 +88,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T10:04:16.355994Z"
+  "updated_at": "2026-09-05T10:53:39.109174Z"
 }

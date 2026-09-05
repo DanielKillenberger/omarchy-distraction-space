@@ -127,6 +127,15 @@ Path(os.environ["DS_SYSTEMCTL_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\
 if os.environ.get("DS_SYSTEMCTL_FAIL"):
     sys.stderr.write("Failed to connect to bus: No medium found\n")
     sys.exit(1)
+verb = sys.argv[2] if len(sys.argv) > 2 else ""
+unit = sys.argv[3] if len(sys.argv) > 3 else ""
+if verb == "stop" and os.environ.get("DS_SYSTEMCTL_STOP_FAIL"):
+    sys.stderr.write("Failed to stop %s: Connection timed out\n" % unit)
+    sys.exit(1)
+# Like the real manager: a unit with no file cannot be started or stopped.
+if verb in ("start", "stop") and unit and not (Path(os.environ["XDG_CONFIG_HOME"]) / "systemd" / "user" / unit).is_file():
+    sys.stderr.write("Failed to %s %s: Unit %s not found.\n" % (verb, unit, unit))
+    sys.exit(5)
 """
 
 SHELL_FAIL = r"""
@@ -163,6 +172,12 @@ class SetupTests(unittest.TestCase):
         self.systemctl_log = self.box.runtime / "systemctl.log"
         os.environ["DS_SYSTEMCTL_LOG"] = str(self.systemctl_log)
         os.environ.pop("DS_SYSTEMCTL_FAIL", None)
+        os.environ.pop("DS_SYSTEMCTL_STOP_FAIL", None)
+        # The clone tests run setup.install() too and would inherit a poisoned
+        # visudo or log paths that point into this sandbox after it is gone.
+        for key in ("DS_VISUDO_FAIL", "DS_SYSTEMCTL_FAIL", "DS_SYSTEMCTL_STOP_FAIL",
+                    "DS_VISUDO_LOG", "DS_SYSTEMCTL_LOG", "DS_SETUP_SUDO_LOG", "DS_RESCAN_LOG"):
+            self.addCleanup(os.environ.pop, key, None)
         self.unit = self.box.config / "systemd" / "user" / "app-distraction.slice"
         os.environ["DS_LOCK_PREFIX"] = str(self.prefix)
         # No notification plugin source in the sandbox: the clone step reports
@@ -380,10 +395,42 @@ class SetupTests(unittest.TestCase):
             ["--user start app-distraction.slice", "--user stop app-distraction.slice", "--user daemon-reload"],
         )
         self.assertTrue(any(ln.endswith("flush ds") for ln in self._sudo_lines()))
+        # The wrapper is gone after the first remove, and so is the unit: the
+        # second run neither starts a unit that has no file nor stops it.
         self.systemctl_log.write_text("", encoding="utf-8")
         self.assertEqual(setup.remove(), 0)
         self.assertFalse(self.unit.exists())
-        self.assertEqual(self._systemctl_lines(), ["--user start app-distraction.slice", "--user stop app-distraction.slice"])
+        self.assertEqual(self._systemctl_lines(), [])
+
+    def test_remove_keeps_the_root_files_when_the_slice_cannot_be_stopped(self):
+        self.assertEqual(setup.install(), 0)
+        self.sudo_log.write_text("", encoding="utf-8")
+        os.environ["DS_SYSTEMCTL_STOP_FAIL"] = "1"
+        self.assertEqual(setup.remove(), 1)
+        # The flush ran, the slice step failed, and the root teardown never started,
+        # so a retry can still flush through the wrapper and its grant.
+        self.assertTrue(any(ln.endswith("flush ds") for ln in self._sudo_lines()))
+        self.assertFalse(any(ln.startswith("rm ") for ln in self._sudo_lines()))
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self.sudoers.is_file())
+        self.assertTrue(self.unit.is_file())
+        del os.environ["DS_SYSTEMCTL_STOP_FAIL"]
+        self.sudo_log.write_text("", encoding="utf-8")
+        self.assertEqual(setup.remove(), 0)
+        self.assertFalse(self.unit.exists())
+        self.assertFalse(self.wrapper.exists())
+
+    def test_remove_restores_a_missing_unit_so_the_flush_can_render(self):
+        self.assertEqual(setup.install(), 0)
+        self.unit.unlink()
+        self.systemctl_log.write_text("", encoding="utf-8")
+        self.assertEqual(setup.remove(), 0)
+        self.assertEqual(
+            self._systemctl_lines(),
+            ["--user daemon-reload", "--user start app-distraction.slice", "--user stop app-distraction.slice", "--user daemon-reload"],
+        )
+        self.assertFalse(self.unit.exists())
+        self.assertFalse(self.wrapper.exists())
 
     def test_slice_manager_failure_fails_setup_and_stops_remove_before_root(self):
         os.environ["DS_SYSTEMCTL_FAIL"] = "1"

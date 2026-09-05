@@ -640,15 +640,19 @@ def sync_slice() -> int:
 
 
 def remove_slice() -> int:
-    """`setup --remove`: stop the slice and drop its unit file."""
+    """`setup --remove`: stop the slice and drop its unit file.
+
+    An absent unit file means an earlier remove already finished this step; there
+    is nothing of ours to stop, and `systemctl stop` on an unloaded unit fails.
+    """
+    dest = _user_unit_dir() / cgroup.SLICE
+    if not dest.exists():
+        return 0
     rc, err = cgroup.systemctl_user("stop", cgroup.SLICE)
     if rc != 0:
         print(err or f"systemctl --user stop {cgroup.SLICE} failed", file=sys.stderr)
         return 1
-    dest = _user_unit_dir() / cgroup.SLICE
     try:
-        if not dest.exists():
-            return 0
         dest.unlink()
     except OSError as e:
         print(f"cannot remove {dest}: {e}", file=sys.stderr)
@@ -695,9 +699,11 @@ def remove():
     wrapper = wrapper_dest()
     sudoers = _sudoers_dest()
     # The wrapper renders the slice's cgroup rule on every call and nft resolves
-    # that path at load time, so the slice has to be alive for this last flush too.
-    if not cgroup.ensure_slice():
-        print(f"systemctl --user start {cgroup.SLICE} failed; the wrapper cannot flush without it", file=sys.stderr)
+    # that path at load time, so the slice has to be alive for this last flush.
+    # `sync_slice` is idempotent and also restores a unit an earlier partial
+    # remove dropped; with the wrapper already gone there is nothing to render.
+    if wrapper.is_file() and sync_slice() != 0:
+        print("the wrapper cannot flush without the slice", file=sys.stderr)
         return 1
     proc = subprocess.run(
         ["sudo", "-n", str(wrapper), "flush", "ds"],
@@ -708,6 +714,11 @@ def remove():
     if not _flush_ok(proc):
         print((proc.stderr or "nft flush failed").strip() or "nft flush failed", file=sys.stderr)
         return 1
+    # The slice goes before the root teardown: while the wrapper and its grant
+    # still exist a retry can flush again, so a failure here leaves remove
+    # repeatable instead of half done.
+    if remove_slice() != 0:
+        return 1
     proc = subprocess.run(
         ["sudo", "rm", "-f", str(wrapper), str(sudoers), str(_record_dest(wrapper))],
         check=False,
@@ -715,12 +726,11 @@ def remove():
     if proc.returncode != 0:
         print("sudo rm failed", file=sys.stderr)
         return 1
-    slice_rc = remove_slice()
     clone_rc = remove_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:
         _settle_service()
-    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 else 0
+    return 1 if rescan_rc != 0 or clone_rc != 0 else 0
 
 
 def cmd_setup(args):
