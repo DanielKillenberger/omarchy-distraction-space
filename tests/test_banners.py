@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""banners: newest banner provenance lines from the state log."""
+"""banners: newest banner decision lines from the state log, version 3 and version 2 shapes alike."""
 
 from __future__ import annotations
 
@@ -23,6 +23,9 @@ BANNER_C = (
     "2026-09-02T20:29:39+00:00 banner: host=x.com entry=X port=51241 "
     "pid=4322 exe=firefox class=firefox ws=1 decision=shown dropped=3"
 )
+# Version 3 lines: three fields, one per decision.
+BANNER_D = "2026-09-05T10:00:00+00:00 banner: host=api.x.com entry=X decision=shown"
+BANNER_E = "2026-09-05T10:00:01+00:00 banner: host=x.com entry=X decision=debounced"
 
 MIXED_LOG = "\n".join(
     [
@@ -32,6 +35,9 @@ MIXED_LOG = "\n".join(
         "",
         BANNER_B,
         BANNER_C,
+        "2026-09-05T09:59:59+00:00 on_space unknown; skipping banner",
+        BANNER_D,
+        BANNER_E,
     ]
 ) + "\n"
 
@@ -52,22 +58,19 @@ class BannersTests(unittest.TestCase):
         self._write_mixed(box)
         r = box.run("banners")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.splitlines(), [BANNER_C, BANNER_B, BANNER_A])
+        self.assertEqual(r.stdout.splitlines(), [BANNER_E, BANNER_D, BANNER_C, BANNER_B, BANNER_A])
 
     def test_count_limits_output(self):
         box = self._box()
         self._write_mixed(box)
         r = box.run("banners", "--count", "2")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(r.stdout.splitlines(), [BANNER_C, BANNER_B])
+        self.assertEqual(r.stdout.splitlines(), [BANNER_E, BANNER_D])
 
     def test_default_count_is_20(self):
         box = self._box()
         lines = [
-            (
-                f"2026-09-02T20:29:{i:02d}+00:00 banner: host=x.com entry=X "
-                f"port={50000 + i} pid=1 exe=firefox class=firefox ws=1 decision=shown"
-            )
+            f"2026-09-05T10:29:{i:02d}+00:00 banner: host=x.com entry=X decision=shown"
             for i in range(25)
         ]
         (box.state_dir / "log").write_text("\n".join(lines) + "\n", encoding="utf-8")
