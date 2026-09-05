@@ -165,7 +165,7 @@ _ENV_KEYS = (
     "DS_HYPR_LOG", "DS_NOTIFY_LOG", "DS_NFT_LOG", "GETENT_LOG", "DS_HOOK_LOG",
     "DS_HYPR_STATE", "DS_SOCKET2", "GETENT_MAP", "GETENT_GATE", "DS_HYPR_FAIL",
     "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT", "DS_SYSTEMCTL_LOG",
-    "XDG_DATA_HOME", "DS_XDG_DEFAULT", "DS_XDG_LOG",
+    "XDG_DATA_HOME", "XDG_DATA_DIRS", "DS_XDG_DEFAULT", "DS_XDG_LOG",
 )
 
 
@@ -235,6 +235,9 @@ class ListenerTests(unittest.TestCase):
         self._orig_env = {k: os.environ.get(k) for k in _ENV_KEYS}
         os.environ.update({
             "XDG_DATA_HOME": str(self.box.runtime / "data"),
+            # No system desktop files either: the browser pick must not find the
+            # developer's real Chrome under /usr/share.
+            "XDG_DATA_DIRS": str(self.box.runtime / "share"),
             "DS_XDG_DEFAULT": str(self.xdg_default),
             "DS_XDG_LOG": str(self.xdg_log),
             "DS_HYPR_LOG": str(self.hypr_log),
@@ -427,6 +430,16 @@ class ListenerTests(unittest.TestCase):
         })
         self.xdg_default.write_text(setup.HANDLER_ID + "\n", encoding="utf-8")
 
+    def _xdg_sets(self):
+        return [ln for ln in self._xdg_lines() if ln.startswith("set ")]
+
+    def _assert_links_never_asks(self):
+        """The browser pick reads the default once per start; the link check must add nothing per tick."""
+        n = len(self._xdg_lines())
+        time.sleep(2.2)
+        self.assertEqual(len(self._xdg_lines()), n)
+        self.assertEqual(self._xdg_sets(), [])
+
     def _xdg_lines(self):
         if not self.xdg_log.exists():
             return []
@@ -506,7 +519,7 @@ class ListenerTests(unittest.TestCase):
         self._cfg()
         self._start()
         self.assertTrue(_wait(lambda: self._links() == "off"), self._state())
-        self.assertEqual(self._xdg_lines(), [])
+        self._assert_links_never_asks()
         self._stop()
         self.conn.close()
         self.sock2.close()
@@ -515,7 +528,7 @@ class ListenerTests(unittest.TestCase):
         self._cfg(open_links_in_space=False)
         self._start()
         self.assertTrue(_wait(lambda: self._links() == "off"), self._state())
-        self.assertEqual(self._xdg_lines(), [])
+        self._assert_links_never_asks()
         self.assertEqual(self._notices("distractions setup"), [])
 
     def test_second_listen_exits_silently(self):
@@ -598,6 +611,16 @@ class ListenerTests(unittest.TestCase):
         self.assertEqual(self._nft().count("replace ds"), n_replace + 2)
         self.assertIn("youtube.com", self._getent_hosts())
         self.assertIn("203.0.113.20", self._nft())
+
+    def test_state_names_the_browser_open_would_pick(self):
+        self._cfg(browser=["/usr/bin/brave", "--foo"])
+        self._start()
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("browser") == "brave", 4), self._state())
+        self.assertEqual(json.loads(self.box.run("status", "--json").stdout)["browser"], "brave")
+        # Reload follows a config change.
+        self._cfg(browser=["chromium"])
+        self.assertEqual(self.box.run("reload", timeout=16).returncode, 0)
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("browser") == "chromium", 4), self._state())
 
     def test_site_block_disabled_flushes_once_and_keeps_hold(self):
         self._cfg(site_block={"enabled": False, "pass_through": True})

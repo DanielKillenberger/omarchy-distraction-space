@@ -10,7 +10,7 @@ import threading
 import time
 from pathlib import Path
 
-from ds import catalog, cgroup, config, feedback, hold, hypr, lock, net, setup, state, summary, ui
+from ds import catalog, cgroup, config, feedback, hold, hypr, launch, lock, net, setup, state, summary, ui
 
 TICK, PERIOD, _APPLY = 1.0, 60.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
 CLIENT_CAP = 256
@@ -299,6 +299,7 @@ class _Ctx:
             state.write_expansion(self.exp)
         self.enforce(reason)
     def enforce(self, reason):
+        self.browser = _browser_name(self.cfg)
         hypr.snap_back = (self.cfg or config.DEFAULTS)["containment"]["snap_back"]
         hypr.apply_rules(self.exp)
         # The scan's Opened banners read the nudge and the lock through feedback, so it starts first.
@@ -488,6 +489,18 @@ def _clone_check():
     why = setup.clone_drift()
     if why:
         ui.notify("Notification hold needs setup", f"{why[0].upper()}{why[1:]}. Run: distractions setup")
+
+def _browser_name(cfg):
+    """The distraction browser's basename for `state.json`, or None when none resolves.
+
+    The same pick `open` makes: the config argv when set, else the Omarchy
+    default when it is Chromium-family, else chromium; read at start and reload.
+    """
+    try:
+        argv = launch.pick_browser(cfg or config.DEFAULTS)
+    except Exception:
+        return None
+    return Path(argv[0]).name if argv else None
 
 def _links_state(cfg):
     """`on` while setup's handler is still the default browser, `displaced` when another took it.
