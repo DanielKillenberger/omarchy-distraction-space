@@ -113,10 +113,11 @@ _HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 # literal, then an optional port. Nothing outside those character sets, so a
 # backslash, a space, or a second `@` never reaches the host split.
 _AUTHORITY = re.compile(
-    r"^(?:[A-Za-z0-9\-._~%!$&'()*+,;=:]*@)?"
-    r"(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9\-._~%!$&'()*+,;=]+)"
+    r"^(?:(?:[A-Za-z0-9\-._~!$&'()*+,;=:]|%[0-9A-Fa-f]{2})*@)?"
+    r"(?:\[[0-9A-Fa-f:.]+\]|(?:[A-Za-z0-9\-._~!$&'()*+,;=]|%[0-9A-Fa-f]{2})+)"
     r"(?::[0-9]*)?$"
 )
+_CONTROL = re.compile(r"[\x00-\x1f\x7f]")
 
 
 def _url_host(url):
@@ -126,6 +127,10 @@ def _url_host(url):
     a port outside 1-65535 makes the whole argument unusable, so `open` can
     exit 2 instead of forwarding something no handler could take.
     """
+    # urlsplit drops tabs and newlines before parsing; a URL carrying them is
+    # not one anybody typed, so it is refused whole rather than cleaned.
+    if _CONTROL.search(url):
+        return None
     try:
         parts = urlsplit(url)
         if parts.scheme.lower() not in ("http", "https"):
