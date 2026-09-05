@@ -44,9 +44,32 @@ The three containment layers (R5, R6) and the Opened half of R10. Depends on `op
 
 
 ## Done summary
-TBD
+The three containment layers land in `ds/hypr.py` as one decision function, `classify(klass, pid)`, and one actor, `contain(client)`, which `_handle_event` and `listener._scan` both call (R5, R6). The window banner is gone; every landing goes through `feedback.opened(name)` (the Opened half of R10).
 
+### What changed (commits 3edb4b8, ca147e0, b8887b7; base 4f66e04)
+- `apply_rules`: one named rule `omarchy_ds_profile` matching `^[a-z-]+-.+__-Distraction$` plus one rule per native class; no per-host web rule, old per-host names disabled on the first apply; re-apply on `configreloaded` unchanged.
+- `classify`: layer 1 the profile class or a native class; layer 2 `cgroup.ancestor_in_slice(pid)` with an unreadable cgroup counting as outside; layer 3 a listed product's web-app class from any profile other than Distraction.
+- `contain`: moves silently; `move_to_space` reports whether Hyprland took the dispatch; a window has landed only when the rule already placed it on the space (fresh window) or the move succeeded; a scan or move event of a window already there announces nothing. Adoption remembers the address first, runs `distractions open <name>` synchronously with a 30 s cap so the exit code decides, closes the window on success, records a refused close as close-pending and retries only the close on the window's next event, and on a failed open moves the window by class with one log line and reports that move.
+- Banner: `feedback.opened(name)` after a confirmed landing. Removed from hypr: `BANNER_S`, `_app_banner`, `_banner_at`, `_want_banner`, `_maybe_banner`.
+- `ds/listener.py`: `_scan()` calls `hypr.contain` per client; `enforce` starts `feedback` before the scan.
+- Imports: `hypr` reaches `launch` and `feedback` through call-time imports because both import `hypr`.
+- Tests: `tests/test_hypr.py` one per acceptance line plus refused-close retry, failed move on a scan, rule-placed fresh window, failed open with a refused fallback move; `tests/test_listener.py` `ScanTests`.
+
+### Deviations, recorded on purpose
+- Adoption waits on `open` with a timeout instead of detaching it: R6's failed-open fallback needs the exit code, and `open` detaches the launch itself.
+- `catalog.pwa_class` and `feedback._maybe_banner` stay; both sit outside this task's Touches and the expansion still carries the pwa pattern for `hold.py`, `launch.entry_hosts`, and `feedback._entry_host`. Task .9 may retire the shim.
+
+### Review
+cursor / gpt-5.6-sol-high, three rounds: round 1 NEEDS_WORK (refused close left the adoption done; failed move still announced), round 2 NEEDS_WORK (fresh window announced despite a refused move; fallback move result ignored), round 3 SHIP with R5, R6, R10 met.
+
+### Gates
+- baseline: green via handoff (100b1e5f)
+- verify: `PATH=/usr/bin:$PATH python3 -m unittest discover -s tests` at b8887b7 on the integrated target, 342 tests, OK; receipt `.flow/tmp/green-receipts/b8887b7d-unittest.json`
+- classify: FULL
+
+stage: impl-review - ran (cursor gpt-5.6-sol-high, 3 rounds, SHIP)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 3edb4b8, ca147e0, b8887b7
+- Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (verify: green, 342 tests at b8887b7 on the integrated target; receipt .flow/tmp/green-receipts/b8887b7d-unittest.json), PATH=/usr/bin:$PATH python3 -m unittest tests.test_hypr tests.test_listener
 - PRs:
