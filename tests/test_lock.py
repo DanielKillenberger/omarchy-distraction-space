@@ -16,6 +16,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
+from test_enter import HYPRCTL
 
 sys.path.insert(0, str(ROOT))
 from ds import config, lock, state
@@ -68,6 +69,12 @@ class LockTests(unittest.TestCase):
         os.environ.pop("DS_HOOK_FAIL", None)
         self.hook_py = self.box.bin / "ds-hook.py"
         self.hook_py.write_text(HOOK_SCRIPT, encoding="utf-8")
+        self.hypr_log = self.box.runtime / "hypr.log"
+        self.hypr_state = self.box.runtime / "hypr-state.json"
+        os.environ["DS_HYPR_LOG"] = str(self.hypr_log)
+        os.environ["DS_HYPR_STATE"] = str(self.hypr_state)
+        self.box.fake_bin("hyprctl", HYPRCTL)
+        self._workspace("1")
         self.notify_patch = patch("ds.ui.notify", self._notify)
         self.notify_patch.start()
         self.addCleanup(self.notify_patch.stop)
@@ -98,6 +105,18 @@ class LockTests(unittest.TestCase):
                 return json.loads(self.hook_out.read_text(encoding="utf-8"))
             time.sleep(0.02)
         self.fail("hook did not write output")
+
+    def _workspace(self, name, others_occupied=True):
+        windows = 1 if others_occupied else 0
+        self.hypr_state.write_text(json.dumps({
+            "activeworkspace": {"id": 99 if name == "distraction" else 1, "name": name},
+            "workspaces": [{"id": 1, "name": "1", "windows": windows}, {"id": 2, "name": "2", "windows": windows},
+                           {"id": 99, "name": "distraction", "windows": 1}],
+        }), encoding="utf-8")
+
+    def _focused(self):
+        rows = self.hypr_log.read_text(encoding="utf-8").splitlines() if self.hypr_log.exists() else []
+        return [" ".join(json.loads(r)) for r in rows if "hl.dsp.focus" in r]
 
     def _raw_lock(self):
         return json.loads((self.box.state_dir / "lock.json").read_text(encoding="utf-8"))
@@ -174,6 +193,26 @@ class LockTests(unittest.TestCase):
         time.sleep(0.2)
         self.assertFalse(self.hook_out.exists())
         self.assertEqual(self._raw_lock()["purpose"], "one")
+
+    def test_lock_on_the_space_leaves_it_and_locks(self):
+        self._workspace("distraction")
+        self.assertEqual(lock.lock(25, "away"), 0)
+        self.assertTrue(lock.is_locked())
+        self.assertEqual(self._raw_lock()["purpose"], "away")
+        focused = self._focused()
+        self.assertEqual(len(focused), 1, focused)
+        self.assertNotIn("name:distraction", focused[0])
+
+    def test_lock_on_the_space_stays_when_no_other_workspace_is_occupied(self):
+        self._workspace("distraction", others_occupied=False)
+        self.assertEqual(lock.lock(25, "stay"), 0)
+        self.assertTrue(lock.is_locked())
+        self.assertEqual(self._focused(), [])
+
+    def test_lock_off_the_space_switches_nothing(self):
+        self.assertEqual(lock.lock(25, "here"), 0)
+        self.assertTrue(lock.is_locked())
+        self.assertEqual(self._focused(), [])
 
     def test_short_reason_refuses_and_keeps_the_lock(self):
         self._cfg(lock={"reason_min_chars": 50}, hooks={"unlock": [self._hook_argv()]})

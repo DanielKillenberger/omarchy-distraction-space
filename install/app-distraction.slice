@@ -1,0 +1,4 @@
+[Unit]
+Description=Omarchy distraction space: processes the plugin launched into the space
+
+[Slice]

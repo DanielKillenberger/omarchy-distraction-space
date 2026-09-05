@@ -18,7 +18,7 @@ from test_hold import BUSCTL, LIST, SHELL
 from test_listener import GETENT, HYPRCTL, NOTIFY, SUDO, _wait
 
 sys.path.insert(0, str(ROOT))
-from ds import catalog, hold
+from ds import catalog, cgroup, hold
 from ds.config import DEFAULTS
 from ds.state import write_json
 
@@ -77,6 +77,18 @@ def fake_proc(root: Path, table):
         (d / "stat").write_text(f"{pid} (a b) S {ppid} " + " ".join(["0"] * 17) + f" {START} 0 0\n")
         (d / "cmdline").write_bytes(b"\0".join(a.encode() for a in argv) + b"\0")
     return root
+
+
+SLICE_CGROUP = f"/{cgroup.slice_path(1000)}/run-r1.scope"
+
+
+def fake_cgroup(root: Path, pid, path):
+    """Write pid's `0::` cgroup line; `path=None` leaves a directory in its place so the read fails."""
+    target = root / str(pid) / "cgroup"
+    if path is None:
+        target.mkdir()
+    else:
+        target.write_text(f"0::{path}\n")
 
 
 class _Env(unittest.TestCase):
@@ -157,6 +169,33 @@ class AudioUnitTests(_Env):
         self.assertEqual(hold.identity(100), f"100:{START}")
         self.assertIsNone(hold.identity(999))
         self.assertIsNone(hold.identity(None))
+
+    def test_attribute_stream_slice_member_first_then_catalog(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        fake_cgroup(self.proc, 201, "/user.slice/user-1000.slice/user@1000.service/app.slice/app-chromium.scope")
+        fake_cgroup(self.proc, 100, None)
+        cases = [
+            (stream(1, "Chromium", "chrome", 400), cgroup.SLICE),
+            (stream(1, "mpv", "mpv", 400), cgroup.SLICE),
+            (stream(1, "Chromium", "chrome", 201), "Discord"),
+            (stream(1, "Telegram Desktop", "telegram-desktop", 100), "Telegram"),
+            (stream(1, "Chromium", "chrome", 100), None),
+            (stream(1, "Chromium", "chrome", 999), None),
+        ]
+        for item, want in cases:
+            with self.subTest(item=item.get("properties")):
+                self.assertEqual(hold.attribute_stream(item, self.table), want)
+
+    def test_scan_mutes_a_bare_browser_stream_in_the_slice_and_release_unmutes_it(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        self.streams.write_text(json.dumps([stream(4, "Chromium", "chrome", 400), stream(7, "Chromium", "chrome", 519)]))
+        m = hold.Mute()
+        m.sync(True, self.table)
+        self.assertEqual(self._streams(), {"4": True, "7": False})
+        self.assertEqual(self._muted(), {"4": f"400:{START}"})
+        m.sync(False, self.table)
+        self.assertEqual(self._streams(), {"4": False, "7": False})
+        self.assertIsNone(self._muted())
 
     def test_scan_mutes_attributed_streams_records_identity_and_release_unmutes(self):
         m = hold.Mute()

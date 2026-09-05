@@ -1,34 +1,67 @@
-"""Hyprland queries, named window rules, silent moves, and workspace cycle."""
+"""Hyprland queries, named window rules, the three containment layers, and workspace cycle.
+
+A window belongs on the space by class (the distraction profile's rule or a native
+class), by process (its pid or an ancestor in the slice), or by adoption (a listed
+product's web app running in another browser profile, which is moved intact and
+offered deliberate migration). First match wins, every move is silent, and a window
+that lands while the person is elsewhere raises the Opened banner. A released
+window (`distractions release`) is skipped by every layer until its deadline or
+until it closes.
+"""
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import threading
 import time
+from collections import OrderedDict
+from datetime import datetime, timezone
+from pathlib import Path
 
-from ds import state
+from ds import catalog, cgroup, state
 
 SPACE = "distraction"
 WORKSPACE_EFFECT = f"name:{SPACE} silent"
 RULE_HANDLES = "_G.omarchy_ds_rules"
-BANNER_S = 30
+PROFILE_RULE = "omarchy_ds_profile"
 GLYPH = "󰈈"
+# Adoption runs this checkout's CLI, the same path the banner actions name.
+CLI = str(Path(__file__).resolve().parent.parent / "distractions")
+OPEN_TIMEOUT = 30
+ADOPTED_CAP = 256
 
 _entries = None
-_app_banner = True
-_banner_at = {}
 _clients_cache = None
 _clients_lock = threading.Lock()
+# Offered window identities, oldest first; close events forget an address.
+_adopted = OrderedDict()
+# Exempt window addresses -> ISO deadline, as `release` recorded them (R17).
+_released = {}
+# `containment.snap_back`, set by the listener: a manual move off the space is reverted on its event (R18).
+snap_back = True
 
 
 def _reset_for_tests():
-    global _entries, _app_banner, _clients_cache
+    global _entries, _clients_cache, snap_back
     _entries = None
-    _app_banner = True
-    _banner_at.clear()
+    snap_back = True
+    _adopted.clear()
+    _released.clear()
     with _clients_lock:
         _clients_cache = None
+
+
+def _launch():
+    # ds.launch imports this module; resolved at call time so neither import is circular.
+    from ds import launch
+    return launch
+
+
+def _feedback():
+    from ds import feedback
+    return feedback
 
 
 def hyprctl_json(*args):
@@ -128,17 +161,34 @@ def _normalize(expanded):
     return [e for e in items if isinstance(e, dict)], extra
 
 
+def _native_classes(entry):
+    """The entry's class patterns minus the version 2 per-host web-app pattern.
+
+    A listed product's web-app window is never matched by its host class: the
+    distraction profile's window is the profile rule's, any other profile's is
+    adoption's.
+    """
+    if not isinstance(entry, dict):
+        return []
+    web = {catalog.pwa_class(h) for h in _launch().entry_hosts(entry)}
+    return [c for c in entry.get("classes") or [] if isinstance(c, str) and c and c not in web]
+
+
 def _rule_names(entries):
+    """One rule per native class; the profile rule is added by `apply_rules`."""
     names, specs = [], []
     for entry in entries:
         raw = _entry_name(entry)
-        for n, klass in enumerate(entry.get("classes") or []):
-            if not isinstance(klass, str) or not klass:
-                continue
+        for n, klass in enumerate(_native_classes(entry)):
             name = _rule_name(raw, n)
             names.append(name)
             specs.append((name, klass))
     return names, specs
+
+
+def profile_rule_class():
+    """Class pattern of every window of the distraction profile: one rule covers them all."""
+    return r"^[a-z-]+-.+__-" + re.escape(_launch().PROFILE) + "$"
 
 
 def lua_string(value):
@@ -227,13 +277,12 @@ def _read_rule_names():
 
 
 def apply_rules(expanded):
-    global _entries, _app_banner
-    entries, extra = _normalize(expanded)
+    global _entries
+    entries, _extra = _normalize(expanded)
     _entries = entries
-    nudges = extra.get("nudges")
-    if isinstance(nudges, dict) and "app_banner" in nudges:
-        _app_banner = bool(nudges["app_banner"])
     names, specs = _rule_names(entries)
+    names = [PROFILE_RULE, *names]
+    specs = [(PROFILE_RULE, profile_rule_class()), *specs]
     if len(names) != len(set(names)):
         _log("apply_rules: generated windowrule names collide; skipped")
         return False
@@ -308,26 +357,8 @@ def _current_entries():
     return entries
 
 
-def _want_banner():
-    exp = state.read_expansion()
-    if isinstance(exp, dict):
-        nudges = exp.get("nudges")
-        if isinstance(nudges, dict) and "app_banner" in nudges:
-            return bool(nudges["app_banner"])
-    try:
-        from ds.config import config_path
-        path = config_path()
-        if path.exists():
-            raw = json.loads(path.read_text(encoding="utf-8"))
-            nudges = raw.get("nudges") if isinstance(raw, dict) else None
-            if isinstance(nudges, dict) and "app_banner" in nudges:
-                return bool(nudges["app_banner"])
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
-        pass
-    return _app_banner
-
-
 def _norm_addr(a):
+    """One spelling for a window address: lowercase, no `0x`."""
     s = str(a or "").lower()
     return s[2:] if s.startswith("0x") else s
 
@@ -345,6 +376,53 @@ def _client_by_address(address):
         if isinstance(c, dict) and _norm_addr(c.get("address")) == want:
             return c
     return None
+
+
+def active_window():
+    """The focused window's client record, or None when nothing is focused or hyprctl fails."""
+    try:
+        data = hyprctl_json("activewindow")
+    except Exception as e:
+        _log(f"hyprctl activewindow: {e}")
+        return None
+    return data if isinstance(data, dict) and data.get("address") else None
+
+
+def release(address, until):
+    """Exempt one window from every layer until the ISO deadline `until` or until it closes."""
+    _released[address] = until
+
+
+def released():
+    """The exempt set as `state.json` lists it: `{address: until}`."""
+    return dict(_released)
+
+
+def past(until):
+    """Whether the ISO deadline is behind now; an unreadable deadline counts as past."""
+    try:
+        return datetime.fromisoformat(until) <= datetime.now(timezone.utc)
+    except (TypeError, ValueError):
+        return True
+
+
+def expire_released():
+    """Drop every exemption past its deadline; returns their addresses."""
+    gone = [a for a, until in _released.items() if past(until)]
+    for a in gone:
+        del _released[a]
+    return gone
+
+
+def _forget(address):
+    want = _norm_addr(address)
+    for a in [a for a in _released if _norm_addr(a) == want]:
+        del _released[a]
+
+
+def _is_released(address):
+    want = _norm_addr(address)
+    return bool(want) and any(_norm_addr(a) == want for a in _released)
 
 
 def _strip_www(host):
@@ -369,19 +447,17 @@ def entry_for_host(host):
     return None
 
 
+def _pattern_hit(pat, klass):
+    try:
+        return re.search(pat, klass) is not None
+    except re.error:
+        return pat == klass
+
+
 def _class_matches(entry, klass):
     if not klass or not isinstance(entry, dict):
         return False
-    for pat in entry.get("classes") or []:
-        if not isinstance(pat, str) or not pat:
-            continue
-        try:
-            if re.search(pat, klass):
-                return True
-        except re.error:
-            if pat == klass:
-                return True
-    return False
+    return any(_pattern_hit(pat, klass) for pat in entry.get("classes") or [] if isinstance(pat, str) and pat)
 
 
 def entry_clients_on_space(entry, clients):
@@ -405,43 +481,211 @@ def entry_clients_on_space(entry, clients):
 
 
 def _match_entry(klass):
+    """The entry whose native class owns this window, or None."""
     if not klass:
         return None
     for entry in _current_entries():
-        if _class_matches(entry, klass):
+        if any(_pattern_hit(pat, klass) for pat in _native_classes(entry)):
             return entry
     return None
 
 
+def _webapp_class(host):
+    """A Chromium web-app window for `host` or a subdomain of it; group 1 is its browser profile."""
+    return re.compile(r"^[a-z-]+-(?:[a-z0-9-]+\.)*" + re.escape(host.lower()) + r"__-(.+)$")
+
+
+def _webapp_entry(klass):
+    """(entry, profile) when `klass` is a listed product's web-app window, else (None, None)."""
+    if not klass:
+        return None, None
+    launch = _launch()
+    for entry in _current_entries():
+        for host in launch.entry_hosts(entry):
+            m = _webapp_class(host).match(klass)
+            if m:
+                return entry, m.group(1)
+    return None, None
+
+
+def classify(klass, pid):
+    """The three containment layers over one window, first match wins.
+
+    Returns `("class" | "slice" | "adopt", entry)` or None. "class" is the profile
+    rule or a native class (the entry is None for a profile window of an unlisted
+    host); "slice" is a pid, or an ancestor within eight hops, in the slice, with
+    an unreadable cgroup counting as outside; "adopt" is a listed product's web
+    app in another browser profile, which cannot reach its host from there.
+    """
+    klass = klass or ""
+    if re.match(profile_rule_class(), klass):
+        return "class", _webapp_entry(klass)[0]
+    entry = _match_entry(klass)
+    if entry is not None:
+        return "class", entry
+    if isinstance(pid, int) and pid > 0 and cgroup.ancestor_in_slice(pid):
+        return "slice", None
+    entry, _profile = _webapp_entry(klass)
+    if entry is not None:
+        return "adopt", entry
+    return None
+
+
+def _on_space(client):
+    ws = client.get("workspace")
+    return isinstance(ws, dict) and ws.get("name") == SPACE
+
+
+def contain(client, klass=None, opened=False):
+    """Run the layers over one window: move or adopt it, then raise the Opened banner.
+
+    `opened` marks a fresh `openwindow`, which the profile rule may already have
+    placed on the space: the banner fires for it without a move. A scan or a move
+    event announces only a window it moved. A released window is skipped before
+    any layer runs. Returns the layer that claimed the window, or None.
+    """
+    if not isinstance(client, dict) or _is_released(client.get("address")):
+        return None
+    if not opened and not snap_back:
+        # `containment.snap_back: false`: only a fresh window is placed. A scan at
+        # start or reload and a move event leave what the person arranged (R18).
+        return None
+    klass = klass or client.get("class") or client.get("initialClass") or ""
+    decision = classify(klass, client.get("pid"))
+    if decision is None:
+        return None
+    layer, entry = decision
+    name = _entry_name(entry) if isinstance(entry, dict) else None
+    if layer == "adopt":
+        landed = _adopt(client, name)
+    elif _on_space(client):
+        # Already there: a fresh window the rule placed is announced, a scan or
+        # a move event of a window that was there all along is not.
+        landed = opened
+    else:
+        # Off the space, fresh or not: only a move Hyprland accepted has landed.
+        landed = move_to_space(client.get("address"))
+    if name and landed:
+        _feedback().opened(name)
+    return layer
+
+
+def contain_address(address):
+    """The layers over one window by address, once its exemption has ended; a gone window claims nothing."""
+    client = _client_by_address(address)
+    return contain(client) if client is not None else None
+
+
 def move_to_space(address):
+    """True when Hyprland accepted the move; a refused dispatch is logged by `_run`."""
     if not address:
-        return
-    _run("dispatch", move_window_lua(address))
+        return False
+    return _run("dispatch", move_window_lua(address)) is not None
 
 
-def _maybe_banner(name):
-    now = time.monotonic()
-    last = _banner_at.get(name)
-    if last is not None and now - last < BANNER_S:
-        return
-    _banner_at[name] = now
+def _migration_identity(client, name):
+    """Bind the action to the compositor, process lifetime, and original web app."""
+    pid = client.get("pid")
+    if type(pid) is not int or pid < 1:
+        return None
     try:
-        subprocess.run(
-            [
-                "omarchy-notification-send",
-                "-g",
-                GLYPH,
-                f"{name} lives in the distraction space",
-                "Super+Ctrl+Shift+D opens it.",
-                "--exec",
-                "distractions enter",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
+        stat = (cgroup._proc_root(None) / str(pid) / "stat").read_text()
+        started = stat.rpartition(")")[2].split()[19]
+    except (OSError, IndexError):
+        return None
+    fields = [os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"), _norm_addr(client.get("address")),
+              pid, started, client.get("class"), client.get("initialClass"),
+              client.get("initialTitle"), name]
+    return hashlib.sha256(json.dumps(fields).encode()).hexdigest()
+
+
+def _adopt(client, name):
+    """Move the original intact and offer migration once per bounded window identity."""
+    from ds import ui
+    address = client.get("address")
+    key = _norm_addr(address)
+    if not key:
+        return False
+    landed = not _on_space(client) and move_to_space(address)
+    failed = not _on_space(client) and not landed
+    identity = _migration_identity(client, name)
+    record = (identity, failed)
+    if _adopted.get(key) != record:
+        _adopted[key] = record
+        _adopted.move_to_end(key)
+        while len(_adopted) > ADOPTED_CAP:
+            _adopted.popitem(last=False)
+        if failed:
+            ui.notify("Window could not be moved", f"{name} is still open. Placement will retry on its next event.")
+        elif identity:
+            ui.notify(
+                f"Keep your {name} window",
+                "Your original stays open. Open the product in a separate distraction profile? "
+                "Unsaved state cannot transfer; outside-profile network blocking still applies.",
+                glyph=GLYPH,
+                action=[CLI, "migrate", address, identity],
+            )
+    return landed
+
+
+def _migration_target(address, identity):
+    client = _client_by_address(address)
+    if client is None:
+        return None
+    decision = classify(client.get("class") or client.get("initialClass"), client.get("pid"))
+    if decision is None or decision[0] != "adopt":
+        return None
+    name = _entry_name(decision[1])
+    if not identity or _migration_identity(client, name) != identity:
+        return None
+    return name
+
+
+def cmd_migrate(args):
+    """Confirm a fresh product open without transferring or closing the original."""
+    from ds import ui
+    name = _migration_target(args.address, args.identity)
+    if name is None:
+        ui.notify("Migration unavailable", "The original window disappeared or changed. No replacement was opened.")
+        return 1
+    try:
+        choice = ui.select(
+            f"Open {name} in a separate distraction profile? Authentication and unsaved state "
+            "cannot transfer. Keep the original open until you have saved your work.",
+            ["Open in distraction profile", "Cancel"],
         )
-    except Exception:
-        pass
+    except ui.Unavailable:
+        ui.notify("Migration unavailable", "The confirmation menu could not be opened. Your original stays open.")
+        return 1
+    if choice != 0:
+        return 0
+    if _migration_target(args.address, args.identity) != name:
+        ui.notify("Migration unavailable", "The original window disappeared or changed. No replacement was opened.")
+        return 1
+    why = _open(name)
+    if why is not None:
+        ui.notify("Migration could not start", f"{why}. Your original window stays open.")
+        return 1
+    ui.notify("Distraction profile opened", "Your original window stays open. Save your work before closing it yourself.")
+    return 0
+
+
+def _open(name):
+    """`distractions open <name>` from this checkout, waited on since it detaches the launch itself.
+
+    None on exit 0, else why it failed.
+    """
+    try:
+        r = subprocess.run(
+            [CLI, "open", name],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=OPEN_TIMEOUT,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return str(e)
+    if r.returncode == 0:
+        return None
+    err = (r.stderr or r.stdout or "").strip().splitlines()
+    return f"exit {r.returncode}" + (f": {err[-1]}" if err else "")
 
 
 def handle_event(line):
@@ -460,10 +704,17 @@ def _handle_event(line):
     if ">>" not in raw:
         return
     kind, payload = raw.split(">>", 1)
-    if kind not in ("openwindow", "movewindow", "movewindowv2"):
-        return
     address = payload.split(",", 1)[0].strip()
     if not address:
+        return
+    if kind == "closewindow":
+        _adopted.pop(_norm_addr(address), None)
+        _forget(address)
+        return
+    if kind not in ("openwindow", "movewindow", "movewindowv2"):
+        return
+    if kind != "openwindow" and not snap_back:
+        # A manual move stands; only a fresh window is placed (R18).
         return
     client = _client_by_address(address)
     klass = client.get("class") if isinstance(client, dict) else ""
@@ -471,23 +722,9 @@ def _handle_event(line):
         parts = payload.split(",", 3)
         if len(parts) >= 3:
             klass = parts[2]
-    if isinstance(client, dict) and not klass:
-        klass = client.get("initialClass") or ""
-    match = _match_entry(klass)
-    if match is None:
-        return
-    ws_name = None
-    if isinstance(client, dict) and isinstance(client.get("workspace"), dict):
-        ws_name = client["workspace"].get("name")
-    addr = client.get("address") if isinstance(client, dict) else address
-    if ws_name != SPACE:
-        move_to_space(addr or address)
-    if _want_banner():
-        here = on_space()
-        if here is False:
-            _maybe_banner(match.get("name") or klass)
-        elif here is None:
-            _log("on_space unknown; skipping banner")
+    if not isinstance(client, dict):
+        client = {"address": address}
+    contain(client, klass, opened=kind == "openwindow")
 
 
 def cycle(direction):

@@ -3,7 +3,6 @@
 import fcntl
 import json
 import os
-import re
 import select
 import signal
 import socket
@@ -11,39 +10,64 @@ import threading
 import time
 from pathlib import Path
 
-from ds import catalog, config, feedback, hold, hypr, lock, net, setup, state, summary, ui
+from ds import catalog, cgroup, config, feedback, hold, hypr, launch, lock, net, setup, state, summary, ui
 
-TICK, PERIOD, _APPLY = 1.0, 30.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
+TICK, PERIOD, _APPLY = 1.0, 60.0, {"on": "ok", "off": "flush", "unavailable": "unavailable"}
 CLIENT_CAP = 256
 
 
 def _reload_wait():
-    return 2 * net.BATCH_DEADLINE + 5
+    return 2 * (net.BATCH_DEADLINE + cgroup.SYSTEMCTL_TIMEOUT + 3 * net.COMMAND_TIMEOUT + setup.UDD_TIMEOUT + 15) + 5
 
 
 def cmd_listen(args): return run()
 
-def cmd_reload(args):
+def cmd_reload(args): return _ask("reload")
+
+def cmd_refresh(args): return _ask("refresh")
+
+def cmd_release(args):
+    """Exempt the focused window from containment (R17): 0 recorded, 1 no window or no listener.
+
+    A non-positive duration never reaches here; the parser exits 2 on it.
+    """
+    minutes = getattr(args, "minutes", None)
+    if minutes is None:
+        minutes = (_read_cfg() or config.DEFAULTS)["containment"]["release_minutes"]
+    window = hypr.active_window()
+    if window is None:
+        ui.notify("No window to release", "Focus the window first, then run: distractions release")
+        return 1
+    return _ask(f"release {window['address']} {lock.until_iso(minutes)}")
+
+def _ask(line):
+    """One request line to the running listener: 0 on an `ok` reply, 1 otherwise."""
+    failed = f"{line.split()[0].capitalize()} failed"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connected = False
     try:
         sock.settimeout(_reload_wait())
         sock.connect(str(state.runtime_path("distraction-space.sock")))
         connected = True
-        sock.sendall(b"reload\n")
+        sock.sendall(line.encode() + b"\n")
         buf = b""
         while b"\n" not in buf:
             chunk = sock.recv(256)
             if not chunk:
                 break
             buf += chunk
-        if buf.split(b"\n", 1)[0] == b"ok":
+        reply = buf.split(b"\n", 1)[0]
+        if reply == b"ok":
             return 0
-        ui.notify("Reload failed", "The listener rejected the request.")
+        if reply == b"deferred":
+            ui.notify(f"{line.split()[0].capitalize()} deferred",
+                      "Setup or remove is updating the launchers. Retry shortly.")
+            return 1
+        ui.notify(failed, "The listener could not complete all requested work.")
         return 1
     except OSError:
         if connected:
-            ui.notify("Reload failed", "The listener closed the connection.")
+            ui.notify(failed, "The listener closed the connection.")
         else:
             ui.notify("No listener running", "Start it with: distractions listen")
         return 1
@@ -65,7 +89,16 @@ def run():
         lf.close()
 
 def _empty():
-    return {"list": [], "keep_reachable": [], "nudges": {"app_banner": False, "block_page": False}}
+    return {"list": [], "keep_reachable": [], "nudges": {"app_banner": False, "block_page": False},
+            "site_block": {"enabled": True}}
+
+def _apply(addrs, current, reconciler):
+    """Start the slice before replace; only the current generation may apply."""
+    if addrs and not cgroup.ensure_slice():
+        reconciler.invalidate()
+        net._notice_unavailable()
+        return "unavailable"
+    return reconciler.reconcile(addrs, current)
 
 def _close(*objs):
     for obj in objs:
@@ -146,7 +179,11 @@ def _listen():
         signal.signal(signal.SIGTERM, prev[0])
         signal.signal(signal.SIGINT, prev[1])
         feedback.stop()
+        ctx.stopping.set()
+        ctx.reconciler.invalidate()
         net.shutdown()
+        if ctx.worker is not None:
+            ctx.worker.join(timeout=3)
         ctx.capture.stop()
         ctx.release_hold()
         ctx.mute.release()
@@ -179,8 +216,15 @@ class _Ctx:
         self.last_period = time.monotonic()
         self.pending, self.lock, self.wake_w = None, threading.Lock(), None
         self.clients = []
+        self.worker, self.stopping = None, threading.Event()
+        self.observed_at = {}
+        self.reconciler = net._Reconciler()
+        self.browser_dirty, self.launcher_refresh = True, "off"
+        self.launcher_noted = False
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
         self.hold_failed_at = 0.0
+        self.links, self.browser = "off", None
+        self.links_noted = False
         self.capture, self.mute = hold.Capture(), hold.Mute()
     def _note_invalid(self):
         if not self.noted:
@@ -194,8 +238,41 @@ class _Ctx:
         if not self.hold_noted:
             ui.notify("Notification hold unavailable", "The shell lacks silencedSenders. Run: distractions setup")
             self.hold_noted = True
+    def release(self, address, until):
+        """Record one exemption; a past or unreadable deadline, or a window that is gone, is refused.
+
+        The address was read from `activewindow` a moment ago; if that window
+        closed in between, its `closewindow` may already have passed and nothing
+        would ever prune the record, so only a client Hyprland still lists counts.
+        """
+        if not address or hypr.past(until):
+            return False
+        if hypr._client_by_address(address) is None:
+            return False
+        hypr.release(address, until)
+        self.write_state()
+        return True
+    def expire_released(self):
+        """An exemption past its deadline ends; with snap_back on, that window is contained once more."""
+        gone = hypr.expire_released()
+        if not gone:
+            return
+        self.write_state()
+        if hypr.snap_back:
+            for address in gone:
+                hypr.contain_address(address)
+    def check_links(self, result, observed):
+        """Whether listed links still route here; a displaced handler is noticed once per lifetime."""
+        self.links = result
+        self.observed_at["links"] = observed
+        if self.links == "displaced" and not self.links_noted:
+            ui.notify("Links no longer open in the space", "Another browser is the default. Run: distractions setup")
+            self.links_noted = True
     def hold_table(self):
         return hold.key_table(self.exp.get("list") or [])
+    def block_enabled(self):
+        sb = self.exp.get("site_block")
+        return sb.get("enabled") is not False if isinstance(sb, dict) else True
     def sync_hold(self, force=False):
         """Push the plugin's sender keys on every change of effective hold or of the keys.
 
@@ -208,6 +285,7 @@ class _Ctx:
         if not force and not retry and want == self.hold_on and keys == self.pushed:
             return
         self.hold_ipc = hold.push(keys, want, retire=[k for k in self.pushed if k not in keys])
+        self.observed_at["notification_hold"] = state.now_iso()
         self.hold_on, self.pushed = want, keys
         if self.hold_ipc == "unavailable":
             self.hold_failed_at = now
@@ -236,24 +314,28 @@ class _Ctx:
             state.write_expansion(self.exp)
         self.enforce(reason)
     def enforce(self, reason):
+        self.browser_dirty = True
+        hypr.snap_back = (self.cfg or config.DEFAULTS)["containment"]["snap_back"]
         hypr.apply_rules(self.exp)
-        _scan(self.exp.get("list") or [])
+        # The scan's Opened banners read the nudge and the lock through feedback, so it starts first.
         feedback.start(self.cfg or {"nudges": self.exp.get("nudges") or {}}, lock.is_locked)
+        _scan()
         if reason == "reload":
-            self.space("reload")
+            self.space()
         else:
             here = hypr.on_space()
             if here is not None and self.prev is None:
                 self.prev = here
         self.sync_hold(force=True)
-        if self.prev is True:
-            self.flush(reason)
-            self.write_state(True)
-            return True
         self.request(reason)
         self.write_state(True)
         return self.latest
     def request(self, reason):
+        if reason == "periodic" and self.busy:
+            self.rerun = True
+            return
+        if not self.block_enabled():
+            self.reconciler.invalidate()
         self.gen += 1
         self.latest, self.reason = self.gen, reason
         self._adopt_waiters(self.latest)
@@ -263,99 +345,118 @@ class _Ctx:
         self._launch(self.gen, reason)
     def _launch(self, gen, reason):
         self.busy = True
-        now = time.monotonic()
-        window = net.BATCH_DEADLINE + 5
-        for c in self.clients:
-            if c.gen == gen:
-                c.deadline = now + window
-        hosts, keep, wake = _hosts(self.exp), self.exp.get("keep_reachable") or [], self.wake_w
+        exp, cfg, wake = self.exp, self.cfg, self.wake_w
+        enabled = self.block_enabled()
+        browser_dirty = self.browser_dirty
+        def current():
+            return not self.stopping.is_set() and gen == self.latest
         def work():
-            failed = False
+            net.command_context.cancel = self.stopping
+            batch = {"generation": gen, "reason": reason, "started": time.monotonic()}
+            item = {"batch": batch, "result": None, "links": None, "browser": None,
+                    "entries": "off", "links_ok": True, "failed": False,
+                    "observed": {}, "browser_dirty": browser_dirty}
             try:
-                addrs, batch = net.resolve_batch(hosts, gen, reason, keep_reachable=keep)
+                if enabled:
+                    addrs, batch = net.resolve_batch(_hosts(exp), gen, reason,
+                                                   keep_reachable=exp.get("keep_reachable") or [])
+                    item["batch"] = batch
+                else:
+                    addrs = []
+                if current():
+                    item["result"] = _apply(addrs, current, self.reconciler)
+                    if item["result"] is not None:
+                        item["observed"]["site_block"] = state.now_iso()
             except Exception:
-                failed = True
-                addrs, batch = [], {"generation": gen, "reason": reason, "hosts": 0,
-                                    "resolved": 0, "failed": 0, "marker": "failed",
-                                    "started": time.monotonic()}
+                self.reconciler.invalidate()
+                item["result"], item["failed"] = "unavailable", True
+                item["observed"]["site_block"] = state.now_iso()
+            if current():
+                try:
+                    if reason != "start":
+                        code = setup.refresh_entries(exp, cfg, strict=True)
+                        item["entries"] = ("deferred" if code == setup.ENTRIES_DEFERRED
+                                           else "ok" if code == 0 else "unavailable")
+                except Exception:
+                    item["entries"] = "unavailable"
+                try:
+                    item["links"], item["links_ok"] = _observe_links(cfg)
+                except Exception:
+                    item["links"], item["links_ok"] = "displaced", False
+                item["observed"]["links"] = state.now_iso()
+                if browser_dirty:
+                    item["browser"] = _browser_name(cfg)
             with self.lock:
-                self.pending = (addrs, batch, failed)
-            if wake is not None:
+                self.pending = item
+            if wake is not None and not self.stopping.is_set():
                 try:
                     os.write(wake, b"n")
                 except OSError:
                     pass
 
-        threading.Thread(target=work, daemon=True).start()
+        self.worker = threading.Thread(target=work, daemon=True, name="ds-reconcile")
+        self.worker.start()
     def take_result(self):
         with self.lock:
             item, self.pending = self.pending, None
         if item is None:
             return
-        addrs, batch, failed = item
+        batch, result = item["batch"], item["result"]
         self.busy = False
         gen = batch.get("generation")
-        if failed:
-            net.finish_batch(batch, "failed")
-            self._note_resolve()
-            self._reply_waiters(gen, False)
-            self.write_state()
-            return self._follow()
         if gen != self.latest:
+            self.reconciler.invalidate()
             net.finish_batch(batch, "stale")
-            self._reply_waiters(gen, False)
             return self._follow()
-        here = hypr.on_space()
-        if here is not False:
-            net.finish_batch(batch, "dropped")
-            self.rerun = False
-            self._reply_waiters(gen, False)
-            self.write_state()
-            return
-        result = net.apply(addrs)
+        net.site_block = result or "unavailable"
+        self.observed_at.update(item["observed"])
+        if item["links"] is not None:
+            self.check_links(item["links"], item["observed"]["links"])
+        if item["browser_dirty"]:
+            self.browser, self.browser_dirty = item["browser"], False
+        if item["failed"]:
+            self._note_resolve()
         net.finish_batch(batch, _APPLY.get(result, result))
-        self._reply_waiters(gen, True)
+        self.launcher_refresh = item["entries"]
+        if self.launcher_refresh == "unavailable" and not self.launcher_noted:
+            ui.notify("Launcher refresh failed", "The listener will retry on the next refresh.")
+            self.launcher_noted = True
+        elif self.launcher_refresh == "ok":
+            self.launcher_noted = False
         self.write_state()
-        self._follow()
-    def _follow(self):
-        if self.rerun and hypr.on_space() is False:
+        other_ok = result in ("on", "off") and item["links_ok"]
+        self._reply_waiters(gen, other_ok and self.launcher_refresh in ("off", "ok"),
+                            deferred=other_ok and self.launcher_refresh == "deferred")
+        self._follow(periodic=True)
+    def _follow(self, periodic=False):
+        if self.rerun:
             self.rerun = False
-            self._launch(self.latest, self.reason)
-        else:
-            self.rerun = False
+            if periodic:
+                self.request("periodic")
+            else:
+                self._launch(self.latest, self.reason)
     def _adopt_waiters(self, gen):
         now = time.monotonic()
-        deadline = now + net.BATCH_DEADLINE + 5
+        deadline = now + _reload_wait()
         for c in self.clients:
             if isinstance(c.gen, int):
                 c.gen = gen
-                c.deadline = deadline
-    def _reply_waiters(self, gen, ok):
-        msg = b"ok\n" if ok else b"error\n"
+                c.deadline = min(c.deadline, deadline)
+    def _reply_waiters(self, gen, ok, *, deferred=False):
+        msg = b"deferred\n" if deferred else b"ok\n" if ok else b"error\n"
         for c in self.clients:
             if c.gen == gen:
                 _send_reply(c.sock, msg)
                 c.gen = "done"
-    def _drop_waiters(self):
-        for c in self.clients:
-            if isinstance(c.gen, int):
-                _send_reply(c.sock, b"error\n")
-                c.gen = "done"
-    def flush(self, _reason=None):
-        self.gen += 1
-        self.latest, self.rerun = self.gen, False
-        net.apply([])
-        self._drop_waiters()
-        self.write_state(True)
     def event(self, line):
         if hypr.is_config_reload(line):
             hypr.apply_rules(self.exp)
-            _scan(self.exp.get("list") or [])
+            _scan()
             return
         hypr.handle_event(line)
         name = _workspace_name(line)
         if name is not None:
-            self.space("workspace", name)
+            self.space(name)
     def tick(self):
         raw = state.read_json(state.state_path("lock.json"), None)
         if lock.expire_if_due():
@@ -363,15 +464,17 @@ class _Ctx:
             ui.notify("Lock ended", purpose or "")
             lock.run_hook("unlock", _env("unlock", purpose or "", self.summarize()))
             self.write_state(True)
-        self.space("tick")
+        self.space()
+        self.expire_released()
         self.capture.tick()
         self.mute.tick()
         self.sync_hold()
         self.write_state()
-        if self.prev is not True and time.monotonic() - self.last_period >= PERIOD:
+        if time.monotonic() - self.last_period >= PERIOD:
             self.last_period = time.monotonic()
+            self.sync_hold(force=True)
             self.request("periodic")
-    def space(self, reason, name=None):
+    def space(self, name=None):
         here = (name == hypr.SPACE) if name is not None else hypr.on_space()
         if here is None:
             return
@@ -382,12 +485,8 @@ class _Ctx:
             return
         if here is True and prev is not True:
             lock.run_hook("enter", _env("enter", held=self.summarize()))
-            self.flush()
         elif here is False and prev is True:
             lock.run_hook("leave", _env("leave"))
-            self.request("workspace")
-        elif here is False and reason == "workspace":
-            self.request("workspace")
         self.prev = here
         self.sync_hold()
         self.write_state()
@@ -400,9 +499,6 @@ class _Ctx:
         state.write_expansion(self.exp)
         return self.enforce("reload")
     def refresh(self):
-        if self.prev is True:
-            self.flush("refresh")
-            return True
         self.request("refresh")
         return self.latest
     def write_state(self, force=False):
@@ -413,10 +509,14 @@ class _Ctx:
             "site_block": net.site_block, "listener_pid": os.getpid(),
             "hold": self.hold_on is True, "held": hold.held_counts(), "notification_hold": self.hold_ipc,
             "pass_through": feedback.pass_through_state(),
+            "links": self.links, "browser": self.browser, "released": hypr.released(),
+            "launcher_refresh": self.launcher_refresh,
+            "observed_at": dict(self.observed_at),
             "updated": state.now_iso(),
         }
         key = (obj["locked"], obj["until"], obj["purpose"], obj["on_space"], obj["site_block"],
-               obj["hold"], obj["notification_hold"], obj["pass_through"], tuple(sorted(obj["held"].items())))
+               obj["hold"], obj["notification_hold"], obj["pass_through"], tuple(sorted(obj["held"].items())),
+               obj["links"], obj["browser"], tuple(sorted(obj["released"].items())), tuple(sorted(self.observed_at.items())), self.launcher_refresh)
         if not force and key == self.last_state:
             return
         self.last_state = key
@@ -426,6 +526,33 @@ def _clone_check():
     why = setup.clone_drift()
     if why:
         ui.notify("Notification hold needs setup", f"{why[0].upper()}{why[1:]}. Run: distractions setup")
+
+def _browser_name(cfg):
+    """The distraction browser's basename for `state.json`, or None when none resolves.
+
+    The same pick `open` makes: the config argv when set, else the Omarchy
+    default when it is Chromium-family, else chromium; read at start and reload.
+    """
+    try:
+        argv = launch.pick_browser(cfg or config.DEFAULTS)
+    except Exception:
+        return None
+    return Path(argv[0]).name if argv else None
+
+def _observe_links(cfg):
+    """`on` while setup's handler is still the default browser, `displaced` when another took it.
+
+    `off` when the switch is off or setup never registered the handler (the
+    manifest names it); `xdg-settings` is only asked once there is something to hold.
+    """
+    if not (cfg or config.DEFAULTS)["open_links_in_space"]:
+        return "off", True
+    if not any(Path(item["path"]).name == setup.HANDLER_ID for item in state.read_entries()["files"]):
+        return "off", True
+    answered, handler = setup.default_handler()
+    # An unanswered query is not proof of displacement, but it is not proof the
+    # handler still holds either; the notice tells the person to run setup.
+    return ("on" if answered and handler == setup.HANDLER_ID else "displaced"), answered
 
 def _read_cfg():
     if not config.config_path().exists():
@@ -437,17 +564,26 @@ def _read_cfg():
 
 def _from_cfg(cfg):
     return {"list": catalog.expand(cfg), "keep_reachable": list(cfg.get("keep_reachable") or []),
-            "nudges": dict(cfg.get("nudges") or {})}
+            "nudges": dict(cfg.get("nudges") or {}),
+            "site_block": {"enabled": cfg["site_block"]["enabled"]}}
 
 def _as_exp(obj):
+    """The saved expansion; a version 2 file reads with `desktop: null` and the block on."""
     if isinstance(obj, list):
         obj = {"list": obj}
     if not isinstance(obj, dict):
         return _empty()
     items = obj.get("list") or obj.get("entries") or []
     nudges = obj.get("nudges") if isinstance(obj.get("nudges"), dict) else {}
-    return {"list": items if isinstance(items, list) else [],
-            "keep_reachable": list(obj.get("keep_reachable") or []), "nudges": dict(nudges)}
+    sb = obj.get("site_block") if isinstance(obj.get("site_block"), dict) else {}
+    return {"list": [_with_desktop(e) for e in items] if isinstance(items, list) else [],
+            "keep_reachable": list(obj.get("keep_reachable") or []), "nudges": dict(nudges),
+            "site_block": {"enabled": sb.get("enabled") is not False}}
+
+def _with_desktop(entry):
+    if isinstance(entry, dict) and not isinstance(entry.get("desktop"), str):
+        return {**entry, "desktop": None}
+    return entry
 
 def _hosts(exp):
     seen, out = set(), []
@@ -463,32 +599,14 @@ def _env(event, purpose=None, held=None):
     return {"DS_EVENT": event, "DS_PURPOSE": purpose if purpose is not None else (lk.get("purpose") or ""),
             "DS_MINUTES": "", "DS_REASON": "", "DS_HELD": json.dumps(held or {})}
 
-def _scan(entries):
+def _scan():
+    """Start and reload: the same three containment layers over every existing client."""
     try:
         clients = hypr.hyprctl_json("clients")
     except Exception:
         return
     for client in clients if isinstance(clients, list) else []:
-        if not isinstance(client, dict):
-            continue
-        klass = client.get("class") or client.get("initialClass") or ""
-        ws = client.get("workspace") if isinstance(client.get("workspace"), dict) else {}
-        if not klass or ws.get("name") == hypr.SPACE:
-            continue
-        for entry in entries:
-            for pat in (entry.get("classes") or [] if isinstance(entry, dict) else []):
-                if not isinstance(pat, str) or not pat:
-                    continue
-                try:
-                    hit = bool(re.search(pat, klass))
-                except re.error:
-                    hit = pat == klass
-                if hit:
-                    hypr.move_to_space(client.get("address"))
-                    break
-            else:
-                continue
-            break
+        hypr.contain(client)
 
 def _workspace_name(line):
     raw = (line or "").strip().removeprefix(">>")
@@ -565,10 +683,19 @@ def _accept_reload(rs, ctx):
         except OSError:
             _close(conn)
             continue
-        ctx.clients.append(_Client(conn))
+        if len(ctx.clients) >= CLIENT_CAP:
+            _close(conn)
+        else:
+            ctx.clients.append(_Client(conn))
 
 def _dispatch_client(c, ctx, verb):
-    result = ctx.reload() if verb == "reload" else ctx.refresh() if verb == "refresh" else False
+    words = verb.split()
+    if verb == "ping":
+        result = True
+    elif words[:1] == ["release"] and len(words) == 3:
+        result = ctx.release(words[1], words[2])
+    else:
+        result = ctx.reload() if verb == "reload" else ctx.refresh() if verb == "refresh" else False
     if result is True:
         _send_reply(c.sock, b"ok\n")
         c.gen = "done"

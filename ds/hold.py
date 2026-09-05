@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ds import catalog, config, state
+from ds import catalog, cgroup, config, state
 
 FIELD_CAP = 4096
 FILE_CAP = 64 * 1024
@@ -26,10 +26,6 @@ RELEASE_RETRY = 16.0
 PROC = Path("/proc")
 _SINK_INPUT = re.compile(r"^Event '(new|change|remove)' on sink-input #(\d+)")
 
-# catalog.pwa_class(host) is "^chrome-" + re.escape(host) + "__.*$"; the
-# expansion carries the PWA host only in that class pattern.
-_PWA_CLASS = re.compile(r"\^chrome-(.+)__\.\*\$")
-_UNESCAPE = re.compile(r"\\(.)")
 # Same rule as the shell patch: a Chromium-derived sender is told by its
 # app_name or app_icon, and the site host it prepends to the body is the key.
 _CHROMIUM = ("chrom", "brave", "vivaldi", "microsoft-edge", "opera")
@@ -57,11 +53,9 @@ def _entry_hosts(entry, products):
     """The PWA host; a plain or custom hostname entry adds its hosts."""
     raw = []
     for pat in entry.get("classes") or []:
-        m = _PWA_CLASS.fullmatch(pat) if isinstance(pat, str) else None
-        if m:
-            host = _UNESCAPE.sub(r"\1", m.group(1))
-            if catalog.is_hostname(host):
-                raw.append(host)
+        host = catalog.pwa_host(pat)
+        if host and catalog.is_hostname(host):
+            raw.append(host)
     if entry.get("name") not in products:
         raw.extend(h for h in entry.get("hosts") or [] if isinstance(h, str))
     return raw
@@ -489,10 +483,18 @@ def _is_browser(app, binary) -> bool:
 
 
 def attribute_stream(item, table, proc=None):
-    """The list entry name a sink-input belongs to, or None; a bare browser stream is never a member."""
+    """The list entry name a sink-input belongs to, `cgroup.SLICE` for a stream whose process is in the slice, or None.
+
+    Slice membership is checked first and counts regardless of window class; outside
+    the slice a bare browser stream is never a member. An unreadable cgroup file
+    reads as "not in the slice" and falls through to the catalog rules.
+    """
     props = item.get("properties") if isinstance(item, dict) else None
     if not isinstance(props, dict):
         return None
+    pid = stream_pid(item)
+    if pid is not None and cgroup.in_slice(pid, proc or PROC):
+        return cgroup.SLICE
     app = normalize(props.get("application.name"))
     binary = normalize(os.path.basename(str(props.get("application.process.binary") or "")))
     if not _is_browser(app, binary):
@@ -501,7 +503,7 @@ def attribute_stream(item, table, proc=None):
             name = table["binaries"].get(binary)
         if name is not None:
             return name
-    return pwa_name(stream_pid(item), table["hosts"], proc)
+    return pwa_name(pid, table["hosts"], proc)
 
 
 def muted_path():

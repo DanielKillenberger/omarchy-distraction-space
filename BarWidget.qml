@@ -20,6 +20,8 @@ BarWidget {
   property string purpose: ""
   property int heldTotal: 0
   property bool refreshPending: false
+  property string healthState: "unknown"
+  property string healthReason: "Status unavailable; current behavior is unknown."
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -47,11 +49,23 @@ BarWidget {
       root.until = (data && data.until) ? String(data.until) : ""
       root.purpose = (data && data.purpose) ? String(data.purpose) : ""
       root.heldTotal = heldCount(data && data.held)
+      var health = data && data.health
+      var valid = health && ["healthy", "degraded", "unknown"].indexOf(health.state) >= 0
+        && ["responsive", "stopped", "unresponsive"].indexOf(health.listener) >= 0
+        && Array.isArray(health.reasons) && health.reasons.every(function (reason) { return typeof reason === "string" })
+        && health.services && ["site_block", "notification_hold", "links"].every(function (key) {
+          var service = health.services[key]
+          return service && ["healthy", "disabled", "unknown", "stale", "pending", "unavailable", "displaced"].indexOf(service.state) >= 0
+        })
+      root.healthState = valid ? health.state : "unknown"
+      root.healthReason = valid ? data.health.reasons.join("\n") : "Status unavailable; current behavior is unknown."
     } catch (e) {
       root.locked = false
       root.until = ""
       root.purpose = ""
       root.heldTotal = 0
+      root.healthState = "unknown"
+      root.healthReason = "Status unavailable; current behavior is unknown."
     }
   }
 
@@ -102,6 +116,13 @@ BarWidget {
     id: actionProcess
   }
 
+  Timer {
+    interval: 30000
+    running: true
+    repeat: true
+    onTriggered: root.refresh()
+  }
+
   Component.onCompleted: root.refresh()
 
   BarIconButton {
@@ -109,17 +130,19 @@ BarWidget {
     anchors.fill: parent
     bar: root.bar
     // The held total follows the glyph while pings are waiting; the slot widens to fit it.
-    text: root.heldTotal > 0 ? ("󰈈 " + root.heldTotal) : "󰈈"
-    slotSize: root.heldTotal > 0 && !root.vertical ? -1 : Style.bar.iconSlot
+    text: "󰈈" + (root.heldTotal > 0 ? (" " + root.heldTotal) : "")
+      + (root.healthState !== "healthy" ? " ·" : "")
+    slotSize: (root.heldTotal > 0 || root.healthState !== "healthy") && !root.vertical ? -1 : Style.bar.iconSlot
     active: root.locked
     activeColor: Color.urgent
     useActiveColor: true
-    dimmed: !root.locked && root.heldTotal === 0
+    dimmed: !root.locked && root.heldTotal === 0 && root.healthState === "healthy"
     interactive: !actionProcess.running
     tooltipText: (root.locked
       ? ("Locked" + (root.until ? (" until " + root.until) : "") + (root.purpose ? (" — " + root.purpose) : ""))
       : "Distraction space unlocked")
       + (root.heldTotal > 0 ? (", " + root.heldTotal + " held") : "")
+      + (root.healthState !== "healthy" ? ("\n" + root.healthState + ": " + root.healthReason) : "")
     onPressed: function (buttonCode) {
       if (buttonCode === Qt.LeftButton)
         root.run([root.locked ? "unlock" : "lock"])

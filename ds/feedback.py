@@ -5,9 +5,7 @@ from __future__ import annotations
 import errno
 import html
 import os
-import queue
 import random
-import re
 import select
 import socket
 import struct
@@ -21,9 +19,7 @@ HTTP_PORT = 28080
 TLS_PORT = 28443
 READ_TIMEOUT = 2.0
 READ_CAP = 16384
-BANNER_DEBOUNCE_S = 30
-PROVENANCE_PER_MIN = 20
-_PROVENANCE_WINDOW_S = 60
+BANNER_DEBOUNCE_S = 60
 # Above the default net.ipv4.ip_local_port_range ceiling (60999), so an ordinary
 # outbound connection never draws an exempt source port by chance.
 SPLICE_PORT_MIN = 61000
@@ -34,21 +30,19 @@ IDLE_TIMEOUT = 120.0
 SO_ORIGINAL_DST = 80
 IP6T_SO_ORIGINAL_DST = 80
 _BIND_NOTICE = "Block-page server unavailable"
+_KEY = "Super+Ctrl+Shift+D"
+# The action commands name this checkout's CLI, since the notification daemon
+# runs them with no plugin directory on its PATH.
+_CLI = str(Path(__file__).resolve().parent.parent / "distractions")
 
 _stop = threading.Event()
 _ctl = threading.Lock()
 _banner_lock = threading.Lock()
-_banner_at: dict[str, float] = {}
-_prov_at: dict[str, list] = {}  # host -> [window_start, lines_in_window, dropped]
-# Provenance lines leave the connection handler through a bounded queue and one
-# daemon writer, so a stalled filesystem can never delay or hold a banner decision.
-_prov_queue: queue.Queue = queue.Queue(maxsize=256)
-_prov_thread = None
+_banner_at: dict[str, float] = {}  # list entry name -> monotonic time of the last banner shown
 _log_at: dict[str, float] = {}
 _socks: list[socket.socket] = []
 _threads: list[threading.Thread] = []
 _is_locked = lambda: False
-_PPID_WALK = 8
 _LOG_LIMIT_S = 60
 _splices = 0
 _splice_lock = threading.Lock()
@@ -58,11 +52,8 @@ _splice_lock = threading.Lock()
 _ports_in_use: set[int] = set()
 _pass_through = True
 _block_page = True
+_app_banner = True
 _bind_ok = False
-
-
-def _proc_root():
-    return Path(os.environ.get("DS_PROC_ROOT") or "/proc")
 
 
 def parse_sni(data):
@@ -108,13 +99,16 @@ def pass_through_state():
 def start(config, is_locked):
     """Bind the routers when either the block page or pass-through wants them."""
     stop()
-    global _is_locked, _pass_through, _bind_ok, _block_page
+    global _is_locked, _pass_through, _bind_ok, _block_page, _app_banner
     _pass_through = _pass_through_cfg(config)
-    _block_page = _block_page_on(config)
+    _block_page = _nudge_on(config, "block_page")
+    _app_banner = _nudge_on(config, "app_banner")
     _bind_ok = False
+    # The Opened banner reads the lock too, and it does not need the routers,
+    # so the callback is recorded before the routers decide whether to bind.
+    _is_locked = is_locked if callable(is_locked) else (lambda v=bool(is_locked): v)
     if not _block_page and not _pass_through:
         return
-    _is_locked = is_locked if callable(is_locked) else (lambda v=bool(is_locked): v)
     _stop.clear()
     notified = False
     bound = 0
@@ -147,17 +141,15 @@ def start(config, is_locked):
 
 
 def stop():
-    """Close the listeners and drain queued provenance lines. Live splices keep their slot and source port until they end."""
+    """Close the listeners. Live splices keep their slot and source port until they end."""
     global _bind_ok
     _stop.set()
     _bind_ok = False
-    _prov_flush()
     with _ctl:
         socks, threads = _socks[:], _threads[:]
         _socks.clear()
         _threads.clear()
         _banner_at.clear()
-        _prov_at.clear()
         _log_at.clear()
     for sock in socks:
         try:
@@ -168,18 +160,19 @@ def stop():
         t.join(timeout=2)
 
 
-def _block_page_on(config):
+def _nudge_on(config, key):
+    """nudges.<key>, default True when the key or the config is absent."""
     if not isinstance(config, dict):
         return True
     nudges = config.get("nudges")
     if not isinstance(nudges, dict):
         return True
-    return bool(nudges.get("block_page", True))
+    return bool(nudges.get(key, True))
 
 
-def _notify(title, body):
+def _notify(title, body, action=None):
     try:
-        ui.notify(title, body)
+        ui.notify(title, body, glyph=hypr.GLYPH, action=action)
     except Exception:
         pass
 
@@ -375,8 +368,8 @@ def _norm_host(host):
 def _entry_for_host(host):
     """The active entry owning host, matched as an equal or parent domain, or None.
 
-    One matcher serves routing, banner identity, and origin attribution, so a
-    subdomain of a listed host debounces and attributes like the host itself.
+    One matcher serves routing and banner identity, so a subdomain of a listed
+    host debounces like the host itself.
     """
     want = _norm_host(host)
     if not want:
@@ -626,327 +619,114 @@ def _log_limited(key, msg):
     hypr._log(msg)
 
 
-def _banner_identity(host, entry=None):
-    if entry is None:
-        entry = _entry_for_host(host)
-    if isinstance(entry, dict):
-        name = entry.get("name")
-        if isinstance(name, str) and name:
-            return name, name
-    return (host or "").lower(), host
-
-
-def _inode_in_table(path, peer_port, uid):
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    lines = text.splitlines()
-    if not lines:
-        return None
-    for line in lines[1:]:
-        parts = line.split()
-        if len(parts) < 10:
-            continue
-        local = parts[1]
-        try:
-            hexport = local.rsplit(":", 1)[1]
-            port = int(hexport, 16)
-        except (IndexError, ValueError):
-            continue
-        if port != peer_port:
-            continue
-        try:
-            row_uid = int(parts[7])
-            inode = int(parts[9])
-        except ValueError:
-            continue
-        if row_uid != uid:
-            continue
-        return inode
-    return None
-
-
-def _inode_for_port(peer_port):
-    try:
-        peer_port = int(peer_port)
-    except (TypeError, ValueError):
-        return None
-    uid = os.getuid()
-    root = _proc_root()
-    for name in ("tcp", "tcp6"):
-        inode = _inode_in_table(root / "net" / name, peer_port, uid)
-        if inode is not None:
-            return inode
-    return None
-
-
-def _pid_for_inode(inode):
-    root = _proc_root()
-    uid = os.getuid()
-    want = f"socket:[{inode}]"
-    try:
-        names = os.listdir(root)
-    except OSError:
-        return None
-    for name in names:
-        if not name.isdigit():
-            continue
-        proc_dir = root / name
-        try:
-            if os.stat(proc_dir).st_uid != uid:
-                continue
-        except OSError:
-            continue
-        fd_dir = proc_dir / "fd"
-        try:
-            fds = os.listdir(fd_dir)
-        except OSError:
-            continue
-        for fd in fds:
-            try:
-                target = os.readlink(fd_dir / fd)
-            except OSError:
-                continue
-            if target == want:
-                return int(name)
-    return None
-
-
-def _ppid_of(pid):
-    path = _proc_root() / str(pid) / "status"
-    try:
-        text = path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    for line in text.splitlines():
-        if line.startswith("PPid:"):
-            try:
-                return int(line.split(":", 1)[1].strip())
-            except ValueError:
-                return None
-    return None
-
-
-def _pid_clients(pid, clients):
-    out = []
-    for c in clients:
-        if not isinstance(c, dict):
-            continue
-        try:
-            if int(c.get("pid")) == int(pid):
-                out.append(c)
-        except (TypeError, ValueError):
-            continue
-    return out
-
-
-def _walk_to_hypr_owner(start_pid, clients):
-    owners = set()
-    for c in clients:
-        if not isinstance(c, dict):
-            continue
-        try:
-            owners.add(int(c.get("pid")))
-        except (TypeError, ValueError):
-            continue
-    try:
-        pid = int(start_pid)
-    except (TypeError, ValueError):
-        return None
-    for _ in range(_PPID_WALK + 1):
-        if pid <= 1:
-            return None
-        if pid in owners:
-            return pid
-        parent = _ppid_of(pid)
-        if parent is None or parent <= 1:
-            return None
-        pid = parent
+def _entry_by_name(name):
+    for entry in hypr._current_entries():
+        if isinstance(entry, dict) and entry.get("name") == name:
+            return entry
     return None
 
 
 def _field(v):
-    if v is None:
-        return "-"
-    s = re.sub(r"\s+", "_", str(v))
+    s = "_".join(str(v).split()) if v is not None else ""
     return s or "-"
 
 
-def _exe_of(pid):
-    try:
-        name = os.path.basename(os.readlink(_proc_root() / str(pid) / "exe"))
-    except (OSError, TypeError, ValueError):
+def _entry_host(entry):
+    """The product's first host, else its first class, for the Opened log line."""
+    if not isinstance(entry, dict):
         return None
-    return name or None
+    for key in ("hosts", "classes"):
+        for v in entry.get(key) or []:
+            if isinstance(v, str) and v:
+                return v
+    return None
 
 
-def _attribute(peer_port, entry):
-    """Attribute the connection; never raises. Returns a dict with keys
-    pid, exe, klass, ws (None when unknown) and reason (None, "on-space", or "entry-on-space")."""
-    attr = {"pid": None, "exe": None, "klass": None, "ws": None, "reason": None}
-    if peer_port is None:
-        return attr
-    try:
-        _attribute_inner(peer_port, entry, attr)
-    except Exception as e:
-        _log_limited("proc", f"origin attribution: {e}")
-    return attr
+def _action_host(host, entry):
+    """A clean hostname for the Blocked action URL: the SNI host, else the entry's first host."""
+    h = _norm_host(host)
+    if h and all(c.isalnum() or c in ".-" for c in h):
+        return h
+    return _entry_host(entry) or h
 
 
-def _client_on_space(c):
-    ws = c.get("workspace")
-    return isinstance(ws, dict) and ws.get("name") == hypr.SPACE
+def _lock_body():
+    until = state.read_lock().get("until")
+    at = state._parse_iso(until) if until else None
+    if at is None:
+        return "Locked until you unlock."
+    return f"Locked until {at.astimezone().strftime('%H:%M')}."
 
 
-def _record_client(attr, c):
-    attr["klass"] = c.get("class")
-    ws = c.get("workspace")
-    attr["ws"] = ws.get("name") if isinstance(ws, dict) else None
-
-
-def _attribute_inner(peer_port, entry, attr):
-    # The process side first, so a Hyprland failure still leaves pid and exe on the line.
-    inode = _inode_for_port(peer_port)
-    pid = _pid_for_inode(inode) if inode is not None else None
-    if pid is not None:
-        attr["pid"] = pid
-        attr["exe"] = _exe_of(pid)
-    clients = hypr.clients_cached()
-    if clients is None:
-        _log_limited("clients", "hyprctl clients unavailable; banner shown")
-        return
-    if pid is None:
-        return
-    owner = _walk_to_hypr_owner(pid, clients)
-    if owner is None:
-        return
-    owner_clients = _pid_clients(owner, clients)
-    if not owner_clients:
-        return
-    _record_client(attr, owner_clients[0])
-    if all(_client_on_space(c) for c in owner_clients):
-        attr["reason"] = "on-space"
-        return
-    if entry is None:
-        return
-    matching = [c for c in owner_clients if hypr._class_matches(entry, c.get("class") or "")]
-    if not matching:
-        return
-    if hypr.entry_clients_on_space(entry, clients):
-        attr["reason"] = "entry-on-space"
-        # The line names the client that justified the decision, not whichever came first.
-        _record_client(attr, next((c for c in matching if _client_on_space(c)), matching[0]))
-
-
-def _provenance(host, entry, peer_port, decision, attr=None):
-    """Append one banner-decision line to the state log, at most PROVENANCE_PER_MIN per host per minute."""
-    host_s = _field(host)
-    key = host_s.lower()  # hostnames are case-insensitive; the limit is per host, not per spelling
+def _fire(key, host, title, body, action):
+    """Show one banner per list entry per BANNER_DEBOUNCE_S, never on the space; log every decision."""
     now = time.monotonic()
-    with _banner_lock:
-        rec = _prov_at.get(key)
-        if rec is None or now - rec[0] >= _PROVENANCE_WINDOW_S:
-            rec = [now, 0, rec[2] if rec is not None else 0]
-            _prov_at[key] = rec
-        if rec[1] >= PROVENANCE_PER_MIN:
-            rec[2] += 1
-            return
-        rec[1] += 1
-        dropped = rec[2]
-        rec[2] = 0
-    attr = attr or {}
-    entry_name = entry.get("name") if isinstance(entry, dict) else None
-    line = (
-        f"banner: host={host_s} entry={_field(entry_name)} "
-        f"port={_field(peer_port)} pid={_field(attr.get('pid'))} "
-        f"exe={_field(attr.get('exe'))} class={_field(attr.get('klass'))} "
-        f"ws={_field(attr.get('ws'))} decision={decision}"
-    )
-    if dropped > 0:
-        line += f" dropped={dropped}"
-    _prov_submit(line, key)
-
-
-def _prov_writer():
-    while True:
-        path, line = _prov_queue.get()
-        try:
-            hypr._log_to(path, line)
-        finally:
-            _prov_queue.task_done()
-
-
-def _prov_submit(line, key):
-    """Hand the line to the writer without blocking; a full queue counts the line as dropped.
-
-    The log path is resolved here, at submit time, so a line always lands in the
-    state directory that was current when the decision was made.
-    """
-    global _prov_thread
-    with _banner_lock:
-        if _prov_thread is None or not _prov_thread.is_alive():
-            _prov_thread = threading.Thread(target=_prov_writer, name="ds-provenance", daemon=True)
-            _prov_thread.start()
-    try:
-        _prov_queue.put_nowait((state.state_path("log"), line))
-    except queue.Full:
-        with _banner_lock:
-            rec = _prov_at.get(key)
-            if rec is not None:
-                rec[2] += 1
-
-
-def _prov_flush(timeout=2.0):
-    """Wait until every queued provenance line has been written; tests and shutdown paths use it."""
-    for _ in range(int(timeout / 0.01)):
-        if _prov_queue.unfinished_tasks == 0:
-            return True
-        time.sleep(0.01)
-    return _prov_queue.unfinished_tasks == 0
-
-
-def _maybe_banner(host, peer_port=None):
-    now = time.monotonic()
-    entry = _entry_for_host(host)
-    key, name = _banner_identity(host, entry)
     with _banner_lock:
         last = _banner_at.get(key)
         debounced = last is not None and now - last < BANNER_DEBOUNCE_S
-    if debounced:
-        _provenance(host, entry, peer_port, "debounced")
+    if not debounced:
+        here = hypr.on_space()
+        if here is None:
+            hypr._log("on_space unknown; skipping banner")
+            return
+        if here:
+            return
+        # Re-check under the lock: concurrent callers all passed the first read.
+        now = time.monotonic()
+        with _banner_lock:
+            last = _banner_at.get(key)
+            debounced = last is not None and now - last < BANNER_DEBOUNCE_S
+            if not debounced:
+                _banner_at[key] = now
+    if not debounced:
+        _notify(title, body, action)
+    decision = "debounced" if debounced else "shown"
+    hypr._log(f"banner: host={_field(host)} entry={_field(key)} decision={decision}")
+
+
+def opened(entry_name):
+    """Opened banner: a listed window landed on the space while the person was elsewhere."""
+    if not _app_banner or not isinstance(entry_name, str) or not entry_name:
         return
-    attr = _attribute(peer_port, entry)
-    if attr["reason"]:
-        _provenance(host, entry, peer_port, attr["reason"], attr)
+    entry = _entry_by_name(entry_name)
+    try:
+        locked = bool(_is_locked())
+    except Exception:
+        locked = False
+    body = _lock_body() if locked else f"{_KEY} enters."
+    _fire(entry_name, _entry_host(entry), f"{entry_name} opened in the distraction space", body,
+          [_CLI, "enter"])
+
+
+def blocked(host):
+    """Blocked banner: the TLS router saw a ClientHello for a listed host from outside the space.
+
+    An unlisted host raises nothing: the redirect reached it through a shared
+    address, and the block page or the closed connection is the whole feedback.
+    """
+    if not _block_page:
         return
-    now = time.monotonic()
-    with _banner_lock:
-        last = _banner_at.get(key)
-        if last is not None and now - last < BANNER_DEBOUNCE_S:
-            debounced = True
-        else:
-            debounced = False
-            _banner_at[key] = now
-    if debounced:
-        _provenance(host, entry, peer_port, "debounced")
+    entry = _entry_for_host(host)
+    if entry is None:
         return
-    _notify("Blocked on this workspace", f"{name} opens in the distraction space — Super+Ctrl+Shift+D.")
-    _provenance(host, entry, peer_port, "shown" if attr["klass"] is not None else "unattributed", attr)
+    name = entry.get("name")
+    _fire(name, host, "Blocked here", f"{name} opens in the distraction space. {_KEY} enters.",
+          [_CLI, "open", f"https://{_action_host(host, entry)}/"])
+
+
+def _maybe_banner(host):
+    """Version 2 entry point kept for ds/hypr.py until the windows task calls blocked()/opened()."""
+    blocked(host)
 
 
 def _tls_conn(conn):
     try:
-        try:
-            peer_port = conn.getpeername()[1]
-        except OSError:
-            peer_port = None
         buf = _read_bounded(conn, _tls_done)
         host = parse_sni(buf)
         if _route(conn, buf, host or ""):
             return
-        if host and _block_page:
-            _maybe_banner(host, peer_port)
+        if host:
+            blocked(host)
     except OSError:
         pass
     finally:

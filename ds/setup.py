@@ -1,17 +1,23 @@
-"""Privileged wrapper install and removal, the notification-service clone, then plugin rescan."""
+"""Privileged wrapper install and removal, the slice unit, launcher entries and the URL handler, the notification-service clone, then plugin rescan."""
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
+import json
 import os
 import pwd
+import re
 import shutil
 import stat
 import subprocess
 import sys
+import tempfile
+import time
 from pathlib import Path
 
-from ds import state
+from ds import catalog, cgroup, config, launch, state
 
 ROOT = Path(__file__).resolve().parent.parent
 WRAPPER_DEFAULT = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
@@ -19,6 +25,12 @@ SUDOERS_DEFAULT = "/etc/sudoers.d/omarchy-distraction-space"
 NOTIFICATIONS_SOURCE_DEFAULT = "/usr/share/omarchy/shell/plugins/notifications"
 CLONE_SOURCE_ID = "omarchy.notifications"
 PATCH = ROOT / "shell" / "notifications-silenced-senders.patch"
+# The URL handler's desktop id: the file setup writes, and the value `xdg-settings`
+# reports once the plugin is the default browser.
+PLUGIN_ID = "io.github.danielkillenberger.distraction-space"
+HANDLER_ID = launch.HANDLER_ID
+assert HANDLER_ID == PLUGIN_ID + ".desktop"
+HANDLER_MIME = "x-scheme-handler/http;x-scheme-handler/https;"
 # The IPC method the shipped patch adds; its presence in the first-party
 # Service.qml means Omarchy carries the change and the clone is redundant.
 METHOD_MARK = "function silencedSenders("
@@ -315,15 +327,17 @@ def _already_current(source: bytes, grant: bytes, wrapper_path: Path) -> bool:
     return state.read_bounded(wrapper_path, cap=MAX_PAYLOAD) == source
 
 
-def _root_transaction(wrapper: bytes, grant: bytes, wrapper_path: Path, sudoers_path: Path) -> int:
+def _root_transaction(wrapper: bytes, grant: bytes, wrapper_path: Path, sudoers_path: Path, prompt: bool = True) -> int:
     """One sudo, one prompt: validate and activate both files inside root.
 
     Everything privileged happens in this single invocation, so setup asks for a
     password once and a re-run whose bytes already match does no work inside it.
+    Without `prompt` (`setup --yes`) sudo runs with `-n`: a password it would
+    have to ask for is a failure, never a question.
     """
     header = f"{PAYLOAD_MAGIC}\n{len(wrapper)}\n{len(grant)}\n".encode("ascii")
     proc = subprocess.run(
-        ["sudo", "python3", "-c", ROOT_TRANSACTION, str(wrapper_path), str(sudoers_path)],
+        ["sudo", *([] if prompt else ["-n"]), "python3", "-c", ROOT_TRANSACTION, str(wrapper_path), str(sudoers_path)],
         input=header + wrapper + grant,
         check=False,
     )
@@ -610,7 +624,820 @@ def clone_drift() -> str | None:
     return None
 
 
-def install():
+def _user_unit_dir() -> Path:
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(raw) if raw else Path.home() / ".config"
+    return base / "systemd" / "user"
+
+
+def sync_slice() -> int:
+    """Install the slice unit under the user manager and start it. No root, no prompt."""
+    source = ROOT / "install" / cgroup.SLICE
+    dest = _user_unit_dir() / cgroup.SLICE
+    try:
+        data = source.read_bytes()
+        current = dest.read_bytes() if dest.is_file() else None
+        if current != data:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+            rc, err = cgroup.systemctl_user("daemon-reload")
+            if rc != 0:
+                print(err or "systemctl --user daemon-reload failed", file=sys.stderr)
+                return 1
+    except OSError as e:
+        print(f"cannot install {dest}: {e}", file=sys.stderr)
+        return 1
+    if not cgroup.ensure_slice():
+        print(f"systemctl --user start {cgroup.SLICE} failed", file=sys.stderr)
+        return 1
+    return 0
+
+
+def remove_slice() -> int:
+    """`setup --remove`: stop the slice and drop its unit file.
+
+    An absent unit file means an earlier remove already finished this step; there
+    is nothing of ours to stop, and `systemctl stop` on an unloaded unit fails.
+    """
+    dest = _user_unit_dir() / cgroup.SLICE
+    if not dest.exists():
+        return 0
+    rc, err = cgroup.systemctl_user("stop", cgroup.SLICE)
+    if rc != 0:
+        print(err or f"systemctl --user stop {cgroup.SLICE} failed", file=sys.stderr)
+        return 1
+    try:
+        dest.unlink()
+    except OSError as e:
+        print(f"cannot remove {dest}: {e}", file=sys.stderr)
+        return 1
+    rc, err = cgroup.systemctl_user("daemon-reload")
+    if rc != 0:
+        print(err or "systemctl --user daemon-reload failed", file=sys.stderr)
+        return 1
+    return 0
+
+
+# The data directory and the browser profile have one owner, `ds/launch.py`;
+# setup only writes beside what `open` reads.
+data_home = launch.data_home
+profile_dir = launch.profile_dir
+
+
+def applications_dir() -> Path:
+    """The person's own applications directory: where Omarchy's web apps live and where the entries shadow from."""
+    return data_home() / "applications"
+
+
+def _backup_dir() -> Path:
+    return state.state_path("entries-backup")
+
+
+def _xdg_env() -> dict[str, str]:
+    """The environment for `xdg-settings`: the session's, minus `BROWSER`.
+
+    Omarchy exports `BROWSER`, and `xdg-settings` refuses to change or even
+    report the default browser while it is set (exit 4). Omarchy's own
+    launcher drops the variable for the call; so does this plugin.
+    """
+    env = dict(os.environ)
+    env.pop("BROWSER", None)
+    return env
+
+
+def _xdg_settings(*args: str) -> tuple[int, str]:
+    """`xdg-settings` as the person, never through sudo. A missing tool answers like its own exit 3.
+
+    `get` runs in the listener's reconciliation worker with a 5 s deadline; `set` runs from setup, rewrites mimeapps and the desktop cache, and on
+    this machine takes several seconds, so it gets 60 s.
+    """
+    from ds.net import run_command
+    budget = 60 if args[:1] == ("set",) else 5
+    try:
+        proc = run_command(
+            ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=budget, env=_xdg_env(),
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return 3, ""
+    return proc.returncode, (proc.stdout or "").strip()
+
+
+def default_handler() -> tuple[bool, str | None]:
+    """`(answered, id)`: the desktop id `xdg-settings` reports as the default browser.
+
+    `answered` is False when the tool could not say. Nothing that depends on the
+    answer may then change the default or delete the file that holds it, since
+    there is no record to hand back.
+    """
+    rc, out = _xdg_settings("get", "default-web-browser")
+    if rc != 0:
+        return False, None
+    return True, (out or None)
+
+
+def _owned_files(old: dict) -> list[dict] | None:
+    """The manifest's files, or None when any entry points outside the plugin's own directories.
+
+    Every path must be a direct child of the applications directory and every
+    backup the same name under the backup directory. Anything else is a record
+    this plugin did not write, and remove must never unlink or move what it says.
+    """
+    apps, backups = applications_dir(), _backup_dir()
+    out = []
+    for item in old["files"]:
+        path = Path(item["path"])
+        if not path.is_absolute() or path.parent != apps or path.name in ("", ".", ".."):
+            return None
+        backup = item["backup"]
+        if backup is not None and Path(backup) != backups / path.name:
+            return None
+        out.append({"path": str(path), "backup": backup})
+    return out
+
+
+def _refuse_manifest() -> int:
+    print(f"refusing: {state.entries_path()} names files outside {applications_dir()}; "
+          "delete or fix that record and rerun", file=sys.stderr)
+    return 1
+
+
+_EXEC_PLAIN = re.compile(r"^[A-Za-z0-9_./:=+@,-]+$")
+
+
+def _exec_arg(arg: str) -> str:
+    """One Exec argument, quoted per the Desktop Entry spec, then escaped once more for the file layer."""
+    if _EXEC_PLAIN.match(arg):
+        return arg
+    quoted = "".join("\\" + c if c in '\\"`$' else c for c in arg)
+    return '"' + quoted.replace("\\", "\\\\").replace("%", "%%") + '"'
+
+
+def _icon_name(name: str) -> str:
+    """Omarchy's `safe_icon_name`: the icon its web-app installer fetched for the same product."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def _class_prefix(cfg: dict, handler: str | None) -> str:
+    """The window-class prefix the distraction browser will carry.
+
+    A configured `browser` argv names the binary `open` runs, so its basename
+    decides; otherwise the default browser's desktop id does, the same case list
+    `open` follows when the config says `auto`.
+    """
+    raw = (cfg or {}).get("browser")
+    if isinstance(raw, list) and raw and isinstance(raw[0], str) and raw[0]:
+        stem = Path(raw[0]).name
+    else:
+        stem = (handler or "").removesuffix(".desktop")
+    if stem.startswith("google-chrome") or stem == "chrome":
+        return "chrome"
+    for family in ("brave", "microsoft-edge", "opera", "vivaldi", "helium", "chromium"):
+        if stem.startswith(family):
+            return family
+    return "chromium"
+
+
+def _app_host(entry: dict) -> str | None:
+    """The host `open` launches the entry with: the same first host `launch.entry_hosts` picks."""
+    hosts = launch.entry_hosts(entry)
+    return hosts[0] if hosts else None
+
+
+def _wm_class(entry: dict, cfg: dict, handler: str | None) -> str | None:
+    if entry.get("desktop"):
+        klass = (entry.get("classes") or [None])[0]
+        return klass if isinstance(klass, str) and _EXEC_PLAIN.match(klass) else None
+    host = _app_host(entry)
+    return f"{_class_prefix(cfg, handler)}-{host}__-{launch.PROFILE}" if host else None
+
+
+def _entry_file(entry: dict) -> str:
+    """Web products shadow Omarchy's `<Name>.desktop`; native products shadow the system `<id>.desktop`."""
+    desktop = entry.get("desktop")
+    return f"{desktop}.desktop" if desktop else f"{entry['name']}.desktop"
+
+
+def _render_entry(entry: dict, cfg: dict, handler: str | None) -> str:
+    name = entry["name"]
+    exec_line = " ".join(_exec_arg(a) for a in (str(ROOT / "distractions"), "open", name))
+    lines = [
+        "[Desktop Entry]",
+        "Version=1.0",
+        "Type=Application",
+        f"Name={name}",
+        f"Comment={name} in the distraction space",
+        f"Exec={exec_line}",
+        f"Icon={entry.get('desktop') or _icon_name(name)}",
+        "Terminal=false",
+        "StartupNotify=true",
+    ]
+    wm = _wm_class(entry, cfg, handler)
+    if wm:
+        lines.append(f"StartupWMClass={wm}")
+    return "\n".join(lines) + "\n"
+
+
+def _render_handler() -> str:
+    exec_line = " ".join((_exec_arg(str(ROOT / "distractions")), "open", "%u"))
+    return "\n".join([
+        "[Desktop Entry]",
+        "Version=1.0",
+        "Type=Application",
+        "Name=Distraction space",
+        "Comment=Opens listed links in the distraction space and forwards the rest",
+        f"Exec={exec_line}",
+        "Icon=web-browser",
+        "Terminal=false",
+        "NoDisplay=true",
+        f"MimeType={HANDLER_MIME}",
+    ]) + "\n"
+
+
+# Omarchy's web-app launcher: every entry whose Exec starts with it opens in the
+# default browser, which is this plugin while links are on.
+WEBAPP_LAUNCHER = "omarchy-launch-webapp"
+_EXEC_KEY = re.compile(r"^\s*Exec\s*=")
+# Entries this process has already reported as left alone: once per setup run,
+# once per listener lifetime, never once a minute.
+_skipped: set[str] = set()
+# `_forward_entry`'s answer for an Omarchy web-app entry it cannot rewrite: the
+# file, and whatever record and backup the manifest holds for it, stay as they are.
+KEEP = object()
+
+
+def _skip(path: Path, why: str) -> None:
+    if str(path) not in _skipped:
+        _skipped.add(str(path))
+        print(f"{path}: {why}; the entry is left alone", file=sys.stderr)
+
+
+def _is_own(exec_value: str | None) -> bool:
+    """True when an Exec value is this plugin's launcher, whichever setup wrote it."""
+    return launch._is_own_launcher(launch.parse_exec(exec_value) or [])
+
+
+def _own_file(path: Path) -> bool:
+    return _is_own(launch.read_exec(path))
+
+
+def _replace_exec(text: str, exec_line: str) -> str | None:
+    """`text` with the main group's Exec value replaced and every other byte as it was; None without one."""
+    lines, in_main = text.splitlines(keepends=True), False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_main:
+                return None
+            in_main = stripped == "[Desktop Entry]"
+            continue
+        if in_main and _EXEC_KEY.match(line):
+            ending = line[len(line.rstrip("\r\n")):]
+            lines[i] = "Exec=" + exec_line + (ending or "\n")
+            return "".join(lines)
+    return None
+
+
+def _forward_entry(path: Path, backup: str | None) -> str | object | None:
+    """The rewrite of an Omarchy web-app entry at `path`; `KEEP` when it has one that cannot be parsed; None when it has none.
+
+    Omarchy's file is the one at `path` unless that is this plugin's launcher
+    already, in which case it is the backup taken when it was first rewritten.
+    Only Exec changes: `distractions open --app <url> [extra]`, the URL and the
+    extra arguments carried over through the desktop-entry grammar both ways,
+    so an unlisted web app opens in the previous browser as an app window and
+    a listed one in the space. One that cannot be parsed is named once and
+    left alone: neither rewritten nor, when it is already recorded, restored.
+    """
+    source, value = path, launch.read_exec(path)
+    if value is None or _is_own(value):
+        source = Path(backup) if backup else None
+        value = launch.read_exec(source) if source is not None else None
+    if value is None:
+        return None
+    argv, tokens = launch.parse_exec(value), value.split()
+    head = argv[0] if argv else tokens[0] if tokens else ""
+    if Path(head).name != WEBAPP_LAUNCHER:
+        return None
+    args = launch.expand_fields(argv[1:]) if argv else []
+    data = state.read_bounded(source)
+    try:
+        text = data.decode("utf-8") if data is not None else None
+    except UnicodeDecodeError:
+        text = None
+    rewritten = None
+    if args and text is not None:
+        exec_line = " ".join(_exec_arg(a) for a in (str(ROOT / "distractions"), "open", "--app", *args))
+        rewritten = _replace_exec(text, exec_line)
+    if rewritten is None:
+        _skip(source, "the Exec line could not be parsed")
+        return KEEP
+    return rewritten
+
+
+def _plan(exp: dict, cfg: dict | None, handler: str | None, with_handler: bool, owned: dict[str, str | None]) -> list[tuple[Path, str | None]]:
+    """Every file this run wants under the applications directory, in write order.
+
+    Listed products first, then every Omarchy web-app entry that is not one of
+    them, rewritten to forward, then the handler when `with_handler`. `owned`
+    is the manifest's path-to-backup map: a rewritten entry's source is its
+    backup, since the file at its path is already the rewrite. An owned entry
+    that cannot be rewritten is planned with no text: kept, not written.
+    """
+    apps, plan, seen = applications_dir(), [], set()
+    for entry in exp.get("list") or []:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        # A name becomes a filename and a desktop-entry value: no path parts, no
+        # hidden files, and no control character that could start a second key.
+        if not isinstance(name, str) or not name or "/" in name or name.startswith(".") \
+                or any(ord(c) < 32 or c == "\x7f" for c in name):
+            continue
+        path = apps / _entry_file(entry)
+        if path in seen:
+            continue
+        seen.add(path)
+        plan.append((path, _render_entry(entry, cfg, handler)))
+    try:
+        present = sorted(p for p in apps.iterdir() if p.suffix == ".desktop" and p.is_file())
+    except OSError:
+        present = []
+    for path in present:
+        if path in seen or path.name == HANDLER_ID:
+            continue
+        text = _forward_entry(path, owned.get(str(path)))
+        if text is KEEP:
+            if str(path) in owned:
+                plan.append((path, None))
+        elif text is not None:
+            plan.append((path, text))
+    if with_handler:
+        plan.append((apps / HANDLER_ID, _render_handler()))
+    return plan
+
+
+def _write_text(path: Path, text: str) -> None:
+    """Whole-file replace: a reader sees the old entry or the new one, never a partial."""
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, path)
+    except OSError:
+        _unlink(Path(tmp))
+        raise
+
+
+UDD_TIMEOUT = 60.0
+_cache_pending = set()
+
+
+def _update_desktop_database(apps: Path) -> bool:
+    """Best effort: the entries are already in place and the record written; a slow
+    or missing cache refresh changes nothing about what setup owns."""
+    _cache_pending.add(apps)
+    tool = shutil.which("update-desktop-database")
+    if not tool:
+        return False
+    from ds.net import run_command
+    try:
+        result = run_command([tool, str(apps)], capture_output=True, check=False, timeout=UDD_TIMEOUT)
+        if result.returncode == 0:
+            _cache_pending.discard(apps)
+            return True
+        return False
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"update-desktop-database did not finish: {e}; the menu refreshes on its own later", file=sys.stderr)
+        return False
+
+
+def _rollback(journal: list[tuple]) -> None:
+    """Undo this run's writes and moves, newest first; the old manifest on disk stays the record.
+
+    Every file this run replaced or dropped was moved aside first, so reversing
+    the journal puts the exact pre-run bytes back, owned entries included.
+    """
+    for step in reversed(journal):
+        try:
+            if step[0] == "wrote":
+                _unlink(Path(step[1]))
+            else:
+                shutil.move(step[2], step[1])
+        except OSError as e:
+            print(f"rollback: {e}", file=sys.stderr)
+
+
+def _write_links(links: str) -> None:
+    """`links` in state.json, so `status` answers before the listener's next check rewrites it."""
+    current = state.read_state() or {}
+    if current.get("links") != links:
+        try:
+            state.write_state({**current, "links": links})
+        except OSError as e:
+            print(f"cannot record links in state: {e}", file=sys.stderr)
+
+
+def _restore_handler(previous: str | None) -> bool:
+    """Hand the default browser back; only called while the plugin's handler holds it.
+
+    False means the default still points at the plugin's handler, so the caller
+    must leave that handler file in place.
+    """
+    if not previous:
+        print("no previous default browser is recorded; choose one with: xdg-settings set default-web-browser <id>.desktop", file=sys.stderr)
+        return False
+    rc, _out = _xdg_settings("set", "default-web-browser", previous)
+    if rc != 0:
+        print(f"xdg-settings could not restore {previous} as the default browser (exit {rc})", file=sys.stderr)
+        return False
+    return True
+
+
+def _unchanged(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, str | None]], previous: str | None) -> bool:
+    """True when every planned file already holds its text and the manifest would be rewritten as it is.
+
+    The sync runs once a minute from the listener, so the common case has to
+    cost a few reads and no write: no owned file to drop, every planned file
+    byte-for-byte what it would be written as (which also makes it this
+    plugin's own, so its backup carries over), and the record the same.
+    """
+    wanted = {str(path) for path, _text in plan}
+    if any(path not in wanted for path in owned):
+        return False
+    files = []
+    for path, text in plan:
+        if text is not None and state.read_bounded(path) != text.encode("utf-8"):
+            return False
+        files.append({"path": str(path), "backup": owned.get(str(path))})
+    return old == {"files": files, "previous_handler": previous}
+
+
+def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, str | None]], previous: str | None, *, strict_cache=False) -> int:
+    """The plan written under the applications directory and recorded, finished or rolled back as one.
+
+    A file at a planned path that is not this plugin's launcher is Omarchy's (or
+    the person's): it is moved whole into `entries-backup/` and recorded beside
+    the entry, replacing an older backup, so the backup is always the latest
+    entry the plugin displaced; nothing this plugin did not write is ever edited
+    or deleted. An owned path the plan no longer carries hands back what it
+    shadowed, unless its launcher is already gone: a launcher the person removed
+    shadows nothing, and bringing its backup back would resurrect the web app
+    they removed, so the backup goes with the record. A planned path with no
+    text is carried as recorded and not touched. The manifest is written last,
+    after every file it names. Nothing to change is nothing written.
+    """
+    if _unchanged(old, owned, plan, previous):
+        if strict_cache and applications_dir() in _cache_pending:
+            return int(not _update_desktop_database(applications_dir()))
+        return 0
+    wanted = {str(path) for path, _text in plan}
+    apps, backups, journal, files, staged = applications_dir(), _backup_dir(), [], [], []
+
+    def move(src: Path, dst: Path) -> None:
+        shutil.move(str(src), str(dst))
+        journal.append(("moved", str(src), str(dst)))
+
+    def stage(path: Path) -> None:
+        # A file about to be replaced or dropped is moved aside whole, so a
+        # rollback puts its exact bytes back and success discards the copy.
+        backups.mkdir(parents=True, exist_ok=True)
+        dest = backups / f".stage-{path.name}"
+        _unlink(dest)
+        move(path, dest)
+        staged.append(dest)
+
+    def held(backup: str | None) -> bool:
+        return bool(backup) and (Path(backup).exists() or Path(backup).is_symlink())
+
+    try:
+        apps.mkdir(parents=True, exist_ok=True)
+        for path_s, backup in owned.items():
+            if path_s in wanted:
+                continue
+            path = Path(path_s)
+            present = path.is_file() or path.is_symlink()
+            if present:
+                stage(path)
+            if held(backup):
+                move(Path(backup), path) if present else stage(Path(backup))
+        for path, text in plan:
+            backup = owned.get(str(path))
+            if text is None:
+                files.append({"path": str(path), "backup": backup})
+                continue
+            # A file or link is moved aside whole; anything else (a directory) is
+            # not a launcher entry and the write below refuses it.
+            present = path.is_file() or path.is_symlink()
+            if present and not _own_file(path):
+                if held(backup):
+                    stage(Path(backup))
+                backups.mkdir(parents=True, exist_ok=True)
+                dest = backups / path.name
+                move(path, dest)
+                backup = str(dest)
+            elif present:
+                stage(path)
+            _write_text(path, text)
+            journal.append(("wrote", str(path)))
+            files.append({"path": str(path), "backup": backup})
+        state.write_entries({"files": files, "previous_handler": previous})
+    except OSError as e:
+        print(f"cannot write launcher entries under {apps}: {e}", file=sys.stderr)
+        _rollback(journal)
+        return 1
+    for dest in staged:
+        _unlink(dest)
+    cached = _update_desktop_database(apps)
+    return int(strict_cache and not cached)
+
+
+# How long setup and remove wait for the listener's sync to finish; the sync is a
+# few reads when nothing changed and one desktop-cache refresh (`UDD_TIMEOUT`) at most.
+ENTRIES_LOCK_TIMEOUT = 90.0
+
+
+@contextlib.contextmanager
+def _entries_lock(wait: float):
+    """One manifest transaction at a time across setup, remove, and the listener.
+
+    Yields True with the lock held, False when another holder kept it for
+    `wait` seconds: setup and remove wait, the listener's periodic sync gives
+    way at once. Without this a tick could see a file setup has just moved
+    into `entries-backup/`, take it for a launcher the person removed, and
+    delete the backup setup is about to record.
+    """
+    path = state.runtime_path("distraction-space.entries.lock")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lf = open(path, "a+", encoding="utf-8")
+    except OSError as e:
+        print(f"cannot open {path}: {e}", file=sys.stderr)
+        yield False
+        return
+    with lf:
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(0.05)
+        yield True
+
+
+def _busy() -> int:
+    print("the launcher entries are being written by another setup, remove, or the listener; "
+          "rerun in a moment", file=sys.stderr)
+    return 1
+
+
+ENTRIES_DEFERRED = 2
+
+
+def refresh_entries(exp: dict, cfg: dict | None, *, strict=False) -> int:
+    """The listener's half of the entry sync: what setup wrote, kept written.
+
+    Runs on `refresh` and once a period, so an entry Omarchy regenerates (a web
+    app installed or reinstalled) is rewritten within a minute. Only once setup
+    has written the manifest, and never the default browser: the handler file
+    stays exactly as recorded, the recorded previous handler stands, and
+    `xdg-settings` is not asked, so a default the person moved elsewhere is the
+    link check's notice and never fought over here. A setup or remove under
+    way owns the files; this sync steps aside until the next period, and a
+    remove that finished first leaves no manifest to keep, decided under the
+    same lock so nothing is recreated from an empty record. Strict callers receive
+    ENTRIES_DEFERRED on lock contention, distinguishing postponement from failure.
+    """
+    with _entries_lock(0) as held:
+        if held:
+            return _refresh_entries(exp, cfg, strict=strict)
+        return ENTRIES_DEFERRED if strict else 0
+
+
+def _refresh_entries(exp: dict, cfg: dict | None, *, strict=False) -> int:
+    if not state.entries_path().exists():
+        return 0
+    old = state.read_entries()
+    owned_files = _owned_files(old)
+    if owned_files is None:
+        return _refuse_manifest()
+    owned = {item["path"]: item["backup"] for item in owned_files}
+    holds = any(Path(p).name == HANDLER_ID for p in owned)
+    previous = old["previous_handler"]
+    return _sync_files(old, owned, _plan(exp, cfg, previous, holds, owned), previous, strict_cache=strict)
+
+
+def sync_entries(exp: dict, cfg: dict) -> int:
+    """Launcher entries, the rewritten Omarchy web apps, and the URL handler, then the default browser.
+
+    The files are `_sync_files`' one transaction under the entries lock; only
+    after the manifest names every one of them is the default browser switched.
+    """
+    with _entries_lock(ENTRIES_LOCK_TIMEOUT) as held:
+        return _sync_entries(exp, cfg) if held else _busy()
+
+
+def _sync_entries(exp: dict, cfg: dict) -> int:
+    old = state.read_entries()
+    owned_files = _owned_files(old)
+    if owned_files is None:
+        return _refuse_manifest()
+    owned = {item["path"]: item["backup"] for item in owned_files}
+    answered, handler = default_handler()
+    if answered and handler and handler != HANDLER_ID:
+        previous = handler
+    else:
+        previous = old["previous_handler"]
+    # Switching links off while the default still points at the handler: hand
+    # the default back BEFORE the handler file goes, and keep the file whenever
+    # that cannot be shown to have happened.
+    keep_handler = False
+    if not cfg["open_links_in_space"]:
+        holds = any(Path(p).name == HANDLER_ID for p in owned)
+        if answered and handler == HANDLER_ID:
+            keep_handler = not _restore_handler(old["previous_handler"])
+        elif not answered and holds:
+            keep_handler = True
+    plan = _plan(exp, cfg, previous, cfg["open_links_in_space"] or keep_handler, owned)
+    if _sync_files(old, owned, plan, previous) != 0:
+        return 1
+    if not cfg["open_links_in_space"]:
+        if keep_handler:
+            print("links: displaced -- the default browser still points at the handler, so the handler "
+                  "stays until it is handed back; rerun: distractions setup", file=sys.stderr)
+            _write_links("displaced")
+        else:
+            _write_links("off")
+        return 0
+    if not answered:
+        print("links: displaced -- xdg-settings could not report the default browser, so it was left alone; "
+              "rerun: distractions setup", file=sys.stderr)
+        _write_links("displaced")
+        return 0
+    rc = 0
+    if handler != HANDLER_ID:
+        rc, _out = _xdg_settings("set", "default-web-browser", HANDLER_ID)
+    if rc != 0:
+        print(f"links: displaced -- xdg-settings could not make {HANDLER_ID} the default browser (exit {rc}); rerun: distractions setup", file=sys.stderr)
+    _write_links("on" if rc == 0 else "displaced")
+    return 0
+
+
+def remove_entries() -> int:
+    """`setup --remove`: the previous default back, exactly the manifest's files gone, every backup home."""
+    with _entries_lock(ENTRIES_LOCK_TIMEOUT) as held:
+        return _remove_entries() if held else _busy()
+
+
+def _remove_entries() -> int:
+    old = state.read_entries()
+    files = _owned_files(old)
+    if files is None:
+        return _refuse_manifest()
+    if files:
+        # The handler file is deleted below, so the default must be known to point
+        # elsewhere first: an unanswered query or a failed restore keeps everything.
+        answered, handler = default_handler()
+        if not answered:
+            print("xdg-settings could not report the default browser; the launcher entries and the "
+                  "handler stay in place until it can", file=sys.stderr)
+            return 1
+        if handler == HANDLER_ID and not _restore_handler(old["previous_handler"]):
+            print("the default browser still points at the handler; nothing was removed", file=sys.stderr)
+            return 1
+    try:
+        for item in files:
+            path = Path(item["path"])
+            present = path.is_file() or path.is_symlink()
+            _unlink(path)
+            if item["backup"]:
+                backup = Path(item["backup"])
+                if not (backup.exists() or backup.is_symlink()):
+                    print(f"backup {backup} is missing; {path} stays removed", file=sys.stderr)
+                elif present:
+                    shutil.move(str(backup), str(path))
+                else:
+                    # The launcher was removed by hand (or by Omarchy's web-app
+                    # remover); its backup would only bring that web app back.
+                    backup.unlink()
+        _unlink(state.entries_path())
+        if files:
+            _update_desktop_database(applications_dir())
+    except OSError as e:
+        print(f"cannot remove launcher entries: {e}", file=sys.stderr)
+        return 1
+    try:
+        _backup_dir().rmdir()
+    except OSError:
+        pass
+    _write_links("off")
+    prof = profile_dir()
+    if prof.exists():
+        print(f"kept the browser profile at {prof}")
+    return 0
+
+
+def _load_cfg() -> dict | None:
+    try:
+        return config.load()
+    except Exception as e:
+        print(f"{e}; launcher entries and the link handler are left as they are", file=sys.stderr)
+        return None
+
+
+LINKS_QUESTION = "Route links through the distraction space? [Y/n] "
+LINKS_EXPLANATION = """Links from other apps
+
+To open listed sites inside the space, the plugin has to become the
+system's default browser. It is a router, not a browser: it sends
+listed links to the distraction profile and forwards everything else
+to {browser} unchanged. Omarchy's browser keybinds and web apps keep
+working. {browser} may ask to become the default again; answer
+"Don't ask again". "distractions setup --remove" restores {browser}.
+
+Without it, a clicked link to a listed site opens in {browser}, hits
+the block page, and you reopen it from the launcher.
+"""
+_NAME_LINE = re.compile(r"^\s*Name\s*=\s*(.*?)\s*$")
+
+
+def _desktop_name(desktop_id: str | None) -> str:
+    """How the explanation names the previous browser: its entry's `Name`, else its id, else a plain phrase."""
+    if not desktop_id:
+        return "your previous browser"
+    path = launch.desktop_file(desktop_id)
+    data = state.read_bounded(path) if path is not None else None
+    in_main = False
+    for line in (data or b"").decode("utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_main:
+                break
+            in_main = stripped == "[Desktop Entry]"
+            continue
+        m = _NAME_LINE.match(line) if in_main else None
+        if m and m.group(1):
+            return m.group(1)
+    return desktop_id[:-len(".desktop")] if desktop_id.endswith(".desktop") else desktop_id
+
+
+def _previous_browser() -> str | None:
+    """The desktop id links are forwarded to: what `xdg-settings` reports now, unless that is the plugin's handler, then the recorded one."""
+    answered, handler = default_handler()
+    if answered and handler and handler != HANDLER_ID:
+        return handler
+    return state.read_entries()["previous_handler"]
+
+
+def _yes_no(prompt: str) -> bool:
+    """A terminal yes/no; an empty line or end of input is yes, anything unclear is asked again."""
+    while True:
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        line = sys.stdin.readline()
+        answer = line.strip().lower()
+        if not line or answer in ("", "y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+
+
+def ask_links(cfg: dict, assume_yes: bool) -> dict | None:
+    """Setup's one question, before anything asks for a password.
+
+    With no explicit `open_links_in_space` in the config file, the explanation
+    naming the previous browser is printed and, on a terminal without `--yes`,
+    the question asked; the answer goes into the file so it is never asked
+    again. `--yes` or no terminal takes the config value, true by default, and
+    prints the explanation as a notice. Once the file has the key, a rerun
+    prints the current choice and the key that changes it. `--yes` and no
+    terminal also keep the root transaction from asking for a password
+    (`sudo -n`), see `install`. None when the
+    answer could not be written: an answer that lives only in this run would
+    be asked again, or overridden by a later `--yes`, so setup stops here,
+    before anything is installed.
+    """
+    key = config.LINKS_KEY
+    if config.links_answered():
+        print(f"links: {'on' if cfg[key] else 'off'} -- change it with: distractions config set {key} {json.dumps(not cfg[key])}")
+        return cfg
+    print(LINKS_EXPLANATION.format(browser=_desktop_name(_previous_browser())))
+    if assume_yes or not sys.stdin.isatty():
+        answer = cfg[key]
+        why = "--yes" if assume_yes else "no terminal to ask"
+        print(f"links: {'on' if answer else 'off'} ({why}) -- change it with: distractions config set {key} {json.dumps(not answer)}")
+    else:
+        answer = _yes_no(LINKS_QUESTION)
+    try:
+        return config.set_links(answer)
+    except (config.Busy, config.Invalid, OSError) as e:
+        print(f"cannot record the answer in {config.config_path()}: {e}; nothing was installed", file=sys.stderr)
+        return None
+
+
+def install(assume_yes: bool = False):
     wrapper = wrapper_dest()
     sudoers = _sudoers_dest()
     if _writable_ancestor(wrapper) or _writable_ancestor(sudoers):
@@ -628,37 +1455,66 @@ def install():
     source = _pinned_source(shipped)
     if source is None:
         return 1
-    grant_bytes = grant.encode("utf-8")
-    if not _already_current(source, grant_bytes, wrapper):
-        if _root_transaction(source, grant_bytes, wrapper, sudoers) != 0:
-            print("sudo setup transaction failed", file=sys.stderr)
+    cfg = _load_cfg()
+    if cfg is not None:
+        cfg = ask_links(cfg, assume_yes)
+        if cfg is None:
             return 1
+    grant_bytes = grant.encode("utf-8")
+    # No terminal and --yes both mean nobody is there to type a password:
+    # the root transaction runs with `sudo -n` and fails instead of prompting.
+    quiet = assume_yes or not sys.stdin.isatty()
+    if not _already_current(source, grant_bytes, wrapper):
+        if _root_transaction(source, grant_bytes, wrapper, sudoers, prompt=not quiet) != 0:
+            why = "--yes" if assume_yes else "a setup without a terminal"
+            print("sudo setup transaction failed" + (f"; {why} never asks for a password, so run setup from a terminal once" if quiet else ""), file=sys.stderr)
+            return 1
+    slice_rc = sync_slice()
+    entries_rc = sync_entries({"list": catalog.expand(cfg)}, cfg) if cfg is not None else 1
     clone_rc = sync_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:
         _settle_service()
-    return 1 if rescan_rc != 0 or clone_rc != 0 else 0
+    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 or entries_rc != 0 else 0
 
 
 def remove():
+    # The user-level half first, in reverse of install: nothing here needs root,
+    # so a person whose grant is already gone still gets their launcher back.
+    if remove_entries() != 0:
+        return 1
     wrapper = wrapper_dest()
     sudoers = _sudoers_dest()
-    proc = subprocess.run(
-        ["sudo", "-n", str(wrapper), "flush", "ds"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if not _flush_ok(proc):
-        print((proc.stderr or "nft flush failed").strip() or "nft flush failed", file=sys.stderr)
+    # The root half is installed and removed as one set: wrapper, grant, and the
+    # record beside the wrapper. The grant's directory cannot be read from here,
+    # so the two files next to each other stand for the set. When both are gone
+    # an earlier remove already finished this half, and calling sudo again would
+    # only fail once the grant that made it passwordless is gone with it.
+    root_half = wrapper.is_file() or _record_dest(wrapper).is_file()
+    if root_half:
+        # `flush ds` destroys the table outright and needs no slice.
+        proc = subprocess.run(
+            ["sudo", "-n", str(wrapper), "flush", "ds"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if not _flush_ok(proc):
+            print((proc.stderr or "nft flush failed").strip() or "nft flush failed", file=sys.stderr)
+            return 1
+    # The slice goes before the root teardown: while the wrapper and its grant
+    # still exist a retry can flush again, so a failure here leaves remove
+    # repeatable instead of half done.
+    if remove_slice() != 0:
         return 1
-    proc = subprocess.run(
-        ["sudo", "rm", "-f", str(wrapper), str(sudoers), str(_record_dest(wrapper))],
-        check=False,
-    )
-    if proc.returncode != 0:
-        print("sudo rm failed", file=sys.stderr)
-        return 1
+    if root_half:
+        proc = subprocess.run(
+            ["sudo", "rm", "-f", str(wrapper), str(sudoers), str(_record_dest(wrapper))],
+            check=False,
+        )
+        if proc.returncode != 0:
+            print("sudo rm failed", file=sys.stderr)
+            return 1
     clone_rc = remove_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:
@@ -669,4 +1525,4 @@ def remove():
 def cmd_setup(args):
     if args.remove:
         return remove()
-    return install()
+    return install(assume_yes=bool(getattr(args, "yes", False)))

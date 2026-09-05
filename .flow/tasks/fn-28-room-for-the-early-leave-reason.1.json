@@ -1,0 +1,14 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-05T22:05:10.842669Z",
+  "depends_on": [],
+  "id": "fn-28-room-for-the-early-leave-reason.1",
+  "priority": null,
+  "spec": "fn-28-room-for-the-early-leave-reason",
+  "spec_path": ".flow/tasks/fn-28-room-for-the-early-leave-reason.1.md",
+  "status": "todo",
+  "title": "Widen the native early-leave reason prompt",
+  "updated_at": "2026-09-05T22:05:10.842669Z"
+}

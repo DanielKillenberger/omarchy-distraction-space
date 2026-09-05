@@ -1,0 +1,33 @@
+{
+  "result": "PASS",
+  "namespace_isolated": true,
+  "transport": "direct branch wrapper under mapped namespace root; sudo authorization not exercised",
+  "equal_policy_three_cycles": [
+    "replace",
+    "check",
+    "check",
+    "check"
+  ],
+  "extra_rule_and_deleted_table_repairs": [
+    [
+      "check",
+      "replace",
+      "check"
+    ],
+    [
+      "check",
+      "replace",
+      "check"
+    ]
+  ],
+  "empty_policy_two_cycles": [
+    "flush",
+    "flush"
+  ],
+  "python_version": "3.11.16",
+  "source_commit": "3c8c949c8b7c9cccef33f97fbb9e1ddfd193be2b",
+  "source_sha256": {
+    "ds/net.py": "1ccd632b3ddf39e894804aa2af16276924d20c484995a9d15ab089a18f7684b7",
+    "distractions-nft": "b8a031ac06732735141fd1f2df620d24877c30e995e6c79e2b9d737102233a25"
+  }
+}

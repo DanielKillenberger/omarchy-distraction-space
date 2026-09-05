@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Window rules, silent moves, intercept banner, and workspace cycle."""
+"""Window rules, the three containment layers, adoption, the Opened banner wiring, and workspace cycle."""
 
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
+from test_cgroup import SESSION_PATH, SLICE_PATH, FakeProc
 
 sys.path.insert(0, str(ROOT))
-from ds import hypr, state
-from ds.catalog import expand_entry, pwa_class
+from ds import feedback, hypr, state
+from ds.catalog import expand_entry
 
 HYPRCTL = r"""
 import json, os, sys
@@ -74,11 +75,29 @@ if os.environ.get("DS_NOTIFY_FAIL"):
     sys.exit(1)
 """
 
+# Stands in for this checkout's `distractions` CLI, which adoption runs: logs the
+# argv and fails like `open` does when no browser is available.
+OPEN = r"""
+import json, os, sys
+from pathlib import Path
+
+p = Path(os.environ["DS_OPEN_LOG"])
+p.parent.mkdir(parents=True, exist_ok=True)
+with p.open("a", encoding="utf-8") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\n")
+if os.environ.get("DS_OPEN_FAIL"):
+    sys.stderr.write("No distraction browser: none found\n")
+    sys.exit(1)
+"""
+
 LUA = shutil.which("lua5.4") or shutil.which("lua") or shutil.which("luajit")
 
 TELEGRAM = expand_entry("Telegram")
-PWA_CLASS = pwa_class("web.telegram.org")
+WHATSAPP = expand_entry("WhatsApp")
 NATIVE = "org.telegram.desktop"
+PROFILE_WA = "chrome-web.whatsapp.com__-Distraction"
+FOREIGN_WA = "chrome-web.whatsapp.com__-Default"
+OPENED = "opened in the distraction space"
 
 
 def _entries(*names):
@@ -92,15 +111,29 @@ class HyprTests(unittest.TestCase):
         self.box.apply_env()
         self.hypr_log = self.box.runtime / "hypr.log"
         self.notify_log = self.box.runtime / "notify.log"
+        self.open_log = self.box.runtime / "open.log"
         self.hypr_state = self.box.runtime / "hypr-state.json"
+        proc = self.box.runtime / "proc"
+        proc.mkdir()
+        self.proc = FakeProc(proc)
         os.environ["DS_HYPR_LOG"] = str(self.hypr_log)
         os.environ["DS_NOTIFY_LOG"] = str(self.notify_log)
+        os.environ["DS_OPEN_LOG"] = str(self.open_log)
         os.environ["DS_HYPR_STATE"] = str(self.hypr_state)
-        os.environ.pop("DS_HYPR_FAIL", None)
-        os.environ.pop("DS_NOTIFY_FAIL", None)
+        os.environ["DS_PROC_ROOT"] = str(proc)
+        self.addCleanup(os.environ.pop, "DS_PROC_ROOT", None)
+        for key in ("DS_HYPR_FAIL", "DS_NOTIFY_FAIL", "DS_OPEN_FAIL"):
+            os.environ.pop(key, None)
         self.box.fake_bin("hyprctl", HYPRCTL)
         self.box.fake_bin("omarchy-notification-send", NOTIFY)
+        cli = self.box.fake_bin("distractions", OPEN)
+        patcher = mock.patch.object(hypr, "CLI", str(cli))
+        patcher.start()
+        self.addCleanup(patcher.stop)
         hypr._reset_for_tests()
+        # The Opened banner goes through feedback: the nudge on, no lock, no routers bound.
+        feedback.start({"nudges": {"block_page": False}, "site_block": {"pass_through": False}}, False)
+        self.addCleanup(feedback.stop)
 
     def _state(self, **kwargs):
         payload = {
@@ -127,6 +160,9 @@ class HyprTests(unittest.TestCase):
     def _joined(self):
         return [" ".join(cmd) for cmd in self._hypr_cmds()]
 
+    def _dispatches(self):
+        return [c[1] for c in self._hypr_cmds() if c[0] == "dispatch"]
+
     def _notifies(self):
         if not self.notify_log.exists():
             return []
@@ -135,6 +171,20 @@ class HyprTests(unittest.TestCase):
             for line in self.notify_log.read_text(encoding="utf-8").splitlines()
             if line.strip()
         ]
+
+    def _opened_titles(self):
+        return [a for args in self._notifies() for a in args if OPENED in a]
+
+    def _open_calls(self):
+        if not self.open_log.exists():
+            return []
+        return [json.loads(line) for line in self.open_log.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+    def _log_lines(self, needle):
+        path = state.state_path("log")
+        if not path.exists():
+            return []
+        return [ln for ln in path.read_text(encoding="utf-8").splitlines() if needle in ln]
 
     def _client(self, address, klass, workspace="1", pid=None):
         client = {
@@ -146,127 +196,346 @@ class HyprTests(unittest.TestCase):
             client["pid"] = pid
         return client
 
-    def test_two_classes_yield_two_named_rules_and_rules_json(self):
-        self.assertTrue(hypr.apply_rules([TELEGRAM]))
-        expected, _ = hypr._rule_names([TELEGRAM])
-        joined = "\n".join(self._joined())
-        self.assertEqual(len(expected), 2)
-        self.assertIn(f"name = {hypr.lua_string(expected[0])}", joined)
-        self.assertIn(f"name = {hypr.lua_string(expected[1])}", joined)
+    def _profile_spec(self):
+        return {hypr.PROFILE_RULE: hypr.profile_rule_class()}
+
+    def test_one_profile_rule_plus_native_rules_and_no_per_host_web_rule(self):
+        self.assertEqual(hypr.profile_rule_class(), r"^[a-z-]+-.+__-Distraction$")
+        self.assertTrue(hypr.apply_rules(_entries("Telegram", "Discord", "X")))
+        native, _ = hypr._rule_names([TELEGRAM])
+        self.assertEqual(native, [hypr._rule_name("Telegram", 0)])
+        creates = [j for j in self._joined() if "hl.window_rule(" in j]
+        self.assertEqual(len(creates), 2, creates)
+        joined = "\n".join(creates)
+        self.assertIn(f"name = {hypr.lua_string(hypr.PROFILE_RULE)}", joined)
+        self.assertIn(f"class = {hypr.lua_string(hypr.profile_rule_class())}", joined)
+        self.assertIn(f"name = {hypr.lua_string(native[0])}", joined)
         self.assertIn(f"class = {hypr.lua_string(NATIVE)}", joined)
-        self.assertIn(f"class = {hypr.lua_string(PWA_CLASS)}", joined)
         self.assertIn(f'workspace = "name:{hypr.SPACE} silent"', joined)
-        self.assertIn("hl.window_rule(", joined)
+        for host in ("web.telegram.org", "discord.com", "x.com"):
+            self.assertNotIn(host, joined, "no per-host web rule")
         self.assertEqual([c[0] for c in self._hypr_cmds() if c[0] != "-j"], ["eval", "eval"])
         names = state.read_json(state.state_path("rules.json"), [])
-        self.assertEqual(set(names), set(expected))
+        self.assertEqual(set(names), {hypr.PROFILE_RULE, native[0]})
+        self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}),
+                         {**self._profile_spec(), native[0]: NATIVE})
+        # A re-apply (the listener's configreloaded path) sets the same fragments again.
+        self.hypr_log.write_text("", encoding="utf-8")
+        self.assertTrue(hypr.apply_rules(_entries("Telegram", "Discord", "X")))
+        self.assertEqual([j for j in self._joined() if "hl.window_rule(" in j], creates)
 
     def test_removed_entries_have_rules_disabled(self):
-        hypr.apply_rules(_entries("Telegram", "Discord"))
+        hypr.apply_rules(_entries("Telegram", "Signal"))
         before = set(state.read_json(state.state_path("rules.json"), []))
-        discord_names, _ = hypr._rule_names(_entries("Discord"))
+        signal_names, _ = hypr._rule_names(_entries("Signal"))
         telegram_names, _ = hypr._rule_names(_entries("Telegram"))
-        self.assertTrue(set(discord_names) <= before)
+        self.assertEqual(len(signal_names), 1)
+        self.assertTrue(set(signal_names) <= before)
         self.hypr_log.write_text("", encoding="utf-8")
         hypr.apply_rules(_entries("Telegram"))
         joined = "\n".join(self._joined())
-        self.assertIn(f"omarchy-ds disable {discord_names[0]}", joined)
+        self.assertIn(f"omarchy-ds disable {signal_names[0]}", joined)
         self.assertNotIn(f"omarchy-ds disable {telegram_names[0]}", joined)
+        self.assertNotIn(f"omarchy-ds disable {hypr.PROFILE_RULE}", joined)
         after = set(state.read_json(state.state_path("rules.json"), []))
-        self.assertEqual(after, set(telegram_names))
-        self.assertFalse(set(discord_names) & after)
+        self.assertEqual(after, {hypr.PROFILE_RULE, *telegram_names})
 
-    def test_open_and_move_listed_native_and_pwa_unlisted_untouched(self):
-        hypr.apply_rules([TELEGRAM])
+    def test_profile_and_native_windows_off_the_space_move_silently(self):
+        hypr.apply_rules([TELEGRAM, WHATSAPP])
+        self.proc.add(300, 1, SESSION_PATH)
         self._state(
             clients=[
                 self._client("0xaaa", NATIVE, "1"),
-                self._client("0xbbb", "chrome-web.telegram.org__https___web.telegram.org", "1"),
-                self._client("0xccc", "firefox", "1"),
+                self._client("0xbbb", PROFILE_WA, "1"),
+                self._client("0xccc", "chrome-music.example.org__-Distraction", "1"),
+                self._client("0xddd", "firefox", "1"),
+                self._client("0xeee", "google-chrome", "1", pid=300),
             ]
         )
         self.hypr_log.write_text("", encoding="utf-8")
-        hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
-        hypr.handle_event(
-            "openwindow>>0xbbb,1,chrome-web.telegram.org__https___web.telegram.org,Telegram"
+        for line in (
+            f"openwindow>>0xaaa,1,{NATIVE},Telegram",
+            f"openwindow>>0xbbb,1,{PROFILE_WA},WhatsApp",
+            "openwindow>>0xccc,1,chrome-music.example.org__-Distraction,Music",
+            "openwindow>>0xddd,1,firefox,Mozilla Firefox",
+            "openwindow>>0xeee,1,google-chrome,Chrome",
+            "movewindow>>0xaaa,2",
+            "movewindow>>0xddd,2",
+        ):
+            hypr.handle_event(line)
+        moves = [hypr.move_window_lua(a) for a in ("0xaaa", "0xbbb", "0xccc", "0xaaa")]
+        self.assertEqual(self._dispatches(), moves)
+        self.assertTrue(all("follow = false" in m for m in moves))
+        self.assertFalse(any("hl.dsp.focus" in j for j in self._joined()), "the focused workspace never changes")
+        self.assertEqual(self._open_calls(), [])
+        # A profile window of an unlisted host is moved with no banner; the second
+        # Telegram event is inside the debounce window.
+        self.assertEqual(self._opened_titles(), [f"Telegram {OPENED}", f"WhatsApp {OPENED}"])
+
+    def test_slice_popup_moved_and_unreadable_cgroup_falls_back_to_class(self):
+        hypr.apply_rules([TELEGRAM])
+        self.proc.add(100, 1, f"{SLICE_PATH}/run-1.scope")
+        popup = self.proc.chain(100, 3, first_pid=110)
+        self.proc.add(200, 1, None)  # no readable cgroup file
+        self.proc.add(210, 1, SESSION_PATH)
+        self._state(
+            clients=[
+                self._client("0xaaa", "google-chrome", "1", pid=popup),
+                self._client("0xbbb", "google-chrome", "1", pid=200),
+                self._client("0xccc", NATIVE, "1", pid=200),
+                self._client("0xddd", "google-chrome", "1", pid=210),
+            ]
         )
-        hypr.handle_event("openwindow>>0xccc,1,firefox,Mozilla Firefox")
+        self.hypr_log.write_text("", encoding="utf-8")
+        for address in ("0xaaa", "0xbbb", "0xccc", "0xddd"):
+            hypr.handle_event(f"openwindow>>{address},1,google-chrome,Chrome")
+        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xaaa"), hypr.move_window_lua("0xccc")])
+        self.assertEqual(self._open_calls(), [])
+        # A slice popup names no list entry, so only the native window is announced.
+        self.assertEqual(self._opened_titles(), [f"Telegram {OPENED}"])
+        self.assertEqual(hypr.classify("google-chrome", popup), ("slice", None))
+        self.assertIsNone(hypr.classify("google-chrome", 200))
+        self.assertEqual(hypr.classify(NATIVE, 200), ("class", TELEGRAM))
+        self.assertIsNone(hypr.classify("google-chrome", None))
+
+    def test_foreign_discovery_moves_and_offers_once_without_opening_or_closing(self):
+        hypr.apply_rules([WHATSAPP])
+        self.proc.add(300, 1, SESSION_PATH)
+        client = self._client("0xdead", FOREIGN_WA, "1", pid=300)
+        self._state(clients=[client])
+        for event in (f"openwindow>>0xdead,1,{FOREIGN_WA},Draft", "movewindow>>0xdead,1"):
+            hypr.handle_event(event)
+        hypr.apply_rules([WHATSAPP])
+        hypr.contain(client)
+        self.assertEqual(self._open_calls(), [])
+        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xdead")] * 3)
+        offers = [n for n in self._notifies() if "--exec" in n and "migrate" in n]
+        self.assertEqual(len(offers), 1)
+        self.assertIn("0xdead", offers[0])
+        hypr.handle_event("closewindow>>0xdead")
+        hypr.contain(client)
+        self.assertEqual(len([n for n in self._notifies() if "migrate" in n]), 2)
+        self.assertEqual(hypr.classify(FOREIGN_WA, 300), ("adopt", WHATSAPP))
+        self.assertEqual(hypr.classify(PROFILE_WA, 300), ("class", WHATSAPP))
+        self.assertIsNone(hypr.classify("chrome-notweb.whatsapp.com__-Default", 300))
+
+    def test_adopt_skips_migration_offer_when_identity_is_unavailable(self):
+        hypr.apply_rules([WHATSAPP])
+        self.proc.add(300, 1, SESSION_PATH)
+        client = self._client("0xdead", FOREIGN_WA, "1", pid=300)
+        self._state(clients=[client])
+        with mock.patch.object(hypr, "_migration_identity", return_value=None):
+            self.assertEqual(hypr.contain(client), "adopt")
+        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xdead")])
+        self.assertEqual(self._open_calls(), [])
+        self.assertEqual(self._opened_titles(), [f"WhatsApp {OPENED}"])
+        self.assertFalse(any("close" in " ".join(c) for c in self._hypr_cmds()))
+        self.assertFalse(any("migrate" in n for n in self._notifies()))
+        joined = " ".join(" ".join(n) for n in self._notifies())
+        self.assertNotIn("Keep your", joined)
+        self.assertNotIn("separate", joined)
+
+    def test_foreign_failed_move_reports_and_retries_without_launch(self):
+        hypr.apply_rules([WHATSAPP])
+        self.proc.add(300, 1, SESSION_PATH)
+        client = self._client("0xdead", FOREIGN_WA, "1", pid=300)
+        self._state(clients=[client])
+        os.environ["DS_HYPR_FAIL"] = "hl.dsp.window.move"
+        hypr.contain(client)
+        self.assertEqual(self._opened_titles(), [])
+        self.assertTrue(any("could not be moved" in str(n) for n in self._notifies()))
+        os.environ.pop("DS_HYPR_FAIL")
+        hypr.contain(client)
+        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xdead")] * 2)
+        self.assertEqual(self._open_calls(), [])
+        self.assertEqual(self._opened_titles(), [f"WhatsApp {OPENED}"])
+
+    def test_migration_cancel_failure_and_success_preserve_original(self):
+        from ds import ui
+        hypr.apply_rules([WHATSAPP])
+        self.proc.add(300, 1, SESSION_PATH)
+        client = self._client("0xdead", FOREIGN_WA, hypr.SPACE, pid=300)
+        self._state(clients=[client])
+        hypr.contain(client)
+        action = next(n[n.index("--exec") + 1:] for n in self._notifies() if "migrate" in n)
+        args = type("Args", (), {"address": action[2], "identity": action[3]})()
+        for choice, failure, expected in ((None, False, 0), (0, True, 1), (0, False, 0)):
+            with self.subTest(choice=choice, failure=failure):
+                self.open_log.write_text("")
+                if failure:
+                    os.environ["DS_OPEN_FAIL"] = "1"
+                else:
+                    os.environ.pop("DS_OPEN_FAIL", None)
+                with mock.patch.object(ui, "select", return_value=choice) as select:
+                    self.assertEqual(hypr.cmd_migrate(args), expected)
+                prompt = str(select.call_args)
+                self.assertIn("separate", prompt)
+                self.assertIn("unsaved", prompt)
+                self.assertEqual(self._open_calls(), [] if choice is None else [["open", "WhatsApp"]])
+                self.assertEqual(self._dispatches(), [])
+        with mock.patch.object(ui, "select", side_effect=ui.Unavailable("missing")):
+            self.assertEqual(hypr.cmd_migrate(args), 1)
+        with mock.patch.object(ui, "select", return_value=0), mock.patch.object(hypr, "CLI", "/missing/distractions"):
+            self.assertEqual(hypr.cmd_migrate(args), 1)
+        self.assertEqual(self._dispatches(), [])
+
+    def test_migration_refuses_vanished_reused_or_changed_window_before_and_after_prompt(self):
+        from ds import ui
+        hypr.apply_rules([WHATSAPP])
+        self.proc.add(300, 1, SESSION_PATH)
+        original = self._client("0xdead", FOREIGN_WA, hypr.SPACE, pid=300)
+        self._state(clients=[original])
+        hypr.contain(original)
+        action = next(n[n.index("--exec") + 1:] for n in self._notifies() if "migrate" in n)
+        args = type("Args", (), {"address": action[2], "identity": action[3]})()
+        replacements = ([], [dict(original, pid=301)], [dict(original, **{"class": PROFILE_WA})])
+        for clients in replacements:
+            for during_prompt in (False, True):
+                with self.subTest(clients=clients, during_prompt=during_prompt):
+                    self._state(clients=[original] if during_prompt else clients)
+                    def choose(*a, **kw):
+                        self._state(clients=clients)
+                        return 0
+                    with mock.patch.object(ui, "select", side_effect=choose):
+                        self.assertEqual(hypr.cmd_migrate(args), 1)
+        self.assertEqual(self._open_calls(), [])
+        self.assertEqual(self._dispatches(), [])
+
+    def test_released_window_skips_every_layer_and_snap_back_off_ignores_moves(self):
+        hypr.apply_rules([TELEGRAM, WHATSAPP])
+        self.proc.add(100, 1, f"{SLICE_PATH}/run-1.scope")
+        hypr.release("0xAAA", "2099-01-01T00:00:00+00:00")  # spelled unlike the events
+        self.assertEqual(hypr.released(), {"0xAAA": "2099-01-01T00:00:00+00:00"})
+        for client in (
+            self._client("0xaaa", NATIVE, "2"),
+            self._client("0xaaa", "google-chrome", "2", pid=100),
+            self._client("0xaaa", FOREIGN_WA, "2"),
+        ):
+            self.assertIsNone(hypr.contain(client), client["class"])
+        self._state(clients=[self._client("0xaaa", NATIVE, "2"), self._client("0xbbb", NATIVE, "2")])
+        self.hypr_log.write_text("", encoding="utf-8")
         hypr.handle_event("movewindow>>0xaaa,2")
-        hypr.handle_event("movewindow>>0xccc,2")
-        joined = "\n".join(self._joined())
-        self.assertIn("hl.dsp.window.move", joined)
-        self.assertIn("address:0xaaa", joined)
-        self.assertIn("address:0xbbb", joined)
-        self.assertNotIn("address:0xccc", joined)
+        hypr.handle_event(f"openwindow>>0xaaa,2,{NATIVE},Telegram")
+        self.assertEqual((self._dispatches(), self._open_calls(), self._opened_titles()), ([], [], []))
+        # Unreleased with snap_back off: a manual move stands, a fresh window is still placed.
+        hypr.snap_back = False
+        hypr.handle_event("movewindow>>0xbbb,2")
+        hypr.handle_event("movewindowv2>>0xbbb,2,2")
+        self.assertEqual(self._dispatches(), [])
+        hypr.handle_event(f"openwindow>>0xbbb,2,{NATIVE},Telegram")
+        move_b = hypr.move_window_lua("0xbbb")
+        self.assertEqual(self._dispatches(), [move_b])
+        # snap_back on: the move is reverted (the version 2 behavior).
+        hypr.snap_back = True
+        hypr.handle_event("movewindow>>0xbbb,2")
+        self.assertEqual(self._dispatches(), [move_b, move_b])
+        # The exemption ends on closewindow; a reused address is contained again.
+        hypr.handle_event("closewindow>>0xaaa")
+        self.assertEqual(hypr.released(), {})
+        self.assertEqual(hypr.contain_address("0xaaa"), "class")
+        self.assertEqual(self._dispatches(), [move_b, move_b, hypr.move_window_lua("0xaaa")])
+        self.assertIsNone(hypr.contain_address("0xgone"))
+        # A deadline behind now, or one that does not parse, is past; the others stay.
+        hypr.release("0xaaa", "2000-01-01T00:00:00+00:00")
+        hypr.release("0xbbb", "soon")
+        hypr.release("0xccc", "2099-01-01T00:00:00+00:00")
+        self.assertEqual(hypr.expire_released(), ["0xaaa", "0xbbb"])
+        self.assertEqual(hypr.released(), {"0xccc": "2099-01-01T00:00:00+00:00"})
+        self.assertTrue(hypr.past("2000-01-01T00:00:00+00:00"))
+        self.assertTrue(hypr.past("2099-01-01T00:00:00"), "a naive deadline cannot be compared")
+        self.assertFalse(hypr.past("2099-01-01T00:00:00+00:00"))
 
-    def test_banner_debounce_30s_and_never_on_space(self):
-        hypr.apply_rules([TELEGRAM])
-        self._state(
-            activeworkspace={"id": 1, "name": "1"},
-            clients=[self._client("0xaaa", NATIVE, hypr.SPACE)],
-        )
-        clock = mock.Mock(side_effect=[1000.0, 1000.0, 1029.0, 1031.0])
-        with mock.patch("ds.hypr.time.monotonic", clock):
-            hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
-            hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
-            self.assertEqual(len(self._notifies()), 1)
-            hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
-            self.assertEqual(len(self._notifies()), 1)
-            hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
-        self.assertEqual(len(self._notifies()), 2)
-        args = self._notifies()[0]
-        self.assertTrue(any("Telegram lives in the distraction space" in a for a in args))
-        self.assertTrue(any("Super+Ctrl+Shift+D opens it." in a for a in args))
-        self.assertIn("--exec", args)
-        exec_bits = " ".join(args[args.index("--exec") + 1 :])
-        self.assertIn("distractions", exec_bits)
-        self.assertIn("enter", exec_bits)
+        # snap_back off: a scan or a move leaves an arranged window; a fresh one is still placed.
+        hypr.snap_back = False
+        try:
+            self.assertIsNone(hypr.contain(self._client("0xddd", NATIVE, "2")))
+            self.assertEqual(hypr.contain(self._client("0xddd", NATIVE, "2"), opened=True), "class")
+        finally:
+            hypr.snap_back = True
 
-        hypr._reset_for_tests()
+    def test_failed_move_on_a_scan_raises_no_banner(self):
         hypr.apply_rules([TELEGRAM])
-        self.notify_log.write_text("", encoding="utf-8")
-        self._state(
-            activeworkspace={"id": 99, "name": hypr.SPACE},
-            clients=[self._client("0xaaa", NATIVE, hypr.SPACE)],
-        )
-        hypr.handle_event("openwindow>>0xaaa,99,org.telegram.desktop,Telegram")
-        self.assertEqual(self._notifies(), [])
+        client = self._client("0xaaa", NATIVE, "1")
+        self._state(clients=[client])
+        os.environ["DS_HYPR_FAIL"] = "hl.dsp.window.move"
+        self.assertEqual(hypr.contain(client), "class")
+        self.assertEqual(self._opened_titles(), [])
+        self.assertIn("hyprctl", state.state_path("log").read_text(encoding="utf-8"))
+        os.environ.pop("DS_HYPR_FAIL")
+        self.assertEqual(hypr.contain(client), "class")
+        self.assertEqual(self._opened_titles(), [f"Telegram {OPENED}"])
+
+    def test_opened_banner_once_per_entry_per_60s_and_never_on_the_space(self):
+        hypr.apply_rules([TELEGRAM])
+        self._state(clients=[self._client("0xaaa", NATIVE, hypr.SPACE)])
+        clock = mock.Mock()
+        clock.side_effect = lambda: clock.t
+        with mock.patch("ds.feedback.time.monotonic", clock):
+            for t, shown in ((1000.0, 1), (1030.0, 1), (1059.9, 1), (1060.5, 2)):
+                clock.t = t
+                hypr.handle_event(f"openwindow>>0xaaa,99,{NATIVE},Telegram")
+                self.assertEqual(len(self._notifies()), shown, t)
+            self.assertEqual(self._dispatches(), [], "the rule placed it; nothing to move")
+            args = self._notifies()[0]
+            self.assertIn(f"Telegram {OPENED}", args)
+            self.assertIn("Super+Ctrl+Shift+D enters.", args)
+            self.assertEqual(args[args.index("--exec") + 1:], [feedback._CLI, "enter"])
+            self.assertEqual(
+                [ln.split(" decision=")[1] for ln in self._log_lines("banner: ")],
+                ["shown", "debounced", "debounced", "shown"],
+            )
+            # A scan finding a window already on the space announces nothing.
+            clock.t = 2000.0
+            self.notify_log.write_text("", encoding="utf-8")
+            self.assertEqual(hypr.contain(self._client("0xaaa", NATIVE, hypr.SPACE)), "class")
+            self.assertEqual(self._notifies(), [])
+            # A scan that moves one does.
+            self.assertEqual(hypr.contain(self._client("0xaaa", NATIVE, "1")), "class")
+            self.assertEqual(self._opened_titles(), [f"Telegram {OPENED}"])
+            # Never on the space.
+            clock.t = 3000.0
+            self.notify_log.write_text("", encoding="utf-8")
+            self._state(activeworkspace={"id": 99, "name": hypr.SPACE}, clients=[self._client("0xaaa", NATIVE, "1")])
+            hypr.handle_event(f"openwindow>>0xaaa,99,{NATIVE},Telegram")
+            self.assertEqual(self._notifies(), [])
 
     def test_banner_off_when_nudge_disabled(self):
-        hypr.apply_rules(
-            {
-                "list": [TELEGRAM],
-                "nudges": {"app_banner": False, "block_page": True},
-            }
-        )
+        feedback.start({"nudges": {"app_banner": False, "block_page": False}, "site_block": {"pass_through": False}}, False)
+        hypr.apply_rules([TELEGRAM])
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])
-        hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
+        hypr.handle_event(f"openwindow>>0xaaa,1,{NATIVE},Telegram")
         self.assertEqual(self._notifies(), [])
-        self.assertTrue(any("hl.dsp.window.move" in j for j in self._joined()))
+        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xaaa")])
 
     def test_hyprctl_failure_logged_and_skipped(self):
         hypr.apply_rules([TELEGRAM])
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])
         os.environ["DS_HYPR_FAIL"] = "hl.dsp.window.move"
-        hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
+        hypr.handle_event(f"openwindow>>0xaaa,1,{NATIVE},Telegram")
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertIn("hyprctl", log)
-        self.assertTrue(any("lives in the distraction space" in " ".join(a) for a in self._notifies()))
+        # The window is still on workspace 1: nothing opened in the space, no banner.
+        self.assertEqual(self._opened_titles(), [])
+        # A fresh window the rule already placed on the space is announced without a move.
+        self._state(clients=[self._client("0xbbb", NATIVE, hypr.SPACE)])
+        hypr.handle_event(f"openwindow>>0xbbb,{hypr.SPACE},{NATIVE},Telegram")
+        self.assertEqual(self._opened_titles(), [f"Telegram {OPENED}"])
 
         os.environ["DS_HYPR_FAIL"] = "-- omarchy-ds "  # both the set and the disable fragments
         self.hypr_log.write_text("", encoding="utf-8")
-        self.assertFalse(hypr.apply_rules(_entries("Discord")))
+        self.assertFalse(hypr.apply_rules(_entries("Signal")))
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertIn("omarchy-ds set", log)
         names = set(state.read_json(state.state_path("rules.json"), []))
-        discord_names, _ = hypr._rule_names(_entries("Discord"))
+        signal_names, _ = hypr._rule_names(_entries("Signal"))
         telegram_names, _ = hypr._rule_names([TELEGRAM])
-        self.assertFalse(set(discord_names) & names, "a failed install is not recorded")
-        self.assertEqual(names, set(telegram_names), "the previous registry is kept")
+        self.assertFalse(set(signal_names) & names, "a failed install is not recorded")
+        self.assertEqual(names, {hypr.PROFILE_RULE, *telegram_names}, "the previous registry is kept")
         self.assertTrue(any("Window rules could not be updated" in " ".join(a) for a in self._notifies()))
 
     def test_partial_install_failure_rolls_back_created_rules(self):
-        expected, _ = hypr._rule_names([TELEGRAM])
+        native, _ = hypr._rule_names([TELEGRAM])
+        expected = [hypr.PROFILE_RULE, *native]
         self.assertEqual(len(expected), 2)
         os.environ["DS_HYPR_FAIL"] = f"omarchy-ds set {expected[1]}"
         self.assertFalse(hypr.apply_rules([TELEGRAM]))
@@ -287,7 +556,8 @@ class HyprTests(unittest.TestCase):
         self.assertTrue(hypr.apply_rules(foo_a))
         foo_name, _ = hypr._rule_names(foo_a)
         bar_name, _ = hypr._rule_names([{"name": "Bar", "classes": ["ClassC"]}])
-        self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}), {foo_name[0]: "ClassA"})
+        specs = {**self._profile_spec(), foo_name[0]: "ClassA"}
+        self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}), specs)
         os.environ["DS_HYPR_FAIL"] = f"omarchy-ds set {bar_name[0]}"
         self.hypr_log.write_text("", encoding="utf-8")
         self.assertFalse(hypr.apply_rules([
@@ -301,8 +571,8 @@ class HyprTests(unittest.TestCase):
         self.assertIn('class = "ClassA"', sets_for_foo[1], "previous class re-set on rollback")
         self.assertFalse(any(f"omarchy-ds disable {foo_name[0]}" in j for j in joined), "a pre-existing name is never disabled")
         self.assertTrue(any(f"omarchy-ds disable {bar_name[0]}" in j for j in joined), "the failing new name is disabled")
-        self.assertEqual(state.read_json(state.state_path("rules.json"), []), foo_name)
-        self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}), {foo_name[0]: "ClassA"})
+        self.assertEqual(state.read_json(state.state_path("rules.json"), []), [hypr.PROFILE_RULE, *foo_name])
+        self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}), specs)
 
     def test_failing_reset_of_existing_name_is_restored(self):
         foo_a = [{"name": "Foo", "classes": ["ClassA"]}]
@@ -316,7 +586,8 @@ class HyprTests(unittest.TestCase):
         self.assertIn('class = "ClassB"', sets_for_foo[0])
         self.assertIn('class = "ClassA"', sets_for_foo[1], "the failing name is re-set with its recorded class")
         self.assertFalse(any("omarchy-ds disable" in j for j in self._joined()))
-        self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}), {foo_name[0]: "ClassA"})
+        self.assertEqual(state.read_json(state.state_path("rule-specs.json"), {}),
+                         {**self._profile_spec(), foo_name[0]: "ClassA"})
 
     def test_pre_existing_name_without_recorded_class_is_disabled_on_rollback(self):
         foo_a = [{"name": "Foo", "classes": ["ClassA"]}]
@@ -328,13 +599,14 @@ class HyprTests(unittest.TestCase):
         self.hypr_log.write_text("", encoding="utf-8")
         self.assertFalse(hypr.apply_rules([foo_a[0], {"name": "Bar", "classes": ["ClassC"]}]))
         self.assertTrue(any(f"omarchy-ds disable {foo_name[0]}" in j for j in self._joined()))
-        self.assertEqual(state.read_json(state.state_path("rules.json"), []), foo_name)
+        self.assertEqual(state.read_json(state.state_path("rules.json"), []), [hypr.PROFILE_RULE, *foo_name])
+
     def test_notify_failure_ignored(self):
         hypr.apply_rules([TELEGRAM])
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])
         os.environ["DS_NOTIFY_FAIL"] = "1"
-        hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
-        self.assertTrue(any("hl.dsp.window.move" in j and "0xaaa" in j for j in self._joined()))
+        hypr.handle_event(f"openwindow>>0xaaa,1,{NATIVE},Telegram")
+        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xaaa")])
 
     def test_cycle_skips_space(self):
         self._state(
@@ -380,17 +652,17 @@ class HyprTests(unittest.TestCase):
         self.assertNotIn("name:distraction", dest.split("hl.dsp.focus", 1)[-1])
 
     def test_failed_disable_kept_in_rules_json_and_retried(self):
-        hypr.apply_rules(_entries("Telegram", "Discord"))
-        discord_names, _ = hypr._rule_names(_entries("Discord"))
+        hypr.apply_rules(_entries("Telegram", "Signal"))
+        signal_names, _ = hypr._rule_names(_entries("Signal"))
         telegram_names, _ = hypr._rule_names(_entries("Telegram"))
         self.hypr_log.write_text("", encoding="utf-8")
         os.environ["DS_HYPR_FAIL"] = "omarchy-ds disable"
         hypr.apply_rules(_entries("Telegram"))
         recorded = set(state.read_json(state.state_path("rules.json"), []))
-        self.assertTrue(set(discord_names) <= recorded)
+        self.assertTrue(set(signal_names) <= recorded)
         self.assertTrue(set(telegram_names) <= recorded)
         joined = "\n".join(self._joined())
-        self.assertIn(f"omarchy-ds disable {discord_names[0]}", joined)
+        self.assertIn(f"omarchy-ds disable {signal_names[0]}", joined)
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertIn("omarchy-ds disable", log)
 
@@ -398,10 +670,10 @@ class HyprTests(unittest.TestCase):
         self.hypr_log.write_text("", encoding="utf-8")
         hypr.apply_rules(_entries("Telegram"))
         retried = "\n".join(self._joined())
-        self.assertIn(f"omarchy-ds disable {discord_names[0]}", retried)
+        self.assertIn(f"omarchy-ds disable {signal_names[0]}", retried)
         after = set(state.read_json(state.state_path("rules.json"), []))
-        self.assertEqual(after, set(telegram_names))
-        self.assertFalse(set(discord_names) & after)
+        self.assertEqual(after, {hypr.PROFILE_RULE, *telegram_names})
+        self.assertFalse(set(signal_names) & after)
 
     def test_keyword_is_never_used_for_rules(self):
         hypr.apply_rules(_entries("Telegram", "Discord"))
@@ -426,7 +698,7 @@ class HyprTests(unittest.TestCase):
             self.assertFalse(frag.startswith("-"))
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])
         hypr.apply_rules([TELEGRAM])
-        hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
+        hypr.handle_event(f"openwindow>>0xaaa,1,{NATIVE},Telegram")
         moves = [c for c in self._hypr_cmds() if c[0] == "dispatch"]
         self.assertEqual(moves, [["dispatch", hypr.move_window_lua("0xaaa")]])
 
@@ -442,7 +714,7 @@ class HyprTests(unittest.TestCase):
     def test_lua_string_round_trips_through_lua(self):
         cases = [
             NATIVE,
-            PWA_CLASS,
+            hypr.profile_rule_class(),
             r"^chrome-discord\.com__.*$",
             'quote"inside',
             "apos'trophe",
@@ -537,7 +809,7 @@ class HyprTests(unittest.TestCase):
         ]
         self.assertEqual(hypr._slug("Foo Bar"), hypr._slug("Foo-Bar"))
         hypr.apply_rules(entries)
-        names = state.read_json(state.state_path("rules.json"), [])
+        names = [n for n in state.read_json(state.state_path("rules.json"), []) if n != hypr.PROFILE_RULE]
         self.assertEqual(len(names), 2)
         self.assertEqual(len(set(names)), 2)
         joined = "\n".join(self._joined())
@@ -551,8 +823,8 @@ class HyprTests(unittest.TestCase):
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])
         self.hypr_log.write_text("", encoding="utf-8")
         os.environ["DS_HYPR_FAIL"] = "activeworkspace"
-        hypr.handle_event("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
-        self.assertTrue(any("hl.dsp.window.move" in j and "0xaaa" in j for j in self._joined()))
+        hypr.handle_event(f"openwindow>>0xaaa,1,{NATIVE},Telegram")
+        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xaaa")])
         self.assertEqual(self._notifies(), [])
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertIn("hyprctl", log)

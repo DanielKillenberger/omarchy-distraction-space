@@ -11,6 +11,13 @@ network half.
 from __future__ import annotations
 
 import ipaddress
+import json
+import re
+import selectors
+import signal
+import stat
+import time
+import os
 import subprocess
 import sys
 
@@ -31,6 +38,14 @@ MAX_STDIN_BYTES = 256 * 1024
 # Same headroom on the set itself, so a granted account cannot make root render and
 # commit a ruleset proportional to whatever it feels like sending.
 MAX_ADDRESSES = 4096
+# The person's distraction slice under their user manager. Traffic from it is
+# accepted ahead of every reject and redirect; nft resolves the path to a cgroup
+# id when the rule loads, so the directory has to exist under the cgroup2 mount.
+SLICE = "app-distraction.slice"
+CGROUP_ROOT = "/sys/fs/cgroup"
+SLICE_LEVEL = 5
+CHECK_TIMEOUT = 5.0
+MAX_OUTPUT_BYTES = 1024 * 1024
 
 
 def _fail(message: str, code: int = 2) -> None:
@@ -56,13 +71,40 @@ def _parse_address(token: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
         _fail(f"refused: not an address: {token}")
 
 
+def slice_path(uid: int) -> str:
+    """Cgroup path of uid's distraction slice; ds/cgroup.py renders the same one."""
+    return f"user.slice/user-{uid}.slice/user@{uid}.service/app.slice/{SLICE}"
+
+
+def _invoking_uid() -> int:
+    # sudo sets SUDO_UID itself, so under env_reset the caller cannot pick a slice.
+    raw = os.environ.get("SUDO_UID", "")
+    if not (raw.isascii() and raw.isdigit()):
+        _fail("refused: no invoking uid")
+    return int(raw)
+
+
+def _require_slice(cgroup: str) -> None:
+    root = os.environ.get("DS_CGROUP_ROOT") or CGROUP_ROOT
+    if not os.path.isdir(os.path.join(root, cgroup)):
+        _fail("refused: slice cgroup missing", 1)
+
+
 def _elements(addrs: list[str]) -> str:
     if not addrs:
         return ""
     return "    elements = { " + ", ".join(addrs) + " }\n"
 
 
-def render_table(v4: list[str], v6: list[str]) -> str:
+def render_destroy() -> str:
+    """`flush ds`: the table goes away outright. Nothing is rendered in its place, so
+    switching the block off needs neither the slice nor a kernel that takes the
+    cgroup matcher; the next `replace` rebuilds the table from scratch."""
+    return f"destroy table {FAMILY} {TABLE}\n"
+
+
+def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
+    slice_accept = f'socket cgroupv2 level {SLICE_LEVEL} "{cgroup}" accept'
     return (
         f"destroy table {FAMILY} {TABLE}\n"
         f"table {FAMILY} {TABLE} {{\n"
@@ -76,6 +118,7 @@ def render_table(v4: list[str], v6: list[str]) -> str:
         f"  }}\n"
         f"  chain output {{\n"
         f"    type filter hook output priority filter; policy accept;\n"
+        f"    {slice_accept}\n"
         f"    meta nfproto ipv4 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    meta nfproto ipv6 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    ip daddr @{SET4} meta l4proto tcp reject with tcp reset\n"
@@ -85,6 +128,7 @@ def render_table(v4: list[str], v6: list[str]) -> str:
         f"  }}\n"
         f"  chain output_nat {{\n"
         f"    type nat hook output priority dstnat; policy accept;\n"
+        f"    {slice_accept}\n"
         f"    meta nfproto ipv4 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    meta nfproto ipv6 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    ip daddr @{SET4} tcp dport 80 redirect to :{HTTP_PORT}\n"
@@ -127,23 +171,117 @@ def commit(script: str) -> int:
     return proc.returncode
 
 
+def slice_identity(cgroup: str) -> tuple[int, int]:
+    root = os.environ.get("DS_CGROUP_ROOT") or CGROUP_ROOT
+    try:
+        info = os.stat(os.path.join(root, cgroup), follow_symlinks=False)
+    except OSError:
+        _fail("unverified: slice cgroup missing", 1)
+    if not stat.S_ISDIR(info.st_mode):
+        _fail("unverified: slice cgroup missing", 1)
+    return info.st_dev, info.st_ino
+
+
+def list_policy() -> str:
+    proc = None
+    try:
+        deadline = time.monotonic() + CHECK_TIMEOUT
+        proc = subprocess.Popen(
+            ["nft", "-y", "list", "table", FAMILY, TABLE],
+            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, start_new_session=True,
+        )
+        output = bytearray()
+        with selectors.DefaultSelector() as selector:
+            selector.register(proc.stdout, selectors.EVENT_READ)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError
+                for key, _ in selector.select(remaining):
+                    data = os.read(key.fd, min(65536, MAX_OUTPUT_BYTES + 1 - len(output)))
+                    if not data:
+                        selector.unregister(key.fileobj)
+                        continue
+                    output.extend(data)
+                    if len(output) > MAX_OUTPUT_BYTES:
+                        raise ValueError("output cap")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError
+        if proc.wait(timeout=remaining) != 0:
+            raise ValueError("nft failed")
+        return output.decode("utf-8", errors="strict")
+    except (OSError, ValueError, TimeoutError, subprocess.TimeoutExpired):
+        _fail("unverified: nft listing failed", 1)
+    finally:
+        if proc is not None:
+            if proc.returncode is None:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            proc.wait()
+            proc.stdout.close()
+
+
+def canonical_policy(text: str) -> tuple[tuple[str, ...], ...]:
+    # Only address element ordering and presentation whitespace are immaterial.
+    # Rule boundaries and every other token remain part of the comparison.
+    for name, family in ((SET4, 4), (SET6, 6)):
+        pattern = (r"(set " + name + r"\s*\{\s*type ipv" + str(family)
+                   + r"_addr\s+elements\s*=\s*\{)([^{}]*)(\})")
+        def sort_elements(match):
+            raw = match.group(2).split(",")
+            try:
+                addrs = [ipaddress.ip_address(value.strip()) for value in raw]
+            except ValueError:
+                return match.group(0)
+            if any(addr.version != family for addr in addrs) or len(set(addrs)) != len(addrs):
+                return match.group(0)
+            return match.group(1) + " " + ", ".join(str(addr) for addr in sorted(addrs)) + " " + match.group(3)
+        text = re.sub(pattern, sort_elements, text)
+    token = r'"(?:[^"\\]|\\.)*"|[^\s{};,"\n]+|[{};,]|"'
+    return tuple(tuple(re.findall(token, line)) for line in text.splitlines() if line.strip())
+
+
+def check_policy(v4: list[str], v6: list[str], cgroup: str) -> int:
+    before = slice_identity(cgroup)
+    actual = list_policy()
+    after = slice_identity(cgroup)
+    if before != after:
+        _fail("unverified: slice identity changed", 1)
+    expected = render_table(v4, v6, cgroup).removeprefix(render_destroy())
+    expected = (expected.replace("priority filter;", "priority 0;")
+                .replace("priority dstnat;", "priority -100;")
+                .replace(f"@{SET4} reject\n", f"@{SET4} reject with icmp port-unreachable\n")
+                .replace(f"@{SET6} reject\n", f"@{SET6} reject with icmpv6 port-unreachable\n"))
+    if canonical_policy(actual) != canonical_policy(expected):
+        _fail("unverified: firewall policy differs", 1)
+    print(json.dumps({"dev": before[0], "ino": before[1]}))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if len(args) != 2:
-        _fail("usage: distractions-nft replace|flush ds")
+        _fail("usage: distractions-nft replace|flush|check ds")
     command, target = args
     if target != "ds":
         _fail("refused: only target ds is allowed")
-    if command not in {"replace", "flush"}:
-        _fail("usage: distractions-nft replace|flush ds")
+    if command not in {"replace", "flush", "check"}:
+        _fail("usage: distractions-nft replace|flush|check ds")
+    cgroup = slice_path(_invoking_uid())
     text = _read_stdin()
     if command == "flush":
         if text.strip():
             _fail("refused: flush takes no stdin")
-        v4, v6 = [], []
-    else:
-        v4, v6 = parse_replace_stdin(text)
-    return commit(render_table(v4, v6))
+        return commit(render_destroy())
+    v4, v6 = parse_replace_stdin(text)
+    if command == "check":
+        return check_policy(v4, v6, cgroup)
+    _require_slice(cgroup)
+    return commit(render_table(v4, v6, cgroup))
 
 
 if __name__ == "__main__":

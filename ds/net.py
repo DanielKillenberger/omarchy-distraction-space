@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
+import signal
 import subprocess
+import tempfile
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -15,6 +18,8 @@ from ds import config, setup, state
 BATCH_DEADLINE = 10.0
 RESOLVE_TIMEOUT = 2.0
 POOL_SIZE = 8
+COMMAND_TIMEOUT = 10.0
+command_context = threading.local()
 
 site_block = "off"
 
@@ -23,6 +28,71 @@ _pool_lock = threading.Lock()
 _child_lock = threading.Lock()
 _children: dict[int, subprocess.Popen] = {}
 _noticed = False
+
+
+def run_command(args, *, timeout, input=None, capture_output=False, check=False, **kwargs):
+    """Run a bounded child group; the reconciliation worker can cancel its waits."""
+    cancel = getattr(command_context, "cancel", None)
+    if cancel is not None and cancel.is_set():
+        raise OSError("reconciliation stopped")
+    if input is not None:
+        text_mode = any(kwargs.get(key) for key in ("text", "universal_newlines", "encoding", "errors"))
+        options = ({"encoding": kwargs.get("encoding"), "errors": kwargs.get("errors")}
+                   if text_mode else {})
+        with tempfile.TemporaryFile(mode="w+" if text_mode else "w+b", **options) as source:
+            source.write(input)
+            source.seek(0)
+            kwargs["stdin"] = source
+            return run_command(args, timeout=timeout, capture_output=capture_output,
+                               check=check, **kwargs)
+    if capture_output:
+        kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(args, start_new_session=True, **kwargs)
+    _track(proc)
+    deadline = time.monotonic() + timeout
+    completed = False
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or (cancel is not None and cancel.is_set()):
+                raise subprocess.TimeoutExpired(args, timeout)
+            try:
+                out, err = proc.communicate(timeout=min(remaining, 0.1))
+                completed = True
+                break
+            except subprocess.TimeoutExpired:
+                pass
+        result = subprocess.CompletedProcess(args, proc.returncode, out, err)
+        if check:
+            result.check_returncode()
+        return result
+    finally:
+        try:
+            if proc.poll() is None:
+                # Give sudo's monitor a chance to forward termination to its child.
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except OSError:
+                    pass
+                try:
+                    proc.wait(timeout=0.2)
+                except subprocess.TimeoutExpired:
+                    pass
+            if not completed:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    pass
+            try:
+                proc.communicate(timeout=1)
+            except subprocess.TimeoutExpired:
+                for stream in (proc.stdin, proc.stdout, proc.stderr):
+                    if stream is not None:
+                        stream.close()
+                proc.kill()
+                proc.wait(timeout=1)
+        finally:
+            _untrack(proc)
 
 
 def _log_path() -> Path:
@@ -69,7 +139,7 @@ def _kill_children() -> None:
         procs = list(_children.values())
     for proc in procs:
         try:
-            proc.kill()
+            proc.terminate()
         except OSError:
             pass
 
@@ -140,14 +210,14 @@ def _notice_unavailable() -> None:
         return
     _noticed = True
     try:
-        subprocess.run(
+        run_command(
             ["omarchy-notification-send", "Site block unavailable",
-             "Wrapper missing or sudo -n distractions-nft refused."],
+             "Firewall apply or verification failed. Run distractions setup to update the wrapper."],
             timeout=2,
             check=False,
             capture_output=True,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         pass
 
 
@@ -237,33 +307,103 @@ def finish_batch(batch, outcome):
     )
 
 
-def apply(addresses):
-    global site_block
+def _apply_result(addresses):
     addrs = [a for a in (addresses or []) if a]
     wrapper = str(setup.wrapper_dest())
     try:
-        if not addrs:
-            proc = subprocess.run(
-                ["sudo", "-n", wrapper, "flush", "ds"],
-                stdin=subprocess.DEVNULL,  # the wrapper reads stdin to EOF; never hand it ours
-                capture_output=True,
-                text=True,
-            )
-            ok = proc.returncode == 0
-            site_block = "off" if ok else "unavailable"
-        else:
-            proc = subprocess.run(
-                ["sudo", "-n", wrapper, "replace", "ds"],
-                input="\n".join(addrs) + "\n",
-                capture_output=True,
-                text=True,
-            )
-            ok = proc.returncode == 0
-            site_block = "on" if ok else "unavailable"
-    except OSError:
-        site_block = "unavailable"
-    if site_block == "unavailable":
+        proc = run_command(
+            ["sudo", "-n", wrapper, "replace" if addrs else "flush", "ds"],
+            input="\n".join(addrs) + "\n" if addrs else None,
+            **({} if addrs else {"stdin": subprocess.DEVNULL}),
+            capture_output=True, text=True, timeout=COMMAND_TIMEOUT,
+        )
+        result = ("on" if addrs else "off") if proc.returncode == 0 else "unavailable"
+    except (OSError, subprocess.TimeoutExpired):
+        result = "unavailable"
+    if result == "unavailable":
         _notice_unavailable()
+    return result
+
+
+def _check_result(addresses):
+    try:
+        proc = run_command(
+            ["sudo", "-n", str(setup.wrapper_dest()), "check", "ds"],
+            input="\n".join(addresses) + "\n", capture_output=True,
+            text=True, timeout=COMMAND_TIMEOUT,
+        )
+        if proc.returncode != 0:
+            return None
+        identity = json.loads(proc.stdout)
+        if (not isinstance(identity, dict) or set(identity) != {"dev", "ino"}
+                or type(identity["dev"]) is not int or identity["dev"] < 0
+                or type(identity["ino"]) is not int or identity["ino"] <= 0):
+            return None
+        return identity["dev"], identity["ino"]
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        return None
+
+
+class _Reconciler:
+    """Verified policy baseline for the listener's serialized worker."""
+
+    def __init__(self):
+        self.baseline = None
+
+    def invalidate(self):
+        self.baseline = None
+
+    def reconcile(self, addresses, current=lambda: True):
+        global _noticed
+        try:
+            desired = tuple(str(addr) for addr in sorted(
+                {ipaddress.ip_address(addr) for addr in (addresses or [])},
+                key=lambda addr: (addr.version, int(addr))))
+            if not current():
+                self.invalidate()
+                return None
+            if not desired:
+                self.invalidate()
+                result = _apply_result([])
+                if not current():
+                    return None
+                if result == "off":
+                    _noticed = False
+                return result
+            baseline = self.baseline
+            if baseline is not None and baseline[0] == desired:
+                identity = _check_result(desired)
+                if not current():
+                    self.invalidate()
+                    return None
+                if identity is not None and identity == baseline[1]:
+                    _noticed = False
+                    return "on"
+            self.invalidate()
+            if not current():
+                return None
+            result = _apply_result(desired)
+            if not current():
+                return None
+            if result != "on":
+                return "unavailable"
+            identity = _check_result(desired)
+            if not current():
+                return None
+            if identity is None:
+                _notice_unavailable()
+                return "unavailable"
+            self.baseline = desired, identity
+            _noticed = False
+            return "on"
+        except Exception:
+            self.invalidate()
+            raise
+
+
+def apply(addresses):
+    global site_block
+    site_block = _apply_result(addresses)
     return site_block
 
 

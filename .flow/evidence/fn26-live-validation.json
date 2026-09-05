@@ -1,0 +1,151 @@
+{
+  "date": "2026-09-05",
+  "platform": {
+    "chrome": "152.0.7977.64",
+    "kernel": "7.1.9-arch1-2",
+    "omarchy": "4.0.2-1",
+    "hyprland": "0.56.2-1",
+    "pipewire": "1.6.8-1",
+    "wireplumber": "0.5.15",
+    "nftables": "1.1.6-3"
+  },
+  "deployed_https_firewall": {
+    "host": "www.reddit.com",
+    "address": "151.101.193.140",
+    "command": [
+      "curl",
+      "--noproxy",
+      "*",
+      "--connect-timeout",
+      "4",
+      "--max-time",
+      "7",
+      "--silent",
+      "--show-error",
+      "--output",
+      "/dev/null",
+      "--write-out",
+      "remote_ip=%{remote_ip} http_code=%{http_code} ssl_verify=%{ssl_verify_result}\\n",
+      "--resolve",
+      "www.reddit.com:443:151.101.193.140",
+      "https://www.reddit.com/"
+    ],
+    "results": [
+      {
+        "label": "outside",
+        "rc": 35,
+        "stdout": "cgroup=0::/user.slice/user-1000.slice/user@1000.service/session.slice/wayland-wm@hyprland.desktop.service\nremote_ip= http_code=000 ssl_verify=1",
+        "stderr": "curl: (35) TLS connect error: error:0A000126:SSL routines::unexpected eof while reading"
+      },
+      {
+        "label": "inside",
+        "rc": 0,
+        "stdout": "cgroup=0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-distraction.slice/fn26-firewall-provenance.scope\nremote_ip=151.101.193.140 http_code=200 ssl_verify=0",
+        "stderr": ""
+      }
+    ]
+  },
+  "pre_fix_browser_scope": "FAIL: Chrome portal startup moved browser and audio outside app-distraction.slice.",
+  "pre_audio_identity_fix": {
+    "during": {
+      "webapp": true,
+      "work": true
+    },
+    "after": {
+      "webapp": false,
+      "work": true
+    },
+    "cause": "Both browser profiles used sink-input-by-application-name:Google Chrome restore identity."
+  },
+  "actual_branch_audio": {
+    "branch_helper": "ds.launch._launch_browser_in_slice",
+    "source_hashes": {
+      "ds/launch.py": "e396b97cf7c7625b1b200e501028a75bac66088f1af61cb18a51e91a54066853",
+      "ds/hold.py": "1d5bcd0acbff496220ba4afc1d15ee3d804a2ed07b4b0a6ae85bbf643d4874d9",
+      "ds/cgroup.py": "60ba46a22bb318009552f0ea8f29212fbd0477a650279a5dbf68f419eca42f8d"
+    },
+    "source_hashes_after": {
+      "ds/launch.py": "e396b97cf7c7625b1b200e501028a75bac66088f1af61cb18a51e91a54066853",
+      "ds/hold.py": "1d5bcd0acbff496220ba4afc1d15ee3d804a2ed07b4b0a6ae85bbf643d4874d9",
+      "ds/cgroup.py": "60ba46a22bb318009552f0ea8f29212fbd0477a650279a5dbf68f419eca42f8d"
+    },
+    "source_unchanged_during_probe": true,
+    "launch_success": true,
+    "attribution": {
+      "webapp": "app-distraction.slice",
+      "work": null
+    },
+    "cgroups": {
+      "webapp": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-distraction.slice/app-com.google.Chrome-1500883.scope",
+      "work": "0::/user.slice/user-1000.slice/user@1000.service/app.slice/app-com.google.Chrome-1501078.scope"
+    },
+    "initial_probe_mute": true,
+    "cleared_inherited_probe_mute": true,
+    "during": {
+      "webapp": true,
+      "work": false
+    },
+    "deployed_owned_probe": "1501034:4333848",
+    "after": {
+      "webapp": false,
+      "work": false
+    },
+    "after_settled": {
+      "webapp": false,
+      "work": false
+    },
+    "result": "PASS",
+    "streams": [
+      {
+        "label": "webapp",
+        "index": 7549,
+        "pid": 1501034,
+        "mute": true,
+        "properties": {
+          "application.name": "Google Chrome",
+          "application.id": "io.github.danielkillenberger.distraction-space",
+          "application.process.binary": "chrome",
+          "module-stream-restore.id": "sink-input-by-application-id:io.github.danielkillenberger.distraction-space"
+        }
+      },
+      {
+        "label": "work",
+        "index": 7560,
+        "pid": 1501222,
+        "mute": false,
+        "properties": {
+          "application.name": "Google Chrome",
+          "application.process.binary": "chrome",
+          "module-stream-restore.id": "sink-input-by-application-name:Google Chrome"
+        }
+      }
+    ],
+    "new_work_after_release": {
+      "mute": false,
+      "attribution": null
+    },
+    "cleanup": {
+      "before_audio_count": 0,
+      "after_audio_count": 0,
+      "scope_stop_rc": 0,
+      "null_sink_unload_rc": 0,
+      "default_sink_unchanged": true
+    },
+    "source_commit": "396ba9bc1fe30aa43d01bc8da9366da086d5fd15"
+  },
+  "scope": [
+    "Fresh temporary headless Chrome profiles and local WebAudio on a temporary null sink.",
+    "Actual branch launch helper, attribution and Mute.release; installed listener performed real mute.",
+    "Release restricted to the created stream with matching recorded process identity; global hold was not toggled.",
+    "Only the created test stream was cleared from inherited pre-mute to establish the unmuted baseline.",
+    "Existing-work-stream behavior was checked separately; the final run also checks newly created work streams.",
+    "No deployment or user firewall/config changes."
+  ],
+  "limitations": [
+    "Only Google Chrome stable and the local exec-preserving omarchy-open-chrome wrapper were exercised live.",
+    "Other brands/channels, unknown or forking wrappers, and arbitrary sites/protocols remain unverified.",
+    "Pre-muted streams are intentionally not claimed or restored, including mute restored after an interrupted prior session.",
+    "Existing browser processes must be closed and relaunched by the user to receive new scope/audio environment."
+  ],
+  "raw_result_sha256": "71aee236f1d99197e12ece7fe829020a1eeea28c5ee118c441bac22ab2be83a8"
+}

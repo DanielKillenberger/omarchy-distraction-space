@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
+from ds import config
 from ds.config import DEFAULTS, is_schema_key, _lock_timeout, update as config_update
 
 DEFAULT_LIST = [
@@ -40,6 +41,13 @@ GOOD_VALUES = [
     ("nudges.app_banner", "false", False),
     ("nudges.block_page", "false", False),
     ("site_block.pass_through", "false", False),
+    ("site_block.enabled", "false", False),
+    ("browser", '["brave"]', ["brave"]),
+    ("browser", '["/usr/bin/chromium", "--incognito"]', ["/usr/bin/chromium", "--incognito"]),
+    ("browser", "auto", "auto"),
+    ("open_links_in_space", "false", False),
+    ("containment.snap_back", "false", False),
+    ("containment.release_minutes", "45", 45),
     ("hold_notifications", "locked", "locked"),
     ("hold_notifications", "never", "never"),
     ("hold_notifications", "off-space", "off-space"),
@@ -69,6 +77,16 @@ BAD_VALUES = [
     ("lock.reason_min_chars", "true"),
     ("nudges.app_banner", "1"),
     ("site_block.pass_through", "yes"),
+    ("site_block.enabled", "1"),
+    ("browser", "[]"),
+    ("browser", '[""]'),
+    ("browser", "brave"),
+    ("open_links_in_space", "yes"),
+    ("containment.snap_back", "1"),
+    ("containment.release_minutes", "0"),
+    ("containment.release_minutes", "-1"),
+    ("containment.release_minutes", "99999999"),
+    ("containment.release_minutes", "true"),
     ("list", '["not a host"]'),
     ("list", '[{"name": "Y"}]'),
     ("keep_reachable", '["nodots"]'),
@@ -132,6 +150,46 @@ class ConfigTests(unittest.TestCase):
         self.assertTrue(is_schema_key("summary.command"))
         self.assertTrue(DEFAULTS["site_block"]["pass_through"])
         self.assertTrue(is_schema_key("site_block.pass_through"))
+
+    def test_version_2_config_loads_with_every_new_key_at_its_default(self):
+        v2 = {
+            "list": ["Telegram", "x.com"], "keep_reachable": [], "nudges": {"app_banner": False, "block_page": True},
+            "site_block": {"pass_through": False}, "hold_notifications": "locked", "mute_sounds": False,
+            "lock": {"default_minutes": 25, "ask_purpose": True, "reason_min_chars": 50},
+            "summary": {"command": "off", "timeout_seconds": 60},
+            "hooks": {"lock": [], "unlock": [], "enter": [], "leave": []}, "log": "~/custom.log",
+        }
+        self.box.config_file.write_text(json.dumps(v2) + "\n", encoding="utf-8")
+        for key, expected in (
+            ("site_block.enabled", True), ("site_block.pass_through", False), ("browser", "auto"),
+            ("open_links_in_space", True), ("containment.snap_back", True), ("containment.release_minutes", 30),
+        ):
+            with self.subTest(key=key):
+                r = self.box.run("config", "get", key)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(json.loads(r.stdout), expected)
+        self.assertEqual(json.loads(self.box.config_file.read_text(encoding="utf-8")), v2)
+
+    def test_open_links_in_space_stays_out_of_the_file_until_something_sets_it(self):
+        # Setup asks about links once; "not asked yet" is the key's absence from
+        # the file, and it has to survive every write made before the answer.
+        r = self.box.run("config", "get", "open_links_in_space")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIs(json.loads(r.stdout), True)
+        self.assertNotIn("open_links_in_space", json.loads(self.box.config_file.read_text(encoding="utf-8")))
+        self.assertEqual(self.box.run("list", "add", "Bluesky").returncode, 0)
+        raw = json.loads(self.box.config_file.read_text(encoding="utf-8"))
+        self.assertNotIn("open_links_in_space", raw)
+        self.assertIn("Bluesky", raw["list"])
+        self.box.apply_env()
+        self.assertFalse(config.links_answered())
+        # An assignment is the answer, even one that equals the default.
+        self.assertEqual(self.box.run("config", "set", "open_links_in_space", "true").returncode, 0)
+        self.assertTrue(config.links_answered())
+        self.assertEqual(json.loads(self.box.config_file.read_text(encoding="utf-8")), {**raw, "open_links_in_space": True})
+        self.assertIs(config.set_links(False)["open_links_in_space"], False)
+        self.assertEqual(json.loads(self.box.config_file.read_text(encoding="utf-8")), {**raw, "open_links_in_space": False})
+        self.assertIs(json.loads(self.box.run("config", "get", "open_links_in_space").stdout), False)
 
     def test_config_path_honors_xdg(self):
         r = self.box.run("config", "path")

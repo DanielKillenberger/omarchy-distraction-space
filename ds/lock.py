@@ -38,7 +38,10 @@ def is_locked():
 
 def lock(minutes, purpose):
     purpose = purpose or ""
-    until = None if minutes is None else _until_iso(minutes)
+    until = None if minutes is None else until_iso(minutes)
+    # Locking while on the space leaves it the way `leave` does; the lock is written either way.
+    if hypr.on_space() is True:
+        hypr.cycle("next")
 
     def _do():
         if is_locked():
@@ -241,7 +244,8 @@ def _cli_unlock(args):
     return unlock(reason)
 
 
-def _until_iso(minutes):
+def until_iso(minutes):
+    """UTC deadline `minutes` from now, whole seconds: the form the lock and the exempt set store."""
     return (datetime.now(timezone.utc) + timedelta(minutes=int(minutes))).replace(
         microsecond=0
     ).isoformat()

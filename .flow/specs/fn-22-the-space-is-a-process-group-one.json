@@ -1,0 +1,1471 @@
+{
+  "branch_name": "fn-22-the-space-is-a-process-group-one",
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-05T14:47:11.475609Z",
+  "created_at": "2026-09-04T21:59:34.398472Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
+  "depends_on_epics": [],
+  "id": "fn-22-the-space-is-a-process-group-one",
+  "impl_review_rounds": {
+    "fn-22-the-space-is-a-process-group-one.1": 0,
+    "fn-22-the-space-is-a-process-group-one.2": 0,
+    "fn-22-the-space-is-a-process-group-one.3": 0,
+    "fn-22-the-space-is-a-process-group-one.4": 0,
+    "fn-22-the-space-is-a-process-group-one.5": 0,
+    "fn-22-the-space-is-a-process-group-one.6": 0,
+    "fn-22-the-space-is-a-process-group-one.7": 0,
+    "fn-22-the-space-is-a-process-group-one.8": 0,
+    "fn-22-the-space-is-a-process-group-one.9": 0
+  },
+  "next_task": 1,
+  "plan_review_rounds": 0,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "c29c4da4f3ad4c0d8e64e03f5e259e240ed763c332927a936e53510ce465fe58",
+      "backend": "cursor",
+      "base_sha": "c29e0224e70f7f9d67cadafc51dba9cbcd0a60ab",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-01b2c260ee071690a66c57217f6839aa",
+            "classification": "introduced",
+            "findingId": "finding-01b2c260ee071690a66c57217f6839aa",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-7c8c0f77ffde74dee3e25c12850fe486",
+            "classification": "introduced",
+            "findingId": "finding-7c8c0f77ffde74dee3e25c12850fe486",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "53c409d0f41dc4153ae07c8594df7b0d49a8616f",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1554,
+      "output_sha256": "39d0ff0245baf3ccc7337542bf04776a8e6786174c91edda965741394a9adde4",
+      "reservation_id": "9d5380c1f4cf4a5fb2aecca42603297e",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.1",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.1",
+      "timestamp": "2026-09-05T10:53:39.107177Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "56d6e0e85f67738eb178a6484e3a4e3e5bfd6488cb12fc373ff70931d1fbace6",
+      "backend": "cursor",
+      "base_sha": "c29e0224e70f7f9d67cadafc51dba9cbcd0a60ab",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-01b2c260ee071690a66c57217f6839aa",
+            "classification": "introduced",
+            "findingId": "finding-01b2c260ee071690a66c57217f6839aa",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-7c8c0f77ffde74dee3e25c12850fe486",
+            "classification": "introduced",
+            "findingId": "finding-7c8c0f77ffde74dee3e25c12850fe486",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-3e676967c5cb747af632e36931acd02e",
+            "classification": "introduced",
+            "findingId": "finding-3e676967c5cb747af632e36931acd02e",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "84ca58d28e9c3cf4e983ce1d246359f31e31dda1",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 956,
+      "output_sha256": "afdf9c17229bf358b144b93754e6de6e981245be7204a28662b61898c6d651d4",
+      "reservation_id": "d7a4de62c40e469a8f64a5f8653be28e",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.1",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.1",
+      "timestamp": "2026-09-05T11:05:02.005969Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "a01dc7f514393270c04d50d1ee10d65545501647c9017ce0200339b520bac3dd",
+      "backend": "cursor",
+      "base_sha": "c29e0224e70f7f9d67cadafc51dba9cbcd0a60ab",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-01b2c260ee071690a66c57217f6839aa",
+            "classification": "introduced",
+            "findingId": "finding-01b2c260ee071690a66c57217f6839aa",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-7c8c0f77ffde74dee3e25c12850fe486",
+            "classification": "introduced",
+            "findingId": "finding-7c8c0f77ffde74dee3e25c12850fe486",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-3e676967c5cb747af632e36931acd02e",
+            "classification": "introduced",
+            "findingId": "finding-3e676967c5cb747af632e36931acd02e",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "6a1f7011c50b3aeb005935b18601fcbf4d2f7fc7",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 389,
+      "output_sha256": "d1d9e5e4e4c1b40ad197dafd56070a389eed5935d79fe6fb2cbd4ddcf50525ea",
+      "reservation_id": "bc538f2f476c4028a70ae3174581d1eb",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.1",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.1",
+      "timestamp": "2026-09-05T11:08:49.400897Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "9007e3a18d858c4236fa96a38e1ec9bc6f7956a6a657a14bd68d55aeec3fbad6",
+      "backend": "cursor",
+      "base_sha": "6455a98775596f00230db68d2bc7c3c9ee0f0614",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "ce6f89b5c84d8f039274494bdb0354a1afb57f0b",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 485,
+      "output_sha256": "37956308f9a9bed3135dc4276bf36daa4e98b32ea09ee30933f2daa0f0158cfb",
+      "reservation_id": "a4e145abdfad4c69a923aa05ff81e4a4",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.7",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.7",
+      "timestamp": "2026-09-05T11:18:27.884123Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "cadac0a97c9bc8e8ca978af8ca82e669d11d487145f4b57db0049888e92aef5c",
+      "backend": "cursor",
+      "base_sha": "babecbfaf0afc57ab6ea586d26600ec95cacebe2",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-a24809889a29cc900f714583b010f59b",
+            "classification": "introduced",
+            "findingId": "finding-a24809889a29cc900f714583b010f59b",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1d17177fd6fb12a0ec7441001b0173c65f8a8016",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1345,
+      "output_sha256": "a17132ad55c2c82ed68e134514749db8ba33497f069a838f7c72d020f5a7c2df",
+      "reservation_id": "dc0fc672b8bd4f0db6f1166028b79ec0",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.2",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.2",
+      "timestamp": "2026-09-05T11:26:23.163412Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "54afb20781d1fc06edf6b434a0f3e6b42656d93977cf964396c51d948ef547aa",
+      "backend": "cursor",
+      "base_sha": "babecbfaf0afc57ab6ea586d26600ec95cacebe2",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-a24809889a29cc900f714583b010f59b",
+            "classification": "introduced",
+            "findingId": "finding-a24809889a29cc900f714583b010f59b",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "b5bd939348d8421d18725ca5ce364e784764c5f5",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 529,
+      "output_sha256": "43f43265805e3e1bff11ce455b76bce9de02e95d8f2f48bfdd304a0f20f872c4",
+      "reservation_id": "8853795ddaa9414e88fb757c56d9ee65",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.2",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.2",
+      "timestamp": "2026-09-05T11:30:38.520199Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "f4c85ccbbf52f6a8a2ba34f87c51ecf0236a5896bb154ffde49b37227065fa80",
+      "backend": "cursor",
+      "base_sha": "5b87284820e4c3f16f6175f235bfc7f4eb58d147",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ee76e8dff726765fcaa963496c4cf355",
+            "classification": "introduced",
+            "findingId": "finding-ee76e8dff726765fcaa963496c4cf355",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-0905727aa7056e8a9479a080ff4a5c02",
+            "classification": "introduced",
+            "findingId": "finding-0905727aa7056e8a9479a080ff4a5c02",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-bff0316abad34705b82b0788b84e6b7a",
+            "classification": "introduced",
+            "findingId": "finding-bff0316abad34705b82b0788b84e6b7a",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-6c875951dbcffba3940fa1595821dab6",
+            "classification": "introduced",
+            "findingId": "finding-6c875951dbcffba3940fa1595821dab6",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "80f35369a2b74bfe5088daedc894b8fb2d02e6b2",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 2281,
+      "output_sha256": "7e8643b8c37f0d5bf48e3d8e00d501635b0eac51278b0183110fac2b3b9de416",
+      "reservation_id": "ce8a6d105ebf47728056a48e448c42b7",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.3",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.3",
+      "timestamp": "2026-09-05T11:47:48.793585Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "c91423a03011851f28039ed13bd52004c26bd7e8997d149fa7dce8b9243420c3",
+      "backend": "cursor",
+      "base_sha": "5b87284820e4c3f16f6175f235bfc7f4eb58d147",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ee76e8dff726765fcaa963496c4cf355",
+            "classification": "introduced",
+            "findingId": "finding-ee76e8dff726765fcaa963496c4cf355",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-0905727aa7056e8a9479a080ff4a5c02",
+            "classification": "introduced",
+            "findingId": "finding-0905727aa7056e8a9479a080ff4a5c02",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-bff0316abad34705b82b0788b84e6b7a",
+            "classification": "introduced",
+            "findingId": "finding-bff0316abad34705b82b0788b84e6b7a",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-6c875951dbcffba3940fa1595821dab6",
+            "classification": "introduced",
+            "findingId": "finding-6c875951dbcffba3940fa1595821dab6",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-79c753a1bfa20d60c0c45b1b952dbf61",
+            "classification": "introduced",
+            "findingId": "finding-79c753a1bfa20d60c0c45b1b952dbf61",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "c2bdebad9ebc8f58570f51ad165fb4a1f825ecf4",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 993,
+      "output_sha256": "c8527cc6cec093ccaa4bffd481c2507b2127530ab8ec0532de66c288553691ee",
+      "reservation_id": "d414769505164dbfab2708e658783b1e",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.3",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.3",
+      "timestamp": "2026-09-05T12:00:50.683236Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "7d5de2057824eb52623cdd47b8c15187cef097e5feee2b4c8a65e207972846d0",
+      "backend": "cursor",
+      "base_sha": "5b87284820e4c3f16f6175f235bfc7f4eb58d147",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ee76e8dff726765fcaa963496c4cf355",
+            "classification": "introduced",
+            "findingId": "finding-ee76e8dff726765fcaa963496c4cf355",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-0905727aa7056e8a9479a080ff4a5c02",
+            "classification": "introduced",
+            "findingId": "finding-0905727aa7056e8a9479a080ff4a5c02",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-bff0316abad34705b82b0788b84e6b7a",
+            "classification": "introduced",
+            "findingId": "finding-bff0316abad34705b82b0788b84e6b7a",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-6c875951dbcffba3940fa1595821dab6",
+            "classification": "introduced",
+            "findingId": "finding-6c875951dbcffba3940fa1595821dab6",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-79c753a1bfa20d60c0c45b1b952dbf61",
+            "classification": "introduced",
+            "findingId": "finding-79c753a1bfa20d60c0c45b1b952dbf61",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-7a17c82e0f46b2c0b2ca46d5497c3823",
+            "classification": "introduced",
+            "findingId": "finding-7a17c82e0f46b2c0b2ca46d5497c3823",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "9f7090f1028d71f4794fe3b97fd716345e21ff1c",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1024,
+      "output_sha256": "5fb79367e3fbdc3ce3420d98468a7786a011f4fcd0a1728374d6534bd6ff1cef",
+      "reservation_id": "0bc9143a9fb14d1fa2b86e2f91d9a289",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.3",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.3",
+      "timestamp": "2026-09-05T12:04:05.427464Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "d26b4906a0ad82d121150b5508c10e15409d36393aaf847e59c0276dda41c578",
+      "backend": "cursor",
+      "base_sha": "3556e387bc2c25f02efe83e6bce8a521b5a84575",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-9acbdd9149a7bffa6e9dd3019b777116",
+            "classification": "introduced",
+            "findingId": "finding-9acbdd9149a7bffa6e9dd3019b777116",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "28bb36966dbcfbc2a171384cb810cb88625e7fa2",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1082,
+      "output_sha256": "998ecedf54a61e62a93c6aa408174297259b1d38c309ee39b92ff8e419bed724",
+      "reservation_id": "55596b12a28d49ac8285e324340f0405",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.5",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.5",
+      "timestamp": "2026-09-05T12:08:32.582928Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "195e70adb0352e398c4741aae52592bdf6d4c8a867dd7f12912708e1092565dd",
+      "backend": "cursor",
+      "base_sha": "3556e387bc2c25f02efe83e6bce8a521b5a84575",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-9acbdd9149a7bffa6e9dd3019b777116",
+            "classification": "introduced",
+            "findingId": "finding-9acbdd9149a7bffa6e9dd3019b777116",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "31235f106df359460fb2cd0a9ccd8c0250e03f38",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 498,
+      "output_sha256": "d8f5084aa90d3defc58f444741247e8d0b4d22f01e5a1068cf3834b36ef3b866",
+      "reservation_id": "257c09f65f474c78a9db582299f15778",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.5",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.5",
+      "timestamp": "2026-09-05T12:12:46.758760Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "1ce317577d58e47dbb02c26a7c6d97bc567cb32d99504837a3ccb1792afac739",
+      "backend": "cursor",
+      "base_sha": "31235f106df359460fb2cd0a9ccd8c0250e03f38",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-1ec9a20d2b61f27a47fd4a62d34c97eb",
+            "classification": "introduced",
+            "findingId": "finding-1ec9a20d2b61f27a47fd4a62d34c97eb",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-047d4a2f3ea5f634de2bd6e8a907db12",
+            "classification": "introduced",
+            "findingId": "finding-047d4a2f3ea5f634de2bd6e8a907db12",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-69fb804aa1d0eed9b2c3d544f99afda3",
+            "classification": "introduced",
+            "findingId": "finding-69fb804aa1d0eed9b2c3d544f99afda3",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-b24887f45b04192ab2879a942fc28994",
+            "classification": "introduced",
+            "findingId": "finding-b24887f45b04192ab2879a942fc28994",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-03c1f09a89b266ceac42bce028cae200",
+            "classification": "introduced",
+            "findingId": "finding-03c1f09a89b266ceac42bce028cae200",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "d5601c78a90e25b9d560667a99ba20a191cf2829",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 3718,
+      "output_sha256": "12d13e5d0d6ef269daa1ee4ccdacd6232ca1238e1b15eec78f5b8402531bb9cd",
+      "reservation_id": "d4c8c9636c0f4830b7c78e196c294b5d",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.4",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.4",
+      "timestamp": "2026-09-05T12:15:42.175928Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "a875fc07b46ac9c22fc18b5eeb95a3ca56133e7559c07c36f86d8a6a3c7eefd2",
+      "backend": "cursor",
+      "base_sha": "31235f106df359460fb2cd0a9ccd8c0250e03f38",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-1ec9a20d2b61f27a47fd4a62d34c97eb",
+            "classification": "introduced",
+            "findingId": "finding-1ec9a20d2b61f27a47fd4a62d34c97eb",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-047d4a2f3ea5f634de2bd6e8a907db12",
+            "classification": "introduced",
+            "findingId": "finding-047d4a2f3ea5f634de2bd6e8a907db12",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-dfb486cd2696808ada1c9c106f595397",
+            "classification": "introduced",
+            "findingId": "finding-dfb486cd2696808ada1c9c106f595397",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-69fb804aa1d0eed9b2c3d544f99afda3",
+            "classification": "introduced",
+            "findingId": "finding-69fb804aa1d0eed9b2c3d544f99afda3",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-b24887f45b04192ab2879a942fc28994",
+            "classification": "introduced",
+            "findingId": "finding-b24887f45b04192ab2879a942fc28994",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-03c1f09a89b266ceac42bce028cae200",
+            "classification": "introduced",
+            "findingId": "finding-03c1f09a89b266ceac42bce028cae200",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "d02c955372801abe361478f5d9a8b92fcf30acca",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1276,
+      "output_sha256": "5809fc3e5c1afc34350ccaef1b174b1e42863bfc930b2d53bc0b2ff76d5c960f",
+      "reservation_id": "6ed03ffe42e5444887d7666c9b376eb0",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.4",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.4",
+      "timestamp": "2026-09-05T12:24:17.057837Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "fc2fbd3d3f45a4a77a9d2ec0596d7efe9844eaa703e4428b09b1a226329a42d3",
+      "backend": "cursor",
+      "base_sha": "31235f106df359460fb2cd0a9ccd8c0250e03f38",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-1ec9a20d2b61f27a47fd4a62d34c97eb",
+            "classification": "introduced",
+            "findingId": "finding-1ec9a20d2b61f27a47fd4a62d34c97eb",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-047d4a2f3ea5f634de2bd6e8a907db12",
+            "classification": "introduced",
+            "findingId": "finding-047d4a2f3ea5f634de2bd6e8a907db12",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-dfb486cd2696808ada1c9c106f595397",
+            "classification": "introduced",
+            "findingId": "finding-dfb486cd2696808ada1c9c106f595397",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-69fb804aa1d0eed9b2c3d544f99afda3",
+            "classification": "introduced",
+            "findingId": "finding-69fb804aa1d0eed9b2c3d544f99afda3",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-b24887f45b04192ab2879a942fc28994",
+            "classification": "introduced",
+            "findingId": "finding-b24887f45b04192ab2879a942fc28994",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-03c1f09a89b266ceac42bce028cae200",
+            "classification": "introduced",
+            "findingId": "finding-03c1f09a89b266ceac42bce028cae200",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "a3eaec986ff028cf8ef74e15c2833957ac70dea7",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 518,
+      "output_sha256": "217eb15841a6af934bc1190132af347bf7cf611557ba8aaad45f9bbb9d5482d6",
+      "reservation_id": "5949ecc3602449829fe730360d9d9be3",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.4",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.4",
+      "timestamp": "2026-09-05T12:28:06.093908Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "4e7b80a38151964fd694026e06844dffdcfd2569ca401c2b3fc134acfefdb8aa",
+      "backend": "codex",
+      "base_sha": "5b87284820e4c3f16f6175f235bfc7f4eb58d147",
+      "counter_kind": "impl",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-42cdf87e59fce6062ca983be67485ba8",
+            "classification": "introduced",
+            "findingId": "finding-42cdf87e59fce6062ca983be67485ba8",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "3c553e5a8314430cd191019b93621d85bda031f9",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 422375,
+      "output_sha256": "b4fe6f167a276ccd2b47ec2e936683d8c5a9ad7d0a4396526cf3dfadcca3bab5",
+      "reservation_id": "8b06c76f96f7413581e78fe6b2ac0973",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.3",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.3",
+      "timestamp": "2026-09-05T12:32:23.284891Z",
+      "tool_calls": 15,
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "7615de7cb7fb9c1c9db77f1d1240fc1ad34ecb11006b54e0af068e285208da8a",
+      "backend": "codex",
+      "base_sha": "5b87284820e4c3f16f6175f235bfc7f4eb58d147",
+      "counter_kind": "impl",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-42cdf87e59fce6062ca983be67485ba8",
+            "classification": "introduced",
+            "findingId": "finding-42cdf87e59fce6062ca983be67485ba8",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "100b1e5f3c3660d4bb52b13948da47ac7f749ec3",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 809,
+      "output_sha256": "26111a74258083825fef3cf7169d30aeab69c2a7a16503d58db632eb9aa5c067",
+      "reservation_id": "d5c590613ca04954af7ecce9ee8280a2",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.3",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.3",
+      "timestamp": "2026-09-05T12:39:41.273149Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "9e8ed1f99dc67c2fa5464c87e2ec85d61d5795b3fb4755dcfafe2cebfb28686b",
+      "backend": "cursor",
+      "base_sha": "4f66e04b577d456c6aeded331e8e40b1bd3035fb",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ebe2de0244456591688754f1f63e6af5",
+            "classification": "introduced",
+            "findingId": "finding-ebe2de0244456591688754f1f63e6af5",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-7166e3395e0fe0024930fe0bf7a118a2",
+            "classification": "introduced",
+            "findingId": "finding-7166e3395e0fe0024930fe0bf7a118a2",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "3edb4b801cf474a2c22fdc7b49c23dd9e5a3136c",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1612,
+      "output_sha256": "500f726205a60cda0abcb05d423eaeec2019cf9daf5b026c63fbb084051e1db6",
+      "reservation_id": "bdd2781f431345ae928b8d8af5074cfd",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.6",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.6",
+      "timestamp": "2026-09-05T13:06:11.872395Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "df59eb6b5089b9ea719d171ca59f9232ff35c5bb4edbe66a9470909e16b76e03",
+      "backend": "cursor",
+      "base_sha": "4f66e04b577d456c6aeded331e8e40b1bd3035fb",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ebe2de0244456591688754f1f63e6af5",
+            "classification": "introduced",
+            "findingId": "finding-ebe2de0244456591688754f1f63e6af5",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-7166e3395e0fe0024930fe0bf7a118a2",
+            "classification": "introduced",
+            "findingId": "finding-7166e3395e0fe0024930fe0bf7a118a2",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "not_fixed"
+          },
+          {
+            "chainRoot": "finding-d669bccb889d6253d95eb12a307ea3f9",
+            "classification": "introduced",
+            "findingId": "finding-d669bccb889d6253d95eb12a307ea3f9",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "ca147e03ea5d3d0cfc2e1521ad57d15217bb96e8",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1164,
+      "output_sha256": "880e4c8822cf47c5cf780bb7eeeaebc05df9157254298218bd47f3073ab350ec",
+      "reservation_id": "10ffe46aec4448b6997b55eab8483bd9",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.6",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.6",
+      "timestamp": "2026-09-05T13:14:28.963742Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "02b4ed895ccde0755ef9edfdb5c4c298df9dfeda5d16c3403a8a3e0061895039",
+      "backend": "cursor",
+      "base_sha": "4f66e04b577d456c6aeded331e8e40b1bd3035fb",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-ebe2de0244456591688754f1f63e6af5",
+            "classification": "introduced",
+            "findingId": "finding-ebe2de0244456591688754f1f63e6af5",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-7166e3395e0fe0024930fe0bf7a118a2",
+            "classification": "introduced",
+            "findingId": "finding-7166e3395e0fe0024930fe0bf7a118a2",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-d669bccb889d6253d95eb12a307ea3f9",
+            "classification": "introduced",
+            "findingId": "finding-d669bccb889d6253d95eb12a307ea3f9",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "b8887b7d506b370e0203a8b2a7d5eafdd6ef27f1",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 636,
+      "output_sha256": "e41eb352f5fd3037436d5167e8c0941eeaee847ce5f6277224965a3ff79c872f",
+      "reservation_id": "d822bdc5e03a4f57bbbf528f905a1980",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.6",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.6",
+      "timestamp": "2026-09-05T13:19:41.333824Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "d8ee7b602702342f3e5eb5275f61a68b4286ec279c523978781770053f42be0a",
+      "backend": "cursor",
+      "base_sha": "1f67be208340bb69f821f2051174f2fdf0067443",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-da772ac362fa2f71053919ae594bf879",
+            "classification": "introduced",
+            "findingId": "finding-da772ac362fa2f71053919ae594bf879",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-a6475cb46c9c2ba588852be3982ee685",
+            "classification": "introduced",
+            "findingId": "finding-a6475cb46c9c2ba588852be3982ee685",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "e932fa3070fe5c31085d7c53b49e8ee4e090cf89",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 1830,
+      "output_sha256": "96f024cfc83b9a8bfe9f3a92cf280bc0ac6031e50aa87520f427dd9726934f52",
+      "reservation_id": "49e82d106b5f438598b6f59328c8dafd",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.8",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.8",
+      "timestamp": "2026-09-05T13:39:32.996603Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "dabc10c6316b2bab6f002bc335a103ad5aa05a4acff522bc97b5854c742ae5cf",
+      "backend": "cursor",
+      "base_sha": "1f67be208340bb69f821f2051174f2fdf0067443",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-da772ac362fa2f71053919ae594bf879",
+            "classification": "introduced",
+            "findingId": "finding-da772ac362fa2f71053919ae594bf879",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-a6475cb46c9c2ba588852be3982ee685",
+            "classification": "introduced",
+            "findingId": "finding-a6475cb46c9c2ba588852be3982ee685",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "f5bc1d4668a8cd13632f331f11d1732cd3691c28",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 635,
+      "output_sha256": "0b1a76fcdc642d66bf0b277504a71a338a7ad5bd8009cb9b08531e74ecf6761d",
+      "reservation_id": "750e4c0932f746c9b7da2a6dd7344cec",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.8",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.8",
+      "timestamp": "2026-09-05T13:45:14.471437Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "f68f24eed700b8b79178b639acfe48578766a429d51acbe13f454174f51a1603",
+      "backend": "cursor",
+      "base_sha": "5f2b52f342a5fe43562f727cbb1d5b2f61272041",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-038aa74d05a319c9c14bd3089a0e1bb2",
+            "classification": "introduced",
+            "findingId": "finding-038aa74d05a319c9c14bd3089a0e1bb2",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "dab458b97cbf6daa338fb32042c4afb55a3ae3ba",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 762,
+      "output_sha256": "c418d0f9c0d7b8ffb331229035163d14669c0284a588e28e473ab7cbcebc0218",
+      "reservation_id": "be66465bb7884e8ab483bb3d69bc319d",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.9",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.9",
+      "timestamp": "2026-09-05T14:12:22.981106Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "3218379c523152d69dcecb666762491947d728269f27dac7949584bfb9222735",
+      "backend": "cursor",
+      "base_sha": "5f2b52f342a5fe43562f727cbb1d5b2f61272041",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "cursor",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-038aa74d05a319c9c14bd3089a0e1bb2",
+            "classification": "introduced",
+            "findingId": "finding-038aa74d05a319c9c14bd3089a0e1bb2",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "cd03c2ed1dc21464e3d5c3d36808b8c105b6f1f1",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-5.6-sol-high",
+      "outcome": "verdict",
+      "output_bytes": 483,
+      "output_sha256": "e065807b70cd1db104b2e51b2bbb9fbefac67e3f9b5b6abf74264880d4c4d424",
+      "reservation_id": "084824460ca344b9982b69eb9fab3ad3",
+      "round_consumed": true,
+      "scope": "impl:fn-22-the-space-is-a-process-group-one.9",
+      "superseded_by": null,
+      "task": "fn-22-the-space-is-a-process-group-one.9",
+      "timestamp": "2026-09-05T14:13:01.593019Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "e1d4aded0b95840f70d90362cd6bb6557c47b685ebf42dacd74a991ea6c6e0cd",
+      "backend": "codex",
+      "base_sha": "982e239d2ef0f680e99d424d3752f470a4a3221f",
+      "counter_kind": "plan",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-bccac372f70efacf1469a8658196f3f3",
+            "classification": "introduced",
+            "findingId": "finding-bccac372f70efacf1469a8658196f3f3",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-05491be55b44099bad624486ac1d948c",
+            "classification": "introduced",
+            "findingId": "finding-05491be55b44099bad624486ac1d948c",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-0ceb37e05ba5ef43fd4b0b6473aea487",
+            "classification": "introduced",
+            "findingId": "finding-0ceb37e05ba5ef43fd4b0b6473aea487",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "b9d7d3ab8a0bc6d75da0c6c3df9c05a6828b0eef",
+      "head_sha_observed": true,
+      "kind": "completion",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 639254,
+      "output_sha256": "f927f6c5f977d9f17f6af141f45bf4d30baa4b65be8b2c0ebf14563a4ffcc195",
+      "reservation_id": "be17ca92faa44267b34a6c16a42e0fb2",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-05T14:22:21.709484Z",
+      "tool_calls": 19,
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "d3c87a25cdf91f3093d4b5ffb5871736b645281a87337e24440da0edcb4be8db",
+      "backend": "codex",
+      "base_sha": "982e239d2ef0f680e99d424d3752f470a4a3221f",
+      "counter_kind": "plan",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-bccac372f70efacf1469a8658196f3f3",
+            "classification": "introduced",
+            "findingId": "finding-bccac372f70efacf1469a8658196f3f3",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-05491be55b44099bad624486ac1d948c",
+            "classification": "introduced",
+            "findingId": "finding-05491be55b44099bad624486ac1d948c",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-0ceb37e05ba5ef43fd4b0b6473aea487",
+            "classification": "introduced",
+            "findingId": "finding-0ceb37e05ba5ef43fd4b0b6473aea487",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "101092844aaa0db7a1ae0d6037a55bbdd93252d5",
+      "head_sha_observed": true,
+      "kind": "completion",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 6251,
+      "output_sha256": "c1068091924feef8a3d1faad50b93d0bb3e9e7fa9dd43b1a66d2ac77b7345b1b",
+      "reservation_id": "8a2373e6ce5a458391e51231ff1cf0c1",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-05T14:47:11.460954Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-22-the-space-is-a-process-group-one.1": 1,
+    "impl:fn-22-the-space-is-a-process-group-one.2": 1,
+    "impl:fn-22-the-space-is-a-process-group-one.3": 2,
+    "impl:fn-22-the-space-is-a-process-group-one.4": 1,
+    "impl:fn-22-the-space-is-a-process-group-one.5": 1,
+    "impl:fn-22-the-space-is-a-process-group-one.6": 1,
+    "impl:fn-22-the-space-is-a-process-group-one.7": 1,
+    "impl:fn-22-the-space-is-a-process-group-one.8": 1,
+    "impl:fn-22-the-space-is-a-process-group-one.9": 1,
+    "plan#completion": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "completion": 0,
+    "impl:fn-22-the-space-is-a-process-group-one.1": 0,
+    "impl:fn-22-the-space-is-a-process-group-one.2": 0,
+    "impl:fn-22-the-space-is-a-process-group-one.3": 0,
+    "impl:fn-22-the-space-is-a-process-group-one.4": 0,
+    "impl:fn-22-the-space-is-a-process-group-one.5": 0,
+    "impl:fn-22-the-space-is-a-process-group-one.6": 0,
+    "impl:fn-22-the-space-is-a-process-group-one.7": 0,
+    "impl:fn-22-the-space-is-a-process-group-one.8": 0,
+    "impl:fn-22-the-space-is-a-process-group-one.9": 0
+  },
+  "spec_path": ".flow/specs/fn-22-the-space-is-a-process-group-one.md",
+  "status": "open",
+  "title": "The space is a process group: one boundary for windows, links, network, and sound",
+  "tracker": {
+    "baseHashFlow": null,
+    "baseHashTracker": null,
+    "depRelations": [],
+    "id": null,
+    "identifier": null,
+    "lastSyncedAt": null,
+    "mergeBaseFlow": null,
+    "mergeBaseTracker": null,
+    "url": null
+  },
+  "updated_at": "2026-09-05T14:47:11.478975Z"
+}

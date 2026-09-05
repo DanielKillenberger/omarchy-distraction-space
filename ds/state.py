@@ -5,6 +5,7 @@ import os
 import socket
 import stat
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -155,6 +156,28 @@ def write_expansion(obj):
     write_json(state_path("expansion.json"), obj)
 
 
+def entries_path():
+    return state_path("entries.json")
+
+
+def read_entries():
+    """The launcher and handler manifest: files setup wrote, each with its backup, and the previous handler."""
+    data = read_json(entries_path(), None)
+    data = data if isinstance(data, dict) else {}
+    files = []
+    for item in data.get("files") if isinstance(data.get("files"), list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("path"), str) or not item["path"]:
+            continue
+        backup = item.get("backup")
+        files.append({"path": item["path"], "backup": backup if isinstance(backup, str) and backup else None})
+    previous = data.get("previous_handler")
+    return {"files": files, "previous_handler": previous if isinstance(previous, str) and previous else None}
+
+
+def write_entries(obj):
+    write_json(entries_path(), obj)
+
+
 def request_reload(verb="reload", timeout=2.0):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
@@ -190,24 +213,147 @@ def listener_pid():
     return pid
 
 
+HEALTH_STALE_SECONDS = 121
+PING_TIMEOUT = 0.2
+
+
+def _listener_health(pid):
+    if pid is None:
+        return "stopped"
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    deadline = time.monotonic() + PING_TIMEOUT
+    try:
+        sock.settimeout(PING_TIMEOUT)
+        sock.connect(str(runtime_path("distraction-space.sock")))
+        sock.sendall(b"ping\n")
+        buf = b""
+        while b"\n" not in buf and len(buf) < 256:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return "unresponsive"
+            sock.settimeout(remaining)
+            chunk = sock.recv(256 - len(buf))
+            if not chunk:
+                break
+            buf += chunk
+        return "responsive" if buf.split(b"\n", 1)[0] == b"ok" and b"\n" in buf else "unresponsive"
+    except OSError:
+        return "unresponsive"
+    finally:
+        sock.close()
+
+
+def _expansion_hosts(expansion):
+    if not isinstance(expansion, dict) or not isinstance(expansion.get("list"), list):
+        return None
+    hosts = []
+    for entry in expansion["list"]:
+        raw = entry.get("hosts") if isinstance(entry, dict) else None
+        if not isinstance(raw, list) or any(not isinstance(h, str) or not h for h in raw):
+            return None
+        hosts.extend(raw)
+    return hosts
+
+
+def _health(st, cfg, listener, on_space, locked):
+    observed = st.get("observed_at")
+    observed = observed if isinstance(observed, dict) else {}
+    now = datetime.now(timezone.utc)
+    labels = {"site_block": "Site blocking", "notification_hold": "Notification holding", "links": "Listed-link routing"}
+    services, reasons = {}, []
+    if listener != "responsive":
+        reasons.append("Listener is stopped." if listener == "stopped" else "Listener did not respond; saved observations may no longer apply.")
+    if cfg is None:
+        reasons.append("Saved settings are unreadable; enabled services are unknown.")
+    for key, label in labels.items():
+        enabled = None if cfg is None else {
+            "site_block": cfg["site_block"]["enabled"],
+            "notification_hold": cfg["hold_notifications"] != "never",
+            "links": cfg["open_links_in_space"],
+        }[key]
+        expected = "on"
+        value = st.get(key)
+        if key == "notification_hold" and cfg is not None:
+            policy = cfg["hold_notifications"]
+            expected = ("on" if locked else "off") if policy == "locked" else (
+                None if on_space is None else ("off" if on_space else "on"))
+        elif key == "site_block" and value == "off":
+            hosts = _expansion_hosts(read_expansion())
+            if hosts == []:
+                expected = "off"
+            elif hosts is None:
+                expected = None
+        raw_time = observed.get(key)
+        when = _parse_iso(raw_time) if isinstance(raw_time, str) else None
+        age = (now - when).total_seconds() if when else None
+        if enabled is False:
+            kind, reason = "disabled", "Off by choice."
+        elif enabled is None:
+            kind, reason = "unknown", "Cannot read saved settings."
+        elif age is None or age < 0:
+            kind, reason = "unknown", "No valid observation time; current behavior is unknown."
+        elif age > HEALTH_STALE_SECONDS:
+            kind, reason = "stale", "Last observation is stale; current behavior is unknown."
+        elif value == "unavailable":
+            kind, reason = "unavailable", "Unavailable at the last check."
+        elif key == "links" and value == "displaced":
+            kind, reason = "displaced", "Browser routing changed. Run distractions setup to apply your choice."
+        elif value not in ("on", "off") or expected is None:
+            kind, reason = "unknown", "No usable observation of the expected behavior."
+        elif value != expected:
+            kind = "pending"
+            reason = ("Saved on, but routing is off. Run distractions setup to apply your choice." if key == "links"
+                      else "Saved choice does not match the last observation; reload or check setup.")
+        else:
+            kind, reason = "healthy", "On at the last check." if value == "on" else "Idle under the saved policy at the last check."
+        services[key] = {"state": kind, "enabled": enabled, "reason": reason,
+                         "observed_at": raw_time if when else None,
+                         "age_seconds": round(age, 1) if age is not None else None}
+        if kind not in ("healthy", "disabled"):
+            reasons.append(f"{label}: {reason}")
+    kinds = {item["state"] for item in services.values()}
+    overall = ("degraded" if listener != "responsive" or kinds & {"pending", "unavailable", "displaced"}
+               else "unknown" if kinds & {"unknown", "stale"} else "healthy")
+    return {"state": overall, "listener": listener, "reasons": reasons, "services": services}
+
+
 def status():
     lk = read_lock()
     st = read_state() or {}
     held = st.get("held")
     ipc = st.get("notification_hold")
     pt = st.get("pass_through")
+    links = st.get("links")
+    browser = st.get("browser")
+    released = st.get("released")
+    from ds import config
+    try:
+        cfg = config._read()
+    except (config.Invalid, OSError):
+        cfg = None
+    on_space = hypr.on_space()
+    pid = listener_pid()
+    health = _health(st, cfg, _listener_health(pid), on_space, lk["locked"])
+    observed = st.get("observed_at")
     return {
         "locked": lk["locked"],
         "until": lk["until"],
         "purpose": lk["purpose"],
-        "on_space": hypr.on_space(),
+        "on_space": on_space,
         "site_block": st.get("site_block", "off"),
-        "listener_pid": listener_pid(),
+        "listener_pid": pid,
         "hold": st.get("hold") is True,
         "held": {k: v for k, v in held.items() if isinstance(k, str) and type(v) is int} if isinstance(held, dict) else {},
         "notification_hold": ipc if ipc in ("on", "off", "unavailable") else "off",
         "pass_through": pt if pt in ("on", "off", "unavailable") else "off",
-        "updated": now_iso(),
+        "links": links if links in ("on", "off", "displaced") else "off",
+        "browser": browser if isinstance(browser, str) and browser else None,
+        "released": {k: v for k, v in released.items() if isinstance(k, str) and isinstance(v, str)}
+        if isinstance(released, dict) else {},
+        "updated": st.get("updated") if isinstance(st.get("updated"), str) else None,
+        "response_at": now_iso(),
+        "observed_at": observed if isinstance(observed, dict) else {},
+        "health": health,
     }
 
 
@@ -222,6 +368,9 @@ def cmd_status(args):
     print(f"on_space={st['on_space']} site_block={st['site_block']}")
     print(f"hold={'on' if st['hold'] else 'off'} held={sum(st['held'].values())} "
           f"notification_hold={st['notification_hold']} pass_through={st['pass_through']}")
+    print(f"Health: {st['health']['state']}; listener: {st['health']['listener']}")
+    for reason in st["health"]["reasons"]:
+        print(reason)
     return 0
 
 

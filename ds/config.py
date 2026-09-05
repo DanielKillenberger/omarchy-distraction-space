@@ -15,13 +15,19 @@ from ds import state
 from ds.catalog import DEFAULT_LIST, expand, is_class_entry, is_hostname, load_catalog
 
 HOLD_VALUES = ("off-space", "locked", "never")
+# A release is a pause, not a policy change: one week is the longest deadline a
+# person can ask for, and it keeps the ISO deadline representable.
+RELEASE_MAX_MINUTES = 7 * 24 * 60
 NUDGE_KEYS = ("app_banner", "block_page")
 HOOK_NAMES = ("lock", "unlock", "enter", "leave")
 DEFAULTS = {
     "list": list(DEFAULT_LIST),
     "keep_reachable": [],
     "nudges": {"app_banner": True, "block_page": True},
-    "site_block": {"pass_through": True},
+    "site_block": {"enabled": True, "pass_through": True},
+    "browser": "auto",
+    "open_links_in_space": True,
+    "containment": {"snap_back": True, "release_minutes": 30},
     "hold_notifications": "off-space",
     "mute_sounds": True,
     "lock": {"default_minutes": 25, "ask_purpose": True, "reason_min_chars": 50},
@@ -55,6 +61,10 @@ def _bool(v):
 
 def _nat(v):
     return type(v) is int and v >= 0
+
+
+def _pos(v):
+    return type(v) is int and v >= 1
 
 
 def _argv(v):
@@ -151,7 +161,16 @@ def validate(cfg):
         _need(k in nudges and _bool(nudges[k]), f"nudges.{k}")
     sb = cfg.get("site_block")
     _need(isinstance(sb, dict), "site_block")
+    _need(_bool(sb.get("enabled")), "site_block.enabled")
     _need(_bool(sb.get("pass_through")), "site_block.pass_through")
+    browser = cfg.get("browser")
+    _need(browser == "auto" or _argv(browser), "browser")
+    _need(_bool(cfg.get("open_links_in_space")), "open_links_in_space")
+    containment = cfg.get("containment")
+    _need(isinstance(containment, dict), "containment")
+    _need(_bool(containment.get("snap_back")), "containment.snap_back")
+    minutes = containment.get("release_minutes")
+    _need(_pos(minutes) and minutes <= RELEASE_MAX_MINUTES, "containment.release_minutes")
     _need(cfg.get("hold_notifications") in HOLD_VALUES, "hold_notifications")
     _need(_bool(cfg.get("mute_sounds")), "mute_sounds")
     lock = cfg.get("lock")
@@ -258,9 +277,33 @@ def _seed():
     return cfg
 
 
+# The one default that stays out of the file until something sets it: setup
+# asks about links exactly once, and "asked" has to survive every other write
+# (a `list add`, a menu save) between the first load and the answer.
+LINKS_KEY = "open_links_in_space"
+
+
 def save(cfg):
     validate(cfg)
     state.write_json(config_path(), cfg)
+
+
+def links_answered() -> bool:
+    """Whether the config file itself states `open_links_in_space`.
+
+    In memory the key is always present at its default; in the file it appears
+    once setup's question was answered or `config set` named it.
+    """
+    raw = _read_json(config_path())
+    return isinstance(raw, dict) and LINKS_KEY in raw
+
+
+def set_links(value: bool):
+    """Answer the link question: the key written explicitly, every other key kept as it is."""
+    def answer(cfg):
+        cfg[LINKS_KEY] = value
+
+    return update(answer)
 
 
 def _read():
@@ -318,12 +361,19 @@ def update(fn, timeout=None):
     with open(lock_path, "a+", encoding="utf-8") as lf:
         _acquire(lf, timeout)
         try:
+            answered = links_answered()
             cfg = _read()
+            if not answered:
+                # `fn` sees the file's own keys: an assignment, whatever the
+                # value, is the answer; an untouched default stays out of the file.
+                del cfg[LINKS_KEY]
             result = fn(cfg)
             if result is not None:
                 cfg = result
+            answered = LINKS_KEY in cfg
+            cfg = _merge(cfg)
             validate(cfg)
-            save(cfg)
+            state.write_json(config_path(), cfg if answered else {k: v for k, v in cfg.items() if k != LINKS_KEY})
         finally:
             fcntl.flock(lf, fcntl.LOCK_UN)
     try:

@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ds import catalog, config, hold, hypr, listener, lock, setup, state, ui
+from ds import catalog, config, hold, hypr, launch, listener, lock, profile, setup, state, ui
 
 COMMANDS = {
     "status": state.cmd_status,
@@ -24,9 +24,13 @@ COMMANDS = {
     "menu": ui.cmd_menu,
     "listen": listener.cmd_listen,
     "reload": listener.cmd_reload,
+    "refresh": listener.cmd_refresh,
+    "release": listener.cmd_release,
+    "migrate": hypr.cmd_migrate,
     "setup": setup.cmd_setup,
     "senders": hold.cmd_senders,
     "banners": state.cmd_banners,
+    "profile": profile.cmd_profile,
 }
 
 
@@ -37,6 +41,13 @@ def positive_int(value):
         n = 0
     if n < 1:
         raise argparse.ArgumentTypeError(f"{value!r} is not a positive integer")
+    return n
+
+
+def release_minutes(value):
+    n = positive_int(value)
+    if n > config.RELEASE_MAX_MINUTES:
+        raise argparse.ArgumentTypeError(f"{value!r} is over the {config.RELEASE_MAX_MINUTES} minute limit")
     return n
 
 
@@ -60,19 +71,48 @@ def build_parser():
     lk.add_argument("duration", nargs="?")
     lk.add_argument("purpose", nargs="*")
     sub.add_parser("unlock").add_argument("reason", nargs="*")
-    for name in ("enter", "leave", "toggle", "next", "prev", "menu", "listen", "reload"):
+    for name in ("enter", "leave", "toggle", "next", "prev", "menu", "listen", "reload", "refresh"):
         sub.add_parser(name)
-    sub.add_parser("setup").add_argument("--remove", action="store_true")
+    sub.add_parser("release").add_argument("minutes", nargs="?", type=release_minutes)
+    mg = sub.add_parser("migrate", help="confirm opening a foreign web app in the distraction profile")
+    mg.add_argument("address")
+    mg.add_argument("identity", help="window identity from the migration notification")
+    st = sub.add_parser("setup")
+    st.add_argument("--remove", action="store_true")
+    st.add_argument("--yes", action="store_true", help="never prompt: the link question takes the config value (true by default) and sudo runs with -n")
     sub.add_parser("senders")
     banners = sub.add_parser("banners")
     banners.add_argument("--count", type=positive_int, default=20, metavar="N")
+    # Help only: `main` hands `open`'s tail to `launch.open_target` unparsed, since
+    # every other -token is a browser flag argparse would read as its own.
+    op = sub.add_parser(
+        "open",
+        usage="%(prog)s [--app] [target] [browser flags...]",
+        description="Open a listed site or app in the distraction space; forward anything else to the previous browser. "
+                    "Other -flags (--incognito, --private-window, ...) pass through to the forwarded browser unchanged, "
+                    "in order; a flag that takes a value wants --flag=value.",
+    )
+    op.add_argument("--app", action="store_true", help="forward an unlisted URL as an app window (--app=<url>)")
+    op.add_argument("target", nargs="?", help="an http(s) URL, a list entry, or a catalog name; none forwards the bare browser")
+    pr = sub.add_parser("profile").add_subparsers(dest="profile_cmd")
+    imp = pr.add_parser("import", help="copy the existing browser profile into the distraction profile once")
+    imp.add_argument("--from", dest="source", metavar="PROFILE_DIR", help="a Chromium profile directory instead of the default browser's main profile")
+    imp.add_argument("--replace", action="store_true", help="move an existing distraction profile aside to a dated backup first")
     return p
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
-    if not args.command:
-        sys.exit(2)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or (argv[0].startswith("-") and argv[0] not in ("-h", "--help")):
+        # Omarchy's browser keybind runs the default browser's Exec first token
+        # alone, with nothing or a private-window flag: the bare binary is `open`.
+        argv.insert(0, "open")
+    parser = build_parser()
+    if argv[0] == "open":
+        if any(a in ("-h", "--help") for a in argv[1:]):
+            parser.parse_args(["open", "--help"])
+        sys.exit(launch.open_target(argv[1:]))
+    args = parser.parse_args(argv)
     try:
         rc = COMMANDS[args.command](args)
     except NotImplementedError:

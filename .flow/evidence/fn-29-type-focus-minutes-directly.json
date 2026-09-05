@@ -1,0 +1,36 @@
+{
+  "native_helper": [
+    {
+      "typed": "37",
+      "returned": [
+        37,
+        ""
+      ]
+    },
+    {
+      "typed": "0",
+      "returned": [
+        null,
+        ""
+      ]
+    },
+    {
+      "typed": null,
+      "returned": null
+    }
+  ],
+  "lock_unchanged": true,
+  "note": "Actual prompt_lock only, no lock creation or unlock invoked.",
+  "width": 500,
+  "visual": "Full duration example and zero-until-unlock hint visible in native input.",
+  "screenshot": "fn-29-type-focus-minutes-directly.png",
+  "full_suite": "451 tests, OK, one intentional skip, 184.644s",
+  "local_install": {
+    "commit": "42d17ca0bbbfb66383584c124542b81fa6a78554",
+    "source_matches": true,
+    "ui_sha256": "f3a3a17a6c050b516c13bbe66a330bc9cce54ecbfceb32b2f5a25b61a7a5e014",
+    "health": "healthy",
+    "listener": "responsive",
+    "restart_required": false
+  }
+}
