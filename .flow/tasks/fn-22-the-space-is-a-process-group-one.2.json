@@ -3,12 +3,14 @@
   "claim_note": "",
   "claimed_at": null,
   "created_at": "2026-09-05T10:04:16.795566Z",
-  "depends_on": [],
+  "depends_on": [
+    "fn-22-the-space-is-a-process-group-one.1"
+  ],
   "id": "fn-22-the-space-is-a-process-group-one.2",
   "priority": null,
   "spec": "fn-22-the-space-is-a-process-group-one",
   "spec_path": ".flow/tasks/fn-22-the-space-is-a-process-group-one.2.md",
   "status": "todo",
   "title": "Static network schedule, site_block.enabled, refresh verb, and the v3 schema",
-  "updated_at": "2026-09-05T10:04:16.795566Z"
+  "updated_at": "2026-09-05T10:32:05.703033Z"
 }
