@@ -67,8 +67,8 @@ Existing config validation and command behavior remain the authority for menu ch
 | R1 | fn-26-visible-health-and-accessible-v3.1 |
 | R2 | fn-26-visible-health-and-accessible-v3.1 |
 | R3 | fn-26-visible-health-and-accessible-v3.1 |
-| R4 | fn-26-visible-health-and-accessible-v3.2 |
-| R5 | fn-26-visible-health-and-accessible-v3.1, fn-26-visible-health-and-accessible-v3.2 |
+| R4 | fn-26-visible-health-and-accessible-v3.2, fn-26-visible-health-and-accessible-v3.3 |
+| R5 | fn-26-visible-health-and-accessible-v3.1, fn-26-visible-health-and-accessible-v3.2, fn-26-visible-health-and-accessible-v3.3 |
 
 ## Cross-spec integration contract
 
@@ -78,3 +78,7 @@ Existing config validation and command behavior remain the authority for menu ch
 - Listener adds bounded `ping` IPC returning `ok\n` without initiating work. Status probes it with a short finite timeout; cached subsystem observations are not a heartbeat. fn-26 derives user-facing health from saved subsystem values, configured intent, timestamps, and ping. Absent provenance is unknown; a timestamp older than 121 seconds is stale.
 - fn-26 does not probe the firewall from the bar. fn-27 reconciliation retains verification/retry and existing ownership locks. Shared docs and combined live evidence are finalized once after implementation integration.
 - Implementation review for this run is Fable through Claude CLI (`--model fable`), explicitly requested by the user. The CLI probe resolved to claude-fable-5-1. This overrides the repository reviewer preference for this run only.
+
+## Branch and release constraint
+
+User direction during implementation: keep this work separate until admission to the Omarchy plugin marketplace. The integration branch is fn-25-27-v3-improvements, based on v3 branch fn-22-the-space-is-a-process-group-one at f0cc79a. No merge to main, release or deployment is part of this run.
