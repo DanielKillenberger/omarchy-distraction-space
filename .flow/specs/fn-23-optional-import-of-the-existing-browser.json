@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-23-optional-import-of-the-existing-browser",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-05T17:13:43.371100Z",
   "created_at": "2026-09-05T16:47:06.057269Z",
   "default_impl": null,
   "default_review": null,
@@ -280,5 +280,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T17:08:20.474675Z"
+  "updated_at": "2026-09-05T17:13:43.371111Z"
 }

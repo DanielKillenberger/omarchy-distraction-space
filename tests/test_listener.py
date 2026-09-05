@@ -226,7 +226,7 @@ class ListenerTests(unittest.TestCase):
         self.systemctl_log = self.box.runtime / "systemctl.log"
         self.sock2_path = self.box.runtime / "socket2.sock"
         self.gate = self.box.runtime / "getent.gate"
-        # XDG_DATA_HOME is not sandboxed by the harness; the entries manifest the
+        # XDG_DATA_HOME is pinned here on top of the harness default; the entries manifest the
         # link check reads names files under it, so point it into the sandbox.
         self.apps = self.box.runtime / "data" / "applications"
         self.xdg_default = self.box.runtime / "xdg-default"

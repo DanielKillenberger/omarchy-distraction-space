@@ -82,7 +82,7 @@ class LaunchTests(unittest.TestCase):
         self.share = self.box.runtime / "share"
         self.apps = self.share / "applications"
         self.apps.mkdir(parents=True)
-        self.data_home = self.box.home / ".local" / "share"
+        self.data_home = self.box.data
         self.run_log = self.box.runtime / "systemd-run.log"
         self.forward_log = self.box.runtime / "forward.log"
         self.notify_log = self.box.runtime / "notify.log"

@@ -406,7 +406,7 @@ class CloneTests(unittest.TestCase):
         # setup now installs and starts the slice unit; keep the user manager out of the test.
         self.box.fake_bin("systemctl", "import sys\nsys.exit(0)\n")
         # It also writes launcher entries and registers the URL handler: the entries
-        # land in the sandbox (XDG_DATA_HOME is not sandboxed by the harness) and
+        # land in the sandbox (pinned here on top of the harness default) and
         # the default browser is never the real one's.
         os.environ["XDG_DATA_HOME"] = str(self.box.runtime / "data")
         self.box.fake_bin("xdg-settings", "import sys\nprint('google-chrome.desktop')\n")

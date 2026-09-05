@@ -68,9 +68,8 @@ class ProfileTests(unittest.TestCase):
         self._orig = {k: os.environ.get(k) for k in ("DS_PROC_ROOT", "DS_XDG_BROWSER", "XDG_DATA_HOME")}
         os.environ["DS_PROC_ROOT"] = str(self.proc)
         os.environ["DS_XDG_BROWSER"] = "google-chrome.desktop"
-        # The harness sandboxes HOME but not XDG_DATA_HOME, and this session
-        # exports it; the destination must never resolve to the real profile.
-        os.environ["XDG_DATA_HOME"] = str(self.box.home / ".local" / "share")
+        # The harness pins XDG_DATA_HOME under the sandbox; the destination must
+        # never resolve to the real profile, and the assertion below proves it.
         self.addCleanup(self._restore)
         self.user_data = profile.config_home() / "google-chrome"
         self.src = self.user_data / profile.MAIN_PROFILE

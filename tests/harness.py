@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-_ENV_KEYS = ("HOME", "XDG_CONFIG_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "PATH")
+_ENV_KEYS = ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "PATH")
 
 
 class Sandbox:
@@ -20,10 +20,11 @@ class Sandbox:
         base = Path(self._tmp.name)
         self.home = base / "home"
         self.config = base / "config"
+        self.data = base / "data"
         self.state = base / "state"
         self.runtime = base / "runtime"
         self.bin = base / "bin"
-        for p in (self.home, self.config, self.state, self.runtime, self.bin):
+        for p in (self.home, self.config, self.data, self.state, self.runtime, self.bin):
             p.mkdir()
         (self.config / "omarchy").mkdir()
         (self.state / "omarchy" / "distraction-space").mkdir(parents=True)
@@ -54,6 +55,7 @@ class Sandbox:
         out.update(
             HOME=str(self.home),
             XDG_CONFIG_HOME=str(self.config),
+            XDG_DATA_HOME=str(self.data),
             XDG_STATE_HOME=str(self.state),
             XDG_RUNTIME_DIR=str(self.runtime),
             PATH=path,
