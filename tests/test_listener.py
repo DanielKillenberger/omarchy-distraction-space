@@ -17,9 +17,12 @@ from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
+from test_cgroup import SESSION_PATH, SLICE_PATH, FakeProc
+from test_hypr import OPEN
 
 sys.path.insert(0, str(ROOT))
-from ds import listener, setup
+from ds import feedback, hypr, listener, setup
+from ds.catalog import expand_entry
 from ds.config import DEFAULTS
 from ds.state import write_json
 
@@ -1109,6 +1112,76 @@ class HoldRetryTests(unittest.TestCase):
             clock[0] = 1000.0 + 3 * listener.PERIOD
             ctx.sync_hold()
             self.assertEqual(push.call_count, 3)
+
+
+class ScanTests(unittest.TestCase):
+    """`_scan` on start and reload runs the three containment layers over every existing client."""
+
+    def setUp(self):
+        self.box = Sandbox()
+        self.addCleanup(self.box.cleanup)
+        self.box.apply_env()
+        self.hypr_log = self.box.runtime / "hypr.log"
+        self.hypr_state = self.box.runtime / "hypr-state.json"
+        self.notify_log = self.box.runtime / "notify.log"
+        self.open_log = self.box.runtime / "open.log"
+        proc = self.box.runtime / "proc"
+        proc.mkdir()
+        self.proc = FakeProc(proc)
+        os.environ.update({
+            "DS_HYPR_LOG": str(self.hypr_log),
+            "DS_HYPR_STATE": str(self.hypr_state),
+            "DS_NOTIFY_LOG": str(self.notify_log),
+            "DS_OPEN_LOG": str(self.open_log),
+            "DS_PROC_ROOT": str(proc),
+        })
+        self.addCleanup(os.environ.pop, "DS_PROC_ROOT", None)
+        for key in ("DS_HYPR_FAIL", "DS_OPEN_FAIL"):
+            os.environ.pop(key, None)
+        self.box.fake_bin("hyprctl", HYPRCTL)
+        self.box.fake_bin("omarchy-notification-send", NOTIFY)
+        cli = self.box.fake_bin("distractions", OPEN)
+        patcher = mock.patch.object(hypr, "CLI", str(cli))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        hypr._reset_for_tests()
+        feedback.start({"nudges": {"block_page": False}, "site_block": {"pass_through": False}}, False)
+        self.addCleanup(feedback.stop)
+
+    @staticmethod
+    def _client(address, klass, workspace, pid):
+        return {"address": address, "class": klass, "pid": pid,
+                "workspace": {"id": 5 if workspace == hypr.SPACE else 1, "name": workspace}}
+
+    def _dispatches(self):
+        out = []
+        for line in self.hypr_log.read_text(encoding="utf-8").splitlines():
+            argv = json.loads(line)
+            if argv[:1] == ["dispatch"]:
+                out.append(argv[1])
+        return out
+
+    def test_scan_applies_all_three_layers_to_existing_clients(self):
+        hypr.apply_rules({"list": [expand_entry(n) for n in ("Telegram", "WhatsApp", "X")]})
+        self.proc.add(100, 1, f"{SLICE_PATH}/run-1.scope")
+        self.proc.add(300, 1, SESSION_PATH)
+        write_json(self.hypr_state, {"activeworkspace": {"id": 1, "name": "1"}, "clients": [
+            self._client("0xa", "org.telegram.desktop", "1", 300),
+            self._client("0xb", "google-chrome", "1", 100),
+            self._client("0xc", "chrome-web.whatsapp.com__-Default", "1", 300),
+            self._client("0xd", "chrome-x.com__-Distraction", hypr.SPACE, 100),
+            self._client("0xe", "firefox", "1", 300),
+        ]})
+        self.hypr_log.write_text("", encoding="utf-8")
+        listener._scan()
+        self.assertEqual(self._dispatches(), [
+            hypr.move_window_lua("0xa"), hypr.move_window_lua("0xb"), hypr.close_window_lua("0xc"),
+        ])
+        self.assertEqual(self.open_log.read_text(encoding="utf-8").splitlines(), [json.dumps(["open", "WhatsApp"])])
+        notices = self.notify_log.read_text(encoding="utf-8")
+        self.assertIn("Telegram opened in the distraction space", notices)
+        self.assertIn("WhatsApp opened in the distraction space", notices)
+        self.assertNotIn("X opened", notices, "a window already on the space did not land")
 
 
 if __name__ == "__main__":

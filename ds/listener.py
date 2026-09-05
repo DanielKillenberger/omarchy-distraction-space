@@ -3,7 +3,6 @@
 import fcntl
 import json
 import os
-import re
 import select
 import signal
 import socket
@@ -264,8 +263,9 @@ class _Ctx:
         self.enforce(reason)
     def enforce(self, reason):
         hypr.apply_rules(self.exp)
-        _scan(self.exp.get("list") or [])
+        # The scan's Opened banners read the nudge and the lock through feedback, so it starts first.
         feedback.start(self.cfg or {"nudges": self.exp.get("nudges") or {}}, lock.is_locked)
+        _scan()
         if reason == "reload":
             self.space()
         else:
@@ -371,7 +371,7 @@ class _Ctx:
     def event(self, line):
         if hypr.is_config_reload(line):
             hypr.apply_rules(self.exp)
-            _scan(self.exp.get("list") or [])
+            _scan()
             return
         hypr.handle_event(line)
         name = _workspace_name(line)
@@ -510,32 +510,14 @@ def _env(event, purpose=None, held=None):
     return {"DS_EVENT": event, "DS_PURPOSE": purpose if purpose is not None else (lk.get("purpose") or ""),
             "DS_MINUTES": "", "DS_REASON": "", "DS_HELD": json.dumps(held or {})}
 
-def _scan(entries):
+def _scan():
+    """Start and reload: the same three containment layers over every existing client."""
     try:
         clients = hypr.hyprctl_json("clients")
     except Exception:
         return
     for client in clients if isinstance(clients, list) else []:
-        if not isinstance(client, dict):
-            continue
-        klass = client.get("class") or client.get("initialClass") or ""
-        ws = client.get("workspace") if isinstance(client.get("workspace"), dict) else {}
-        if not klass or ws.get("name") == hypr.SPACE:
-            continue
-        for entry in entries:
-            for pat in (entry.get("classes") or [] if isinstance(entry, dict) else []):
-                if not isinstance(pat, str) or not pat:
-                    continue
-                try:
-                    hit = bool(re.search(pat, klass))
-                except re.error:
-                    hit = pat == klass
-                if hit:
-                    hypr.move_to_space(client.get("address"))
-                    break
-            else:
-                continue
-            break
+        hypr.contain(client)
 
 def _workspace_name(line):
     raw = (line or "").strip().removeprefix(">>")
