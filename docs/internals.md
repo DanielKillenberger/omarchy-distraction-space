@@ -76,11 +76,11 @@ The listener resolves listed hosts on start, on `reload`, on `refresh`, and ever
 
 Port 28080 serves the block page, naming the site from the Host header and adding the lock note while a lock is active. Port 28443 reads the ClientHello, takes the SNI, and closes without writing anything.
 
-A refresh can reuse enforcement only when normalized desired policy matches the last successfully applied baseline and a fresh `check ds` validates the whole installed table with the same slice identity. Matching DNS addresses alone do not prove enforcement. A recreated slice, missing table, or changed rule invalidates reuse and requires repair; a failed or unverifiable check cannot certify health. Empty address sets and disabled blocking take the flush path. The privileged `check ds` accepts the same bounded address input as `replace ds` and returns verified slice device/inode identity; it does not modify the table.
+A refresh can reuse enforcement only when normalized desired policy matches the last successfully applied baseline and a fresh `check ds` validates the whole installed table with the same slice identity. Matching DNS addresses alone do not prove enforcement. A recreated slice, missing table, or changed rule invalidates reuse and requires repair. The listener attempts at most one replacement followed by verification in that cycle. Only successful replacement and verification establish the in-memory baseline; an unsuccessful or malformed check leaves enforcement unavailable. An older installed wrapper without `check ds` must be updated through `distractions setup`. Empty address sets and disabled blocking flush on every reconciliation and discard the baseline. The privileged `check ds` accepts the same bounded address input as `replace ds` and returns verified slice device/inode identity; it does not modify the table.
+
+The worst-case reload/refresh wait budget is 295 seconds, allowing the current and coalesced generation to finish their bounded DNS, slice, three-command verification/repair, and launcher work. Ordinary successful commands finish sooner. A successful status ping confirms responsiveness without starting any of this work.
 
 ## Banners
-
-While notification hold is active, the listener reasserts the configured sender keys every 60 seconds. Manually unsilencing one of those senders in the shell can therefore last only until that check; changing the plugin's hold policy is the persistent choice.
 
 Two kinds, one path. `feedback.opened(entry_name)` is called by `hypr.contain` after a confirmed landing on the space and by the boot scan; the title is `<Product> opened in the distraction space`, the body names the key that enters, or reads `Locked until HH:MM.` while a lock is active, and the action is `distractions enter`. `feedback.blocked(host)` is called by the 28443 router for a listed SNI; the title is `Blocked here`, the body names the product and the key, and the action is `distractions open https://<host>/`, the site root since the SNI never carries a path. The block page is its own feedback on 80, so only the 28443 path raises a banner. An unlisted SNI raises nothing.
 
@@ -103,6 +103,8 @@ A later `setup` run takes one of five branches:
 Removing a clone first disables it with `omarchy-shell shell setPluginEnabled <id> false` and refuses to delete the directory when that call fails, so a shell that is down is never left with no notification server at all. After any create, refresh, or removal, setup runs `omarchy-shell shell rescanPlugins` and then probes the running shell, calling `omarchy restart shell` when the notification service did not swap. On Omarchy 4 the rescan reloads the files while the running service keeps the old code, which is why the probe exists.
 
 ## Notification capture and sound mute
+
+While notification hold is active, the listener reasserts the configured sender keys every 60 seconds. Manually unsilencing one of those senders in the shell can therefore last only until that check; changing the plugin's hold policy is the persistent choice.
 
 The listener keeps `busctl --user monitor` on the session bus for its whole life, restarting it with 1, 4, and 16 second backoff if it exits. While the hold is in effect it appends every Notify from a listed sender to `held.jsonl` under the list entry's name. A sender key is the notification's `app_name` or, for a Chromium-derived sender, the site host Chromium prepends to the body. Matching is case-insensitive and ignores a leading `www.`. A Notify it cannot attribute is left alone, and a missing `busctl` turns capture off with one log line while holding and muting continue.
 
