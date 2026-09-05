@@ -502,18 +502,18 @@ def contain(client, klass=None, opened=False):
     if layer == "adopt":
         landed = _adopt(client, name)
     else:
-        landed = not _on_space(client)
-        if landed:
-            move_to_space(client.get("address"))
+        # A scan or a move event announces only a window that actually moved.
+        landed = not _on_space(client) and move_to_space(client.get("address"))
     if name and (landed or opened):
         _feedback().opened(name)
     return layer
 
 
 def move_to_space(address):
+    """True when Hyprland accepted the move; a refused dispatch is logged by `_run`."""
     if not address:
-        return
-    _run("dispatch", move_window_lua(address))
+        return False
+    return _run("dispatch", move_window_lua(address)) is not None
 
 
 def _adopt(client, name):
@@ -524,14 +524,22 @@ def _adopt(client, name):
     """
     address = client.get("address")
     key = _norm_addr(address)
-    if not key or key in _adopted:
+    if not key:
         return False
-    _adopted[key] = None
+    if key in _adopted:
+        # `open` already ran for this address. Only a close that Hyprland refused
+        # is still owed, and it is retried here without launching anything.
+        if _adopted[key] == "close-pending" and _run("dispatch", close_window_lua(address)) is not None:
+            _adopted[key] = "done"
+        return False
+    _adopted[key] = "done"
     while len(_adopted) > ADOPTED_CAP:
         _adopted.popitem(last=False)
     why = _open(name)
     if why is None:
-        _run("dispatch", close_window_lua(address))
+        if _run("dispatch", close_window_lua(address)) is None:
+            _adopted[key] = "close-pending"
+            _log(f"adopt: close of {address} refused; retried on its next event")
         return True
     _log(f"adopt: open {name} failed ({why}); window {address} moved by class")
     if not _on_space(client):

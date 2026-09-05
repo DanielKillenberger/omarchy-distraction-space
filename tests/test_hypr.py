@@ -352,6 +352,43 @@ class HyprTests(unittest.TestCase):
         self.assertEqual(len(self._log_lines("adopt:")), 2)
         self.assertEqual(len(self._open_calls()), 1)
 
+    def test_refused_close_is_retried_without_a_second_open(self):
+        hypr.apply_rules([WHATSAPP])
+        self._state(clients=[self._client("0xdead", FOREIGN_WA, "1")])
+        os.environ["DS_HYPR_FAIL"] = "hl.dsp.window.close"
+        self.hypr_log.write_text("", encoding="utf-8")
+        close = hypr.close_window_lua("0xdead")
+        hypr.handle_event(f"openwindow>>0xdead,1,{FOREIGN_WA},WhatsApp")
+        self.assertEqual(self._open_calls(), [["open", "WhatsApp"]])
+        # The fake logs every dispatch it refuses, so attempts are countable.
+        self.assertEqual(self._dispatches(), [close])
+        self.assertEqual(len(self._log_lines("adopt: close of 0xdead refused")), 1)
+        # The product did open in the space, so the banner is right even though
+        # the foreign window is still up.
+        self.assertEqual(self._opened_titles(), [f"WhatsApp {OPENED}"])
+        hypr.handle_event("movewindow>>0xdead,1")
+        self.assertEqual(len(self._open_calls()), 1)
+        self.assertEqual(self._dispatches(), [close, close])
+        os.environ.pop("DS_HYPR_FAIL")
+        hypr.handle_event("movewindow>>0xdead,1")
+        self.assertEqual(len(self._open_calls()), 1)
+        self.assertEqual(self._dispatches(), [close, close, close])
+        # Closed for good: nothing more is owed for this address.
+        hypr.handle_event("movewindow>>0xdead,1")
+        self.assertEqual(self._dispatches(), [close, close, close])
+
+    def test_failed_move_on_a_scan_raises_no_banner(self):
+        hypr.apply_rules([TELEGRAM])
+        client = self._client("0xaaa", NATIVE, "1")
+        self._state(clients=[client])
+        os.environ["DS_HYPR_FAIL"] = "hl.dsp.window.move"
+        self.assertEqual(hypr.contain(client), "class")
+        self.assertEqual(self._opened_titles(), [])
+        self.assertIn("hyprctl", state.state_path("log").read_text(encoding="utf-8"))
+        os.environ.pop("DS_HYPR_FAIL")
+        self.assertEqual(hypr.contain(client), "class")
+        self.assertEqual(self._opened_titles(), [f"Telegram {OPENED}"])
+
     def test_opened_banner_once_per_entry_per_60s_and_never_on_the_space(self):
         hypr.apply_rules([TELEGRAM])
         self._state(clients=[self._client("0xaaa", NATIVE, hypr.SPACE)])
