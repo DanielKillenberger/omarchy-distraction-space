@@ -3,7 +3,7 @@
 import json
 import subprocess
 
-from ds import catalog, config, hypr
+from ds import catalog, config, hypr, state
 
 CHECK, UNCHECK = "󰄲", "󰄱"
 _BOOL = (
@@ -13,6 +13,11 @@ _BOOL = (
 _INT = ("lock.default_minutes", "lock.reason_min_chars", "summary.timeout_seconds")
 _RO = ("keep_reachable", "hooks.lock", "hooks.unlock", "hooks.enter", "hooks.leave", "log")
 _HOLD = ("off-space", "locked", "never")
+_V3_LABELS = {
+    "open_links_in_space": "Open listed links in the space",
+    "site_block.enabled": "Block listed sites outside the space",
+    "containment.snap_back": "Return moved windows to the space",
+}
 _SETTINGS = (
     *[("bool", k) for k in _BOOL],
     ("cycle", "hold_notifications", _HOLD),
@@ -20,6 +25,7 @@ _SETTINGS = (
     *[("int", k) for k in _INT],
     ("list", "list"),
     *[("ro", k) for k in _RO],
+    *[("bool", k) for k in _V3_LABELS],
 )
 
 
@@ -141,6 +147,9 @@ def _mutate(fn):
     except config.Invalid as e:
         notify("Invalid", str(e))
         return False
+    except OSError as e:
+        notify("Settings could not be saved", str(e))
+        return False
     return True
 
 
@@ -205,11 +214,46 @@ def _fmt(cfg, key):
     return str(v)
 
 
+def _setting_status(cfg, key, status):
+    saved = f"Saved: {_fmt(cfg, key)}"
+    health = status["health"]
+    if health["listener"] != "responsive":
+        return saved + "; application pending: listener is " + health["listener"]
+    if key == "containment.snap_back":
+        return saved + "; applied on listener reload (not independently verified)"
+    service = "links" if key == "open_links_in_space" else "site_block"
+    observation = health["services"][service]
+    if observation["state"] == "disabled":
+        if observation["observed_at"]:
+            return saved + f"; last observed {status[service]} at {observation['observed_at']}"
+        return saved + "; no observation confirms application yet"
+    return saved + "; " + observation["reason"]
+
+
+def _show_status():
+    status = state.status()
+    health = status["health"]
+    rows = [_row("", "Listener", health["listener"])]
+    rows += [_row("", reason) for reason in health["reasons"]]
+    labels = {"site_block": "Site blocking", "notification_hold": "Notification holding", "links": "Listed-link routing"}
+    for key, label in labels.items():
+        service = health["services"][key]
+        detail = service["reason"]
+        if service["observed_at"]:
+            detail += " Last checked: " + service["observed_at"]
+        rows.append(_row("", label, detail))
+    rows.append(_row("", "Back"))
+    select("Distraction space: " + health["state"], rows)
+
+
 def _settings():
     try:
         while True:
             cfg = config.load()
-            rows = [_row("", spec[1], "edit" if spec[0] == "list" else _fmt(cfg, spec[1])) for spec in _SETTINGS]
+            status = state.status()
+            rows = [_row("", _V3_LABELS.get(spec[1], spec[1]),
+                         _setting_status(cfg, spec[1], status) if spec[1] in _V3_LABELS
+                         else "edit" if spec[0] == "list" else _fmt(cfg, spec[1])) for spec in _SETTINGS]
             rows.append(_row("", "Back"))
             i = select("Settings", rows)
             if i is None or i >= len(_SETTINGS):
@@ -217,7 +261,13 @@ def _settings():
             spec = _SETTINGS[i]
             kind, key = spec[0], spec[1]
             if kind == "bool":
-                _mutate(lambda c, key=key: config.set_value(c, key, not config.get(c, key)))
+                changed = _mutate(lambda c, key=key: config.set_value(
+                    c, key, not c.get(key, config.DEFAULTS[key]) if key == "open_links_in_space" else not config.get(c, key)))
+                if changed and key in _V3_LABELS:
+                    detail = _setting_status(config.load(), key, state.status())
+                    if key == "open_links_in_space":
+                        detail += ". Run distractions setup to apply browser routing; this menu does not change the default browser."
+                    notify("Settings saved", detail)
             elif kind == "cycle":
                 opts = spec[2]
 
@@ -270,7 +320,8 @@ def _lock_action(locked):
 
 def menu():
     try:
-        config.load()
+        cfg = config.load()
+        window = hypr.active_window()
         while True:
             locked = _locked()
             try:
@@ -282,6 +333,8 @@ def menu():
                 _row("", "Leave the space" if on else "Open the space"),
                 _row("", "Edit list"),
                 _row("", "Settings"),
+                _row("", f"Release this window for {cfg['containment']['release_minutes']} minutes"),
+                _row("", "Status"),
             ])
             if i is None:
                 return 0
@@ -299,6 +352,15 @@ def menu():
             elif i == 3:
                 if _settings():
                     return 1
+                cfg = config.load()
+            elif i == 4:
+                from ds import listener, lock
+                if window is None:
+                    notify("No window to release", "Focus the window first, then run: distractions release")
+                    return 1
+                return listener._ask(f"release {window['address']} {lock.until_iso(cfg['containment']['release_minutes'])}")
+            elif i == 5:
+                _show_status()
     except Unavailable:
         notify("Menu unavailable", "omarchy-menu-select is missing.")
         return 1

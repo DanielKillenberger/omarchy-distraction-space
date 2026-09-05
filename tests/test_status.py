@@ -3,11 +3,16 @@
 
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 import os
 import sys
 import unittest
+import socket
+import threading
+import time
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
-from ds import feedback, hypr, listener, lock, net, setup, state, ui
+from ds import config, feedback, hypr, listener, lock, net, setup, state, ui
 
 STUBS = ()
 STATUS_KEYS = {
@@ -33,6 +38,9 @@ STATUS_KEYS = {
     "browser",
     "released",
     "updated",
+    "response_at",
+    "observed_at",
+    "health",
 }
 
 HYPRCTL_ON = """
@@ -204,6 +212,115 @@ class StatusTests(unittest.TestCase):
                 r = box.run(cmd)
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("not yet", r.stderr)
+
+
+class HealthTests(unittest.TestCase):
+    def setUp(self):
+        self.box = Sandbox()
+        self.addCleanup(self.box.cleanup)
+        self.box.apply_env()
+        self.cfg = copy.deepcopy(config.DEFAULTS)
+        self.observed = state.now_iso()
+        self.saved = {"listener_pid": os.getpid(), "site_block": "on",
+                      "notification_hold": "on", "links": "on", "updated": self.observed,
+                      "observed_at": dict.fromkeys(("site_block", "notification_hold", "links"), self.observed)}
+
+    def project(self):
+        with patch("ds.config._read", return_value=self.cfg), patch("ds.state._listener_health", return_value="responsive"), patch("ds.hypr.on_space", return_value=False):
+            return state.status()
+
+    def test_health_observation_states_and_saved_provenance(self):
+        for value, timestamp, expected in [
+            ("on", self.observed, "healthy"),
+            ("unavailable", self.observed, "unavailable"),
+            ("off", self.observed, "pending"),
+            ("nonsense", self.observed, "unknown"),
+            ("on", None, "unknown"),
+            ("on", 4, "unknown"),
+            ("on", _iso(1), "unknown"),
+            ("on", _iso(-1), "stale"),
+        ]:
+            with self.subTest(value=value, timestamp=timestamp):
+                self.saved["site_block"] = value
+                self.saved["observed_at"]["site_block"] = timestamp
+                state.write_state(self.saved)
+                before = state.state_path("state.json").read_bytes()
+                result = self.project()
+                self.assertEqual(result["health"]["services"]["site_block"]["state"], expected)
+                self.assertEqual(result["updated"], self.observed)
+                self.assertEqual(state.state_path("state.json").read_bytes(), before)
+        self.saved["links"] = "displaced"
+        state.write_state(self.saved)
+        self.assertEqual(self.project()["health"]["services"]["links"]["state"], "displaced")
+
+    def test_disabled_and_policy_idle_are_not_failures(self):
+        self.cfg["site_block"]["enabled"] = False
+        self.cfg["open_links_in_space"] = False
+        self.cfg["hold_notifications"] = "never"
+        state.write_state({})
+        result = self.project()
+        self.assertEqual(result["health"]["state"], "healthy")
+        self.assertTrue(all(v["state"] == "disabled" for v in result["health"]["services"].values()))
+        self.cfg["hold_notifications"] = "locked"
+        self.saved["notification_hold"] = "off"
+        state.write_state(self.saved)
+        self.assertEqual(self.project()["health"]["services"]["notification_hold"]["state"], "healthy")
+
+    def test_missing_malformed_and_legacy_state_are_unknown(self):
+        for raw in ("{bad", "[]", json.dumps({"site_block": "on"}), json.dumps({"observed_at": []})):
+            with self.subTest(raw=raw):
+                state.state_path("state.json").write_text(raw)
+                result = self.project()
+                self.assertEqual(result["health"]["state"], "unknown")
+                self.assertIsNone(result["updated"])
+
+    def test_service_failures_and_listener_failure_remain_visible(self):
+        for key in ("site_block", "notification_hold", "links"):
+            with self.subTest(key=key):
+                saved = copy.deepcopy(self.saved)
+                saved[key] = "displaced" if key == "links" else "unavailable"
+                state.write_state(saved)
+                result = self.project()["health"]
+                self.assertEqual(result["state"], "degraded")
+                self.assertTrue(result["reasons"])
+                self.assertEqual(result["services"][key]["state"], saved[key])
+        for alive in ("stopped", "unresponsive"):
+            with self.subTest(listener=alive):
+                health = state._health(self.saved, self.cfg, alive, False, False)
+                self.assertEqual(health["state"], "degraded")
+                self.assertEqual(health["listener"], alive)
+                self.assertTrue(health["reasons"])
+        self.assertEqual(state._health(self.saved, None, "responsive", False, False)["state"], "unknown")
+
+    def test_listener_ping_deadline_even_with_dripping_reply(self):
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.addCleanup(server.close)
+        server.bind(str(state.runtime_path("distraction-space.sock")))
+        server.listen()
+        def drip():
+            conn, _ = server.accept()
+            with conn:
+                conn.recv(256)
+                for _ in range(20):
+                    try:
+                        conn.sendall(b"x")
+                    except OSError:
+                        break
+                    time.sleep(0.03)
+        thread = threading.Thread(target=drip, daemon=True)
+        thread.start()
+        start = time.monotonic()
+        self.assertEqual(state._listener_health(os.getpid()), "unresponsive")
+        self.assertLess(time.monotonic() - start, 0.6)
+        self.assertEqual(state._listener_health(None), "stopped")
+        thread.join(timeout=1)
+
+    def test_listener_responds_to_ping(self):
+        with patch("ds.state.socket.socket") as factory:
+            factory.return_value.recv.return_value = b"ok\n"
+            self.assertEqual(state._listener_health(os.getpid()), "responsive")
+            factory.return_value.sendall.assert_called_once_with(b"ping\n")
+
 
 
 class BoundedReadTests(unittest.TestCase):

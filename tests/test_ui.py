@@ -308,7 +308,7 @@ class UiTests(unittest.TestCase):
             ["index", 13],
             ["index", 14],
             ["index", 15],
-            ["index", 16],
+            ["index", len(ui._SETTINGS)],
             ["cancel"],
         )
         self._iq(["text", "40"], ["text", "10"], ["text", "90"])
@@ -337,13 +337,86 @@ class UiTests(unittest.TestCase):
         config.load()
         config.update(lambda c: config.set_value(c, "summary.command", ["agent", "--x"]))
         before = self._cfg()["lock"]["default_minutes"]
-        self._sq(["index", 3], ["index", 6], ["index", 6], ["index", 5], ["index", 16], ["cancel"])
+        self._sq(["index", 3], ["index", 6], ["index", 6], ["index", 5], ["index", len(ui._SETTINGS)], ["cancel"])
         self._iq(["text", "-3"], ["text", "nope"])
         self.assertEqual(ui.menu(), 0)
         cfg = self._cfg()
         self.assertEqual(cfg["lock"]["default_minutes"], before)
         self.assertEqual(cfg["summary"]["command"], "auto")
         self.assertTrue(self._notices())
+
+
+    def test_release_captures_window_before_menu_focus_and_uses_saved_duration(self):
+        config.load()
+        config.update(lambda c: config.set_value(c, "containment.release_minutes", 17))
+        calls = []
+        def select(prompt, rows):
+            calls.append("menu")
+            self.assertIn("Release this window for 17 minutes", " ".join(rows))
+            return 4
+        def active():
+            calls.append("window")
+            return {"address": "0x123"}
+        with patch("ds.ui.select", side_effect=select), patch("ds.hypr.active_window", side_effect=active), patch("ds.listener._ask", return_value=0) as ask, patch("ds.lock.until_iso", return_value="deadline") as until:
+            self.assertEqual(ui.menu(), 0)
+            ask.assert_called_once_with("release 0x123 deadline")
+            until.assert_called_once_with(17)
+        self.assertEqual(calls, ["window", "menu"])
+
+    def test_release_refuses_missing_window_or_listener(self):
+        self._sq(["index", 4])
+        with patch("ds.hypr.active_window", return_value=None):
+            self.assertEqual(ui.menu(), 1)
+        self.assertIn("No window to release", str(self._notices()))
+        self._sq(["index", 4])
+        with patch("ds.hypr.active_window", return_value={"address": "0x123"}):
+            self.assertEqual(ui.menu(), 1)
+        self.assertIn("No listener running", str(self._notices()))
+
+    def test_v3_setting_rows_save_with_pending_behavior_and_cancel(self):
+        config.load()
+        new_keys = ("open_links_in_space", "site_block.enabled", "containment.snap_back")
+        indices = [next(i for i, item in enumerate(ui._SETTINGS) if item[1] == key) for key in new_keys]
+        before = self.box.config_file.read_bytes()
+        self._sq(["cancel"])
+        ui._settings()
+        self.assertEqual(self.box.config_file.read_bytes(), before)
+        self._sq(*[["index", i] for i in indices], ["cancel"])
+        ui._settings()
+        saved = config.load()
+        for key in new_keys:
+            self.assertFalse(config.get(saved, key))
+        rows = str(self._calls("select"))
+        self.assertIn("Open listed links in the space", rows)
+        self.assertIn("Block listed sites outside the space", rows)
+        self.assertIn("Return moved windows to the space", rows)
+        self.assertIn("Saved", rows)
+        self.assertIn("setup", str(self._notices()))
+        self.assertIn("pending", str(self._notices()))
+
+    def test_v3_setting_failed_write_and_validation_do_not_report_saved(self):
+        config.load()
+        before = self.box.config_file.read_bytes()
+        idx = next(i for i, item in enumerate(ui._SETTINGS) if item[1] == "site_block.enabled")
+        for error in (config.Invalid("bad value"), OSError("disk full")):
+            with self.subTest(error=error):
+                self._sq(["index", idx], ["cancel"])
+                with patch("ds.config.update", side_effect=error), patch("ds.ui.notify") as notify:
+                    ui._settings()
+                self.assertTrue(notify.called)
+                self.assertNotIn("Settings saved", str(notify.call_args_list))
+                self.assertEqual(self.box.config_file.read_bytes(), before)
+
+    def test_status_action_explains_unknown_and_bar_keeps_quiet_indicator(self):
+        self._sq(["index", 5], ["cancel"], ["cancel"])
+        self.assertEqual(ui.menu(), 0)
+        rows = str(self._calls("select"))
+        self.assertIn("Listener is stopped", rows)
+        self.assertIn("Site blocking", rows)
+        qml = (ROOT / "BarWidget.qml").read_text()
+        self.assertIn('property string healthState: "unknown"', qml)
+        self.assertIn('data.health.reasons', qml)
+        self.assertIn('root.healthState !== "healthy"', qml)
 
     def _qlen(self, path):
         if not path.exists():
@@ -383,12 +456,12 @@ class UiTests(unittest.TestCase):
         self.assertEqual(self._cfg()["hold_notifications"], "off-space")
         # Settings is root index 3; mute_sounds is settings index 2; Back is 16.
         self._two_menus_while_locked(
-            [["index", 3], ["index", 2], ["index", 16], ["cancel"]],
+            [["index", 3], ["index", 2], ["index", len(ui._SETTINGS)], ["cancel"]],
             "hold-bool",
         )
         self.assertTrue(self._cfg()["mute_sounds"])
         self._two_menus_while_locked(
-            [["index", 3], ["index", 4], ["index", 16], ["cancel"]],
+            [["index", 3], ["index", 4], ["index", len(ui._SETTINGS)], ["cancel"]],
             "hold-cycle",
         )
         self.assertEqual(self._cfg()["hold_notifications"], "never")
@@ -423,7 +496,7 @@ class UiTests(unittest.TestCase):
         self.assertIn("FileView", qml)
         self.assertIn("watchChanges", qml)
         self.assertIn("state.json", qml)
-        self.assertNotIn("Timer", qml)
+        self.assertIn("interval: 30000", qml)
         self.assertIn("󰈈", qml)
         self.assertIn("Color.urgent", qml)
         self.assertIn("Qt.LeftButton", qml)
