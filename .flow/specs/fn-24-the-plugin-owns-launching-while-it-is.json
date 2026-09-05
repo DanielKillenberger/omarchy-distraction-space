@@ -9,7 +9,7 @@
   "depends_on_epics": [],
   "id": "fn-24-the-plugin-owns-launching-while-it-is",
   "impl_review_rounds": {
-    "fn-24-the-plugin-owns-launching-while-it-is.1": 1
+    "fn-24-the-plugin-owns-launching-while-it-is.1": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -67,9 +67,63 @@
       "task": "fn-24-the-plugin-owns-launching-while-it-is.1",
       "timestamp": "2026-09-05T18:07:04.097769Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "99d458e84faa73ea7eceb324b7750402585ff8b738a26487b2dd8dd7a6898ef8",
+      "backend": "codex",
+      "base_sha": "2a2a900dddde1e579af53b036c12af82a6105e35",
+      "counter_kind": "impl",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-3eb877228a9cacbe0e033ad4968fc6a9",
+            "classification": "introduced",
+            "findingId": "finding-3eb877228a9cacbe0e033ad4968fc6a9",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-f800d2de5bb938af450a302de570a6ff",
+            "classification": "introduced",
+            "findingId": "finding-f800d2de5bb938af450a302de570a6ff",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "cf14090fac0629b638ba837830c10cccae35e2a5",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 1140,
+      "output_sha256": "0180e2903cd39a5a0defd5b5d6fcbaa9524b4295c493deb2ae9c0f56e7252d0f",
+      "reservation_id": "ce81c23109c44635972250cca5b8c29e",
+      "round_consumed": true,
+      "scope": "impl:fn-24-the-plugin-owns-launching-while-it-is.1",
+      "superseded_by": null,
+      "task": "fn-24-the-plugin-owns-launching-while-it-is.1",
+      "timestamp": "2026-09-05T18:08:06.733457Z",
+      "verdict": "SHIP"
     }
   ],
-  "review_hash_epoch": {},
+  "review_hash_epoch": {
+    "impl:fn-24-the-plugin-owns-launching-while-it-is.1": 1
+  },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
@@ -89,5 +143,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T18:07:04.100083Z"
+  "updated_at": "2026-09-05T18:08:06.735818Z"
 }
