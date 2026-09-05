@@ -11,6 +11,6 @@
   "spec": "fn-26-visible-health-and-accessible-v3",
   "spec_path": ".flow/tasks/fn-26-visible-health-and-accessible-v3.3.md",
   "status": "todo",
-  "title": "Keep Chromium portal startup inside the distraction slice",
-  "updated_at": "2026-09-05T20:29:04.534406Z"
+  "title": "Preserve browser process and audio isolation",
+  "updated_at": "2026-09-05T20:47:00.948305Z"
 }
