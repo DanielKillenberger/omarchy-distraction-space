@@ -419,6 +419,17 @@ class SetupTests(unittest.TestCase):
         self.assertIn("links: off -- change it with: distractions config set open_links_in_space true", self.stdout)
         self.assertFalse((self.apps / setup.HANDLER_ID).exists())
 
+    def test_an_answer_that_cannot_be_recorded_stops_setup_before_the_root_transaction(self):
+        before = self._unanswered()
+        with patch("sys.stdin", Tty("n\n")), patch.object(setup.config, "set_links", side_effect=setup.config.Busy("config busy")):
+            rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertIn("cannot record the answer", err)
+        self.assertEqual(self._sudo_lines(), [])
+        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+        self.assertIsNone(self._entries())
+        self.assertEqual(self._config(), before)
+
     def test_yes_and_a_non_terminal_never_prompt_and_print_the_explanation_as_a_notice(self):
         for name, assume_yes, stdin in (("--yes", True, ClosedTty()), ("no terminal", False, io.StringIO("n\n"))):
             with self.subTest(name):

@@ -1386,7 +1386,7 @@ def _yes_no(prompt: str) -> bool:
             return False
 
 
-def ask_links(cfg: dict, assume_yes: bool) -> dict:
+def ask_links(cfg: dict, assume_yes: bool) -> dict | None:
     """Setup's one question, before anything asks for a password.
 
     With no explicit `open_links_in_space` in the config file, the explanation
@@ -1394,7 +1394,10 @@ def ask_links(cfg: dict, assume_yes: bool) -> dict:
     the question asked; the answer goes into the file so it is never asked
     again. `--yes` or no terminal takes the config value, true by default, and
     prints the explanation as a notice. Once the file has the key, a rerun
-    prints the current choice and the key that changes it.
+    prints the current choice and the key that changes it. None when the
+    answer could not be written: an answer that lives only in this run would
+    be asked again, or overridden by a later `--yes`, so setup stops here,
+    before anything is installed.
     """
     key = config.LINKS_KEY
     if config.links_answered():
@@ -1410,9 +1413,8 @@ def ask_links(cfg: dict, assume_yes: bool) -> dict:
     try:
         return config.set_links(answer)
     except (config.Busy, config.Invalid, OSError) as e:
-        print(f"cannot record the answer in {config.config_path()}: {e}", file=sys.stderr)
-        cfg[key] = answer
-        return cfg
+        print(f"cannot record the answer in {config.config_path()}: {e}; nothing was installed", file=sys.stderr)
+        return None
 
 
 def install(assume_yes: bool = False):
@@ -1436,6 +1438,8 @@ def install(assume_yes: bool = False):
     cfg = _load_cfg()
     if cfg is not None:
         cfg = ask_links(cfg, assume_yes)
+        if cfg is None:
+            return 1
     grant_bytes = grant.encode("utf-8")
     if not _already_current(source, grant_bytes, wrapper):
         if _root_transaction(source, grant_bytes, wrapper, sudoers) != 0:
