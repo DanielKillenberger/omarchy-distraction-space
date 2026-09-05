@@ -847,11 +847,89 @@ def _render_handler() -> str:
     ]) + "\n"
 
 
-def _plan(exp: dict, cfg: dict, handler: str | None, keep_handler: bool = False) -> list[tuple[Path, str]]:
+# Omarchy's web-app launcher: every entry whose Exec starts with it opens in the
+# default browser, which is this plugin while links are on.
+WEBAPP_LAUNCHER = "omarchy-launch-webapp"
+_EXEC_KEY = re.compile(r"^\s*Exec\s*=")
+# Entries this process has already reported as left alone: once per setup run,
+# once per listener lifetime, never once a minute.
+_skipped: set[str] = set()
+
+
+def _skip(path: Path, why: str) -> None:
+    if str(path) not in _skipped:
+        _skipped.add(str(path))
+        print(f"{path}: {why}; the entry is left alone", file=sys.stderr)
+
+
+def _is_own(exec_value: str | None) -> bool:
+    """True when an Exec value is this plugin's launcher, whichever setup wrote it."""
+    return launch._is_own_launcher(launch.parse_exec(exec_value) or [])
+
+
+def _own_file(path: Path) -> bool:
+    return _is_own(launch.read_exec(path))
+
+
+def _replace_exec(text: str, exec_line: str) -> str | None:
+    """`text` with the main group's Exec value replaced and every other byte as it was; None without one."""
+    lines, in_main = text.splitlines(keepends=True), False
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_main:
+                return None
+            in_main = stripped == "[Desktop Entry]"
+            continue
+        if in_main and _EXEC_KEY.match(line):
+            ending = line[len(line.rstrip("\r\n")):]
+            lines[i] = "Exec=" + exec_line + (ending or "\n")
+            return "".join(lines)
+    return None
+
+
+def _forward_entry(path: Path, backup: str | None) -> str | None:
+    """The rewrite of an Omarchy web-app entry at `path`, or None when there is none to make.
+
+    Omarchy's file is the one at `path` unless that is this plugin's launcher
+    already, in which case it is the backup taken when it was first rewritten.
+    Only Exec changes: `distractions open --app <url> [extra]`, the URL and the
+    extra arguments carried over through the desktop-entry grammar both ways,
+    so an unlisted web app opens in the previous browser as an app window and
+    a listed one in the space. One that cannot be parsed is named once.
+    """
+    source, value = path, launch.read_exec(path)
+    if value is None or _is_own(value):
+        source = Path(backup) if backup else None
+        value = launch.read_exec(source) if source is not None else None
+    if value is None:
+        return None
+    argv, tokens = launch.parse_exec(value), value.split()
+    head = argv[0] if argv else tokens[0] if tokens else ""
+    if Path(head).name != WEBAPP_LAUNCHER:
+        return None
+    args = launch.expand_fields(argv[1:]) if argv else []
+    data = state.read_bounded(source)
+    try:
+        text = data.decode("utf-8") if data is not None else None
+    except UnicodeDecodeError:
+        text = None
+    rewritten = None
+    if args and text is not None:
+        exec_line = " ".join(_exec_arg(a) for a in (str(ROOT / "distractions"), "open", "--app", *args))
+        rewritten = _replace_exec(text, exec_line)
+    if rewritten is None:
+        _skip(source, "the Exec line could not be parsed")
+    return rewritten
+
+
+def _plan(exp: dict, cfg: dict | None, handler: str | None, with_handler: bool, owned: dict[str, str | None]) -> list[tuple[Path, str]]:
     """Every file this run wants under the applications directory, in write order.
 
-    `keep_handler` keeps the handler entry although the switch is off: the default
-    browser still points at it and could not be handed back this run.
+    Listed products first, then every Omarchy web-app entry that is not one of
+    them, rewritten to forward, then the handler when `with_handler`. `owned`
+    is the manifest's path-to-backup map: a rewritten entry's source is its
+    backup, since the file at its path is already the rewrite.
     """
     apps, plan, seen = applications_dir(), [], set()
     for entry in exp.get("list") or []:
@@ -866,7 +944,17 @@ def _plan(exp: dict, cfg: dict, handler: str | None, keep_handler: bool = False)
             continue
         seen.add(path)
         plan.append((path, _render_entry(entry, cfg, handler)))
-    if cfg["open_links_in_space"] or keep_handler:
+    try:
+        present = sorted(p for p in apps.iterdir() if p.suffix == ".desktop" and p.is_file())
+    except OSError:
+        present = []
+    for path in present:
+        if path in seen or path.name == HANDLER_ID:
+            continue
+        text = _forward_entry(path, owned.get(str(path)))
+        if text is not None:
+            plan.append((path, text))
+    if with_handler:
         plan.append((apps / HANDLER_ID, _render_handler()))
     return plan
 
@@ -941,14 +1029,125 @@ def _restore_handler(previous: str | None) -> bool:
     return True
 
 
-def sync_entries(exp: dict, cfg: dict) -> int:
-    """Launcher entries and the URL handler, user-level, finished or rolled back as one.
+def _unchanged(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, str]], previous: str | None) -> bool:
+    """True when every planned file already holds its text and the manifest would be rewritten as it is.
 
-    A file at an entry's path that the manifest does not own is moved whole into
-    `entries-backup/` and recorded beside the entry; nothing this plugin did not
-    write is ever edited or deleted. Entries the list no longer carries hand back
-    what they shadowed. The manifest is written last, after every file it names,
-    and only then is the default browser switched.
+    The sync runs once a minute from the listener, so the common case has to
+    cost a few reads and no write: no owned file to drop, every planned file
+    byte-for-byte what it would be written as (which also makes it this
+    plugin's own, so its backup carries over), and the record the same.
+    """
+    wanted = {str(path) for path, _text in plan}
+    if any(path not in wanted for path in owned):
+        return False
+    files = []
+    for path, text in plan:
+        if state.read_bounded(path) != text.encode("utf-8"):
+            return False
+        files.append({"path": str(path), "backup": owned.get(str(path))})
+    return old == {"files": files, "previous_handler": previous}
+
+
+def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, str]], previous: str | None) -> int:
+    """The plan written under the applications directory and recorded, finished or rolled back as one.
+
+    A file at a planned path that is not this plugin's launcher is Omarchy's (or
+    the person's): it is moved whole into `entries-backup/` and recorded beside
+    the entry, replacing an older backup, so the backup is always the latest
+    entry the plugin displaced; nothing this plugin did not write is ever edited
+    or deleted. An owned path the plan no longer carries hands back what it
+    shadowed, unless its launcher is already gone: a launcher the person removed
+    shadows nothing, and bringing its backup back would resurrect the web app
+    they removed, so the backup goes with the record. The manifest is written
+    last, after every file it names. Nothing to change is nothing written.
+    """
+    if _unchanged(old, owned, plan, previous):
+        return 0
+    wanted = {str(path) for path, _text in plan}
+    apps, backups, journal, files, staged = applications_dir(), _backup_dir(), [], [], []
+
+    def move(src: Path, dst: Path) -> None:
+        shutil.move(str(src), str(dst))
+        journal.append(("moved", str(src), str(dst)))
+
+    def stage(path: Path) -> None:
+        # A file about to be replaced or dropped is moved aside whole, so a
+        # rollback puts its exact bytes back and success discards the copy.
+        backups.mkdir(parents=True, exist_ok=True)
+        dest = backups / f".stage-{path.name}"
+        _unlink(dest)
+        move(path, dest)
+        staged.append(dest)
+
+    def held(backup: str | None) -> bool:
+        return bool(backup) and (Path(backup).exists() or Path(backup).is_symlink())
+
+    try:
+        apps.mkdir(parents=True, exist_ok=True)
+        for path_s, backup in owned.items():
+            if path_s in wanted:
+                continue
+            path = Path(path_s)
+            present = path.is_file() or path.is_symlink()
+            if present:
+                stage(path)
+            if held(backup):
+                move(Path(backup), path) if present else stage(Path(backup))
+        for path, text in plan:
+            backup = owned.get(str(path))
+            # A file or link is moved aside whole; anything else (a directory) is
+            # not a launcher entry and the write below refuses it.
+            present = path.is_file() or path.is_symlink()
+            if present and not _own_file(path):
+                if held(backup):
+                    stage(Path(backup))
+                backups.mkdir(parents=True, exist_ok=True)
+                dest = backups / path.name
+                move(path, dest)
+                backup = str(dest)
+            elif present:
+                stage(path)
+            _write_text(path, text)
+            journal.append(("wrote", str(path)))
+            files.append({"path": str(path), "backup": backup})
+        state.write_entries({"files": files, "previous_handler": previous})
+    except OSError as e:
+        print(f"cannot write launcher entries under {apps}: {e}", file=sys.stderr)
+        _rollback(journal)
+        return 1
+    for dest in staged:
+        _unlink(dest)
+    _update_desktop_database(apps)
+    return 0
+
+
+def refresh_entries(exp: dict, cfg: dict | None) -> int:
+    """The listener's half of the entry sync: what setup wrote, kept written.
+
+    Runs on `refresh` and once a period, so an entry Omarchy regenerates (a web
+    app installed or reinstalled) is rewritten within a minute. Only once setup
+    has written the manifest, and never the default browser: the handler file
+    stays exactly as recorded, the recorded previous handler stands, and
+    `xdg-settings` is not asked, so a default the person moved elsewhere is the
+    link check's notice and never fought over here.
+    """
+    if not state.entries_path().exists():
+        return 0
+    old = state.read_entries()
+    owned_files = _owned_files(old)
+    if owned_files is None:
+        return _refuse_manifest()
+    owned = {item["path"]: item["backup"] for item in owned_files}
+    holds = any(Path(p).name == HANDLER_ID for p in owned)
+    previous = old["previous_handler"]
+    return _sync_files(old, owned, _plan(exp, cfg, previous, holds, owned), previous)
+
+
+def sync_entries(exp: dict, cfg: dict) -> int:
+    """Launcher entries, the rewritten Omarchy web apps, and the URL handler, then the default browser.
+
+    The files are `_sync_files`' one transaction; only after the manifest names
+    every one of them is the default browser switched.
     """
     old = state.read_entries()
     owned_files = _owned_files(old)
@@ -970,56 +1169,9 @@ def sync_entries(exp: dict, cfg: dict) -> int:
             keep_handler = not _restore_handler(old["previous_handler"])
         elif not answered and holds:
             keep_handler = True
-    plan = _plan(exp, cfg, previous, keep_handler=keep_handler)
-    wanted = {str(path) for path, _text in plan}
-    apps, backups, journal, files, staged = applications_dir(), _backup_dir(), [], [], []
-
-    def move(src: Path, dst: Path) -> None:
-        shutil.move(str(src), str(dst))
-        journal.append(("moved", str(src), str(dst)))
-
-    def stage(path: Path) -> None:
-        # An owned file about to be replaced or dropped is moved aside whole, so a
-        # rollback puts its exact bytes back and success discards the copy.
-        backups.mkdir(parents=True, exist_ok=True)
-        dest = backups / f".stage-{path.name}"
-        _unlink(dest)
-        move(path, dest)
-        staged.append(dest)
-
-    try:
-        apps.mkdir(parents=True, exist_ok=True)
-        for path_s, backup in owned.items():
-            if path_s in wanted:
-                continue
-            path = Path(path_s)
-            if path.is_file() or path.is_symlink():
-                stage(path)
-            if backup and (Path(backup).exists() or Path(backup).is_symlink()):
-                move(Path(backup), path)
-        for path, text in plan:
-            backup = owned.get(str(path))
-            # A file or link is moved aside whole; anything else (a directory) is
-            # not a launcher entry and the write below refuses it.
-            present = path.is_file() or path.is_symlink()
-            if present and str(path) not in owned:
-                backups.mkdir(parents=True, exist_ok=True)
-                dest = backups / path.name
-                move(path, dest)
-                backup = str(dest)
-            elif present:
-                stage(path)
-            _write_text(path, text)
-            journal.append(("wrote", str(path)))
-            files.append({"path": str(path), "backup": backup})
-        state.write_entries({"files": files, "previous_handler": previous})
-    except OSError as e:
-        print(f"cannot write launcher entries under {apps}: {e}", file=sys.stderr)
-        _rollback(journal)
+    plan = _plan(exp, cfg, previous, cfg["open_links_in_space"] or keep_handler, owned)
+    if _sync_files(old, owned, plan, previous) != 0:
         return 1
-    for dest in staged:
-        _unlink(dest)
-    _update_desktop_database(apps)
     if not cfg["open_links_in_space"]:
         if keep_handler:
             print("links: displaced -- the default browser still points at the handler, so the handler "
@@ -1062,13 +1214,18 @@ def remove_entries() -> int:
     try:
         for item in files:
             path = Path(item["path"])
+            present = path.is_file() or path.is_symlink()
             _unlink(path)
             if item["backup"]:
                 backup = Path(item["backup"])
-                if backup.exists() or backup.is_symlink():
+                if not (backup.exists() or backup.is_symlink()):
+                    print(f"backup {backup} is missing; {path} stays removed", file=sys.stderr)
+                elif present:
                     shutil.move(str(backup), str(path))
                 else:
-                    print(f"backup {backup} is missing; {path} stays removed", file=sys.stderr)
+                    # The launcher was removed by hand (or by Omarchy's web-app
+                    # remover); its backup would only bring that web app back.
+                    backup.unlink()
         _unlink(state.entries_path())
         if files:
             _update_desktop_database(applications_dir())

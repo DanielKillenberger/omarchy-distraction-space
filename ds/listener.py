@@ -433,6 +433,7 @@ class _Ctx:
         self.write_state()
         if time.monotonic() - self.last_period >= PERIOD:
             self.last_period = time.monotonic()
+            setup.refresh_entries(self.exp, self.cfg)
             self.check_links()
             self.write_state()
             if self.block_enabled():
@@ -462,6 +463,7 @@ class _Ctx:
         state.write_expansion(self.exp)
         return self.enforce("reload")
     def refresh(self):
+        setup.refresh_entries(self.exp, self.cfg)
         if not self.block_enabled():
             # Nothing to resolve. The switch is honored already unless the last
             # flush was refused, in which case this is the retry.

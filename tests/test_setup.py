@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
-from ds import setup
+from ds import launch, setup
 from ds.config import DEFAULTS
 
 SUDO = r"""
@@ -186,6 +186,14 @@ OMARCHY_YOUTUBE = (
     "[Desktop Entry]\nVersion=1.0\nName=YouTube\nExec=omarchy-launch-webapp https://youtube.com/\n"
     "Terminal=false\nType=Application\nIcon=youtube\nStartupNotify=true\n"
 )
+# An Omarchy web app that is not a listed product, with a URL the desktop-entry
+# grammar has to quote and an extra argument the launcher passes after it.
+BASECAMP_URL = "https://launchpad.37signals.com/?ref=a&b=1"
+BASECAMP_EXEC = f"omarchy-launch-webapp {BASECAMP_URL} --class=basecamp"
+OMARCHY_BASECAMP = (
+    f"[Desktop Entry]\nVersion=1.0\nName=Basecamp\nExec={BASECAMP_EXEC}\n"
+    "Terminal=false\nType=Application\nIcon=basecamp\nStartupNotify=true\n"
+)
 
 
 class SetupTests(unittest.TestCase):
@@ -226,6 +234,7 @@ class SetupTests(unittest.TestCase):
         # the hold unavailable and never reaches the live omarchy-plugin-clone.
         os.environ["DS_NOTIFICATIONS_SOURCE"] = str(self.box.runtime / "no-notifications")
         setup._service_changed = False
+        setup._skipped.clear()
         os.environ.pop("DS_SUDO_DENY", None)
         os.environ.pop("DS_FLUSH_RC", None)
         os.environ.pop("DS_FLUSH_ERR", None)
@@ -392,26 +401,108 @@ class SetupTests(unittest.TestCase):
         self.assertIn(str(setup.profile_dir()), out.getvalue())
         self.assertTrue(setup.profile_dir().is_dir())
 
-    def test_rerun_keeps_the_backup_and_a_dropped_entry_hands_its_file_back(self):
+    def test_rerun_keeps_the_backup_and_a_dropped_omarchy_web_app_becomes_a_forwarder(self):
         omarchy = self.apps / "YouTube.desktop"
         omarchy.write_text(OMARCHY_YOUTUBE, encoding="utf-8")
         self.assertEqual(self._install(), (0, ""))
         backup = self.box.state_dir / "entries-backup" / "YouTube.desktop"
         first = self._entries()
         # A re-run owns the file already: no second backup, the record carried forward,
-        # and the default is not set again once it is ours.
+        # the default not set again once it is ours, and nothing rewritten.
         self.assertEqual(self._install(), (0, ""))
         self.assertEqual(self._entries(), first)
         self.assertEqual(backup.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
         self.assertEqual(self._xdg_lines().count(f"set default-web-browser {setup.HANDLER_ID}"), 1)
-        # Dropping YouTube from the list restores Omarchy's entry and forgets it.
+        self.assertEqual(self.udd_log.read_text(encoding="utf-8"), f"{self.apps}\n")
+        # Dropping YouTube from the list makes Omarchy's entry an unlisted web app:
+        # rewritten from the backup to forward, the backup kept, still recorded.
         self._cfg(list=["Telegram"])
         self.assertEqual(self._install(), (0, ""))
-        self.assertEqual(omarchy.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
-        self.assertFalse(backup.exists())
-        self.assertEqual([f["path"] for f in self._entries()["files"]],
-                         [str(self.apps / "org.telegram.desktop.desktop"), str(self.apps / setup.HANDLER_ID)])
+        self.assertEqual(
+            omarchy.read_text(encoding="utf-8"),
+            OMARCHY_YOUTUBE.replace("omarchy-launch-webapp", f"{ROOT / 'distractions'} open --app"),
+        )
+        self.assertEqual(backup.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
+        self.assertEqual(self._entries()["files"], [
+            {"path": str(self.apps / "org.telegram.desktop.desktop"), "backup": None},
+            {"path": str(omarchy), "backup": str(backup)},
+            {"path": str(self.apps / setup.HANDLER_ID), "backup": None},
+        ])
         self.assertEqual(self._entries()["previous_handler"], "google-chrome.desktop")
+
+    def test_unlisted_omarchy_web_app_is_rewritten_with_every_other_key_kept_and_remove_restores_it(self):
+        listed, basecamp = self.apps / "YouTube.desktop", self.apps / "Basecamp.desktop"
+        listed.write_text(OMARCHY_YOUTUBE, encoding="utf-8")
+        basecamp.write_text(OMARCHY_BASECAMP, encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        backup = self.box.state_dir / "entries-backup" / "Basecamp.desktop"
+        forward = f"{ROOT / 'distractions'} open --app \"{BASECAMP_URL}\" --class=basecamp"
+        self.assertEqual(basecamp.read_text(encoding="utf-8"), OMARCHY_BASECAMP.replace(BASECAMP_EXEC, forward))
+        # The rewritten line reads back through the desktop-entry grammar as the argv `open` gets.
+        self.assertEqual(launch.parse_exec(launch.read_exec(basecamp)),
+                         [str(ROOT / "distractions"), "open", "--app", BASECAMP_URL, "--class=basecamp"])
+        self.assertEqual(backup.read_text(encoding="utf-8"), OMARCHY_BASECAMP)
+        # The listed product keeps the space launcher: one file, no forwarder for it.
+        self.assertIn(f"Exec={ROOT / 'distractions'} open YouTube\n", listed.read_text(encoding="utf-8"))
+        self.assertEqual(self._entries()["files"], [
+            {"path": str(listed), "backup": str(self.box.state_dir / "entries-backup" / "YouTube.desktop")},
+            {"path": str(self.apps / "org.telegram.desktop.desktop"), "backup": None},
+            {"path": str(basecamp), "backup": str(backup)},
+            {"path": str(self.apps / setup.HANDLER_ID), "backup": None},
+        ])
+        self.assertEqual(setup.remove(), 0)
+        self.assertEqual(basecamp.read_text(encoding="utf-8"), OMARCHY_BASECAMP)
+        self.assertEqual(listed.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
+        self.assertFalse(backup.exists())
+        self.assertIsNone(self._entries())
+
+    def test_an_omarchy_web_app_whose_exec_cannot_be_parsed_is_left_alone_and_named_once(self):
+        broken = {
+            self.apps / "Unbalanced.desktop": OMARCHY_BASECAMP.replace(BASECAMP_EXEC, 'omarchy-launch-webapp "https://x'),
+            self.apps / "NoUrl.desktop": OMARCHY_BASECAMP.replace(BASECAMP_EXEC, "omarchy-launch-webapp"),
+        }
+        for path, text in broken.items():
+            path.write_text(text, encoding="utf-8")
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        for path, text in broken.items():
+            with self.subTest(path.name):
+                self.assertEqual(path.read_text(encoding="utf-8"), text)
+                self.assertEqual(len([ln for ln in err.splitlines() if str(path) in ln]), 1)
+                self.assertNotIn(str(path), [f["path"] for f in self._entries()["files"]])
+        self.assertFalse((self.box.state_dir / "entries-backup" / "Unbalanced.desktop").exists())
+        # A rerun in the same process does not name them again.
+        rc, err = self._install()
+        self.assertEqual((rc, err), (0, ""))
+
+    def test_a_regenerated_web_app_is_rewritten_from_the_new_file_and_a_removed_one_is_not_resurrected(self):
+        basecamp = self.apps / "Basecamp.desktop"
+        basecamp.write_text(OMARCHY_BASECAMP, encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        backup = self.box.state_dir / "entries-backup" / "Basecamp.desktop"
+        # Omarchy reinstalls the web app over the forwarder: the new file is the
+        # source and the new backup, the old backup gone.
+        regenerated = OMARCHY_BASECAMP.replace("Icon=basecamp", "Icon=basecamp-new")
+        basecamp.write_text(regenerated, encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        self.assertIn("Icon=basecamp-new\n", basecamp.read_text(encoding="utf-8"))
+        self.assertIn(f"Exec={ROOT / 'distractions'} open --app ", basecamp.read_text(encoding="utf-8"))
+        self.assertEqual(backup.read_text(encoding="utf-8"), regenerated)
+        self.assertEqual(sorted(p.name for p in backup.parent.iterdir()), ["Basecamp.desktop"])
+        # The person removes the web app: the record and its backup go, nothing comes back.
+        basecamp.unlink()
+        self.assertEqual(self._install(), (0, ""))
+        self.assertFalse(basecamp.exists())
+        self.assertFalse(backup.exists())
+        self.assertNotIn(str(basecamp), [f["path"] for f in self._entries()["files"]])
+        # And remove does the same for a launcher removed after the last sync.
+        basecamp.write_text(OMARCHY_BASECAMP, encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        self.assertTrue(backup.is_file())
+        basecamp.unlink()
+        self.assertEqual(setup.remove(), 0)
+        self.assertFalse(basecamp.exists())
+        self.assertFalse(backup.exists())
 
     def test_browser_variable_in_the_session_does_not_block_the_switch(self):
         # Omarchy exports BROWSER; the real xdg-settings exits 4 while it is set.
@@ -552,7 +643,7 @@ class SetupTests(unittest.TestCase):
         cfg = json.loads(json.dumps(DEFAULTS))
         exp = {"list": [{"name": "Bad\nName", "hosts": ["x.example"], "classes": []},
                         {"name": "Good", "hosts": ["good.example"], "classes": []}]}
-        plan = setup._plan(exp, cfg, None)
+        plan = setup._plan(exp, cfg, None, True, {})
         self.assertEqual([p.name for p, _text in plan], ["Good.desktop", setup.HANDLER_ID])
 
     def test_wm_class_follows_the_configured_browser(self):

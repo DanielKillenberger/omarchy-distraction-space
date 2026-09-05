@@ -161,11 +161,23 @@ if args == ["get", "default-web-browser"]:
 sys.exit(1)
 """
 
+# The entry sync refreshes the desktop cache after a write; the real tool stays out of the sandbox.
+UPDATE_DESKTOP_DATABASE = r"""
+import os, sys
+from pathlib import Path
+Path(os.environ["DS_UDD_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
+"""
+
+OMARCHY_BASECAMP = (
+    "[Desktop Entry]\nVersion=1.0\nName=Basecamp\nExec=omarchy-launch-webapp https://launchpad.37signals.com\n"
+    "Terminal=false\nType=Application\nIcon=basecamp\nStartupNotify=true\n"
+)
+
 _ENV_KEYS = (
     "DS_HYPR_LOG", "DS_NOTIFY_LOG", "DS_NFT_LOG", "GETENT_LOG", "DS_HOOK_LOG",
     "DS_HYPR_STATE", "DS_SOCKET2", "GETENT_MAP", "GETENT_GATE", "DS_HYPR_FAIL",
     "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT", "DS_SYSTEMCTL_LOG",
-    "XDG_DATA_HOME", "XDG_DATA_DIRS", "DS_XDG_DEFAULT", "DS_XDG_LOG",
+    "XDG_DATA_HOME", "XDG_DATA_DIRS", "DS_XDG_DEFAULT", "DS_XDG_LOG", "DS_UDD_LOG",
 )
 
 
@@ -226,20 +238,21 @@ class ListenerTests(unittest.TestCase):
         self.systemctl_log = self.box.runtime / "systemctl.log"
         self.sock2_path = self.box.runtime / "socket2.sock"
         self.gate = self.box.runtime / "getent.gate"
-        # XDG_DATA_HOME is pinned here on top of the harness default; the entries manifest the
-        # link check reads names files under it, so point it into the sandbox.
-        self.apps = self.box.runtime / "data" / "applications"
+        # The harness pins XDG_DATA_HOME to the sandbox's data directory for the listener
+        # process; the entries manifest and the files the entry sync writes live under it.
+        self.apps = self.box.data / "applications"
         self.xdg_default = self.box.runtime / "xdg-default"
         self.xdg_default.write_text("google-chrome.desktop\n", encoding="utf-8")
         self.xdg_log = self.box.runtime / "xdg.log"
+        self.udd_log = self.box.runtime / "udd.log"
         self._orig_env = {k: os.environ.get(k) for k in _ENV_KEYS}
         os.environ.update({
-            "XDG_DATA_HOME": str(self.box.runtime / "data"),
             # No system desktop files either: the browser pick must not find the
             # developer's real Chrome under /usr/share.
             "XDG_DATA_DIRS": str(self.box.runtime / "share"),
             "DS_XDG_DEFAULT": str(self.xdg_default),
             "DS_XDG_LOG": str(self.xdg_log),
+            "DS_UDD_LOG": str(self.udd_log),
             "DS_HYPR_LOG": str(self.hypr_log),
             "DS_NOTIFY_LOG": str(self.notify_log),
             "DS_NFT_LOG": str(self.nft_log),
@@ -263,6 +276,7 @@ class ListenerTests(unittest.TestCase):
         self.box.fake_bin("pactl", QUIET_STUB)
         self.box.fake_bin("systemctl", SYSTEMCTL)
         self.box.fake_bin("xdg-settings", XDG_SETTINGS)
+        self.box.fake_bin("update-desktop-database", UPDATE_DESKTOP_DATABASE)
         self.hook_py = self.box.bin / "ds-hook.py"
         self.hook_py.write_text("#!/usr/bin/env python3\n" + HOOK, encoding="utf-8")
         self.hook_py.chmod(0o755)
@@ -423,7 +437,7 @@ class ListenerTests(unittest.TestCase):
         """What `distractions setup` leaves behind: the handler file, its manifest line, and the default set to it."""
         handler = self.apps / setup.HANDLER_ID
         handler.parent.mkdir(parents=True, exist_ok=True)
-        handler.write_text("[Desktop Entry]\nType=Application\nName=Distraction space\n", encoding="utf-8")
+        handler.write_text(setup._render_handler(), encoding="utf-8")
         write_json(self.box.state_dir / "entries.json", {
             "files": [{"path": str(handler), "backup": None}],
             "previous_handler": "google-chrome.desktop",
@@ -444,6 +458,15 @@ class ListenerTests(unittest.TestCase):
         if not self.xdg_log.exists():
             return []
         return [ln for ln in self.xdg_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    def _udd_lines(self):
+        if not self.udd_log.exists():
+            return []
+        return [ln for ln in self.udd_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    def _entries(self):
+        path = self.box.state_dir / "entries.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
     def _notices(self, needle):
         if not self.notify_log.exists():
@@ -530,6 +553,49 @@ class ListenerTests(unittest.TestCase):
         self.assertTrue(_wait(lambda: self._links() == "off"), self._state())
         self._assert_links_never_asks()
         self.assertEqual(self._notices("distractions setup"), [])
+
+    def test_refresh_and_the_tick_rewrite_a_regenerated_web_app_and_never_touch_the_default(self):
+        self._cfg()
+        basecamp = self.apps / "Basecamp.desktop"
+        basecamp.parent.mkdir(parents=True, exist_ok=True)
+        basecamp.write_text(OMARCHY_BASECAMP, encoding="utf-8")
+        # Before setup has written its manifest the listener owns no entries and writes none.
+        self._start(extra_env=self._period_env(1.0))
+        time.sleep(2.2)
+        self.assertEqual(basecamp.read_text(encoding="utf-8"), OMARCHY_BASECAMP)
+        self.assertIsNone(self._entries())
+        self.assertEqual(self._udd_lines(), [])
+        self._stop()
+        self.conn.close()
+        self.sock2.close()
+        # After setup: `refresh` rewrites the unlisted web app to forward, backs it up, records it.
+        self._register_handler()
+        self._start(extra_env=self._period_env(1.0))
+        self.assertTrue(_wait(lambda: self._links() == "on"), self._state())
+        r = self.box.run("refresh", timeout=16)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        forward = OMARCHY_BASECAMP.replace("omarchy-launch-webapp", f"{ROOT / 'distractions'} open --app")
+        self.assertEqual(basecamp.read_text(encoding="utf-8"), forward)
+        backup = self.box.state_dir / "entries-backup" / "Basecamp.desktop"
+        self.assertEqual(backup.read_text(encoding="utf-8"), OMARCHY_BASECAMP)
+        entries = self._entries()
+        self.assertIn({"path": str(basecamp), "backup": str(backup)}, entries["files"])
+        self.assertIn({"path": str(self.apps / setup.HANDLER_ID), "backup": None}, entries["files"])
+        self.assertEqual(entries["previous_handler"], "google-chrome.desktop")
+        self.assertEqual(len(self._udd_lines()), 1)
+        # Omarchy regenerates the entry: the next period rewrites it from the new file.
+        regenerated = OMARCHY_BASECAMP.replace("Icon=basecamp", "Icon=basecamp-new")
+        basecamp.write_text(regenerated, encoding="utf-8")
+        self.assertTrue(_wait(lambda: basecamp.read_text(encoding="utf-8") == forward.replace("Icon=basecamp", "Icon=basecamp-new"), 6.0), basecamp.read_text(encoding="utf-8"))
+        self.assertEqual(backup.read_text(encoding="utf-8"), regenerated)
+        self.assertTrue(_wait(lambda: len(self._udd_lines()) == 2), self._udd_lines())
+        # Nothing changed since: the following periods write nothing. The default browser is
+        # never set from here, and the handler stays as recorded.
+        time.sleep(2.2)
+        self.assertEqual(len(self._udd_lines()), 2)
+        self.assertEqual(self._xdg_sets(), [])
+        self.assertEqual(self.xdg_default.read_text(encoding="utf-8").strip(), setup.HANDLER_ID)
+        self.assertEqual(self._links(), "on")
 
     def test_second_listen_exits_silently(self):
         self._cfg()
