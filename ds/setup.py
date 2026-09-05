@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import os
 import pwd
@@ -11,6 +13,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 from ds import catalog, cgroup, config, launch, state
@@ -854,6 +857,9 @@ _EXEC_KEY = re.compile(r"^\s*Exec\s*=")
 # Entries this process has already reported as left alone: once per setup run,
 # once per listener lifetime, never once a minute.
 _skipped: set[str] = set()
+# `_forward_entry`'s answer for an Omarchy web-app entry it cannot rewrite: the
+# file, and whatever record and backup the manifest holds for it, stay as they are.
+KEEP = object()
 
 
 def _skip(path: Path, why: str) -> None:
@@ -888,15 +894,16 @@ def _replace_exec(text: str, exec_line: str) -> str | None:
     return None
 
 
-def _forward_entry(path: Path, backup: str | None) -> str | None:
-    """The rewrite of an Omarchy web-app entry at `path`, or None when there is none to make.
+def _forward_entry(path: Path, backup: str | None) -> str | object | None:
+    """The rewrite of an Omarchy web-app entry at `path`; `KEEP` when it has one that cannot be parsed; None when it has none.
 
     Omarchy's file is the one at `path` unless that is this plugin's launcher
     already, in which case it is the backup taken when it was first rewritten.
     Only Exec changes: `distractions open --app <url> [extra]`, the URL and the
     extra arguments carried over through the desktop-entry grammar both ways,
     so an unlisted web app opens in the previous browser as an app window and
-    a listed one in the space. One that cannot be parsed is named once.
+    a listed one in the space. One that cannot be parsed is named once and
+    left alone: neither rewritten nor, when it is already recorded, restored.
     """
     source, value = path, launch.read_exec(path)
     if value is None or _is_own(value):
@@ -920,16 +927,18 @@ def _forward_entry(path: Path, backup: str | None) -> str | None:
         rewritten = _replace_exec(text, exec_line)
     if rewritten is None:
         _skip(source, "the Exec line could not be parsed")
+        return KEEP
     return rewritten
 
 
-def _plan(exp: dict, cfg: dict | None, handler: str | None, with_handler: bool, owned: dict[str, str | None]) -> list[tuple[Path, str]]:
+def _plan(exp: dict, cfg: dict | None, handler: str | None, with_handler: bool, owned: dict[str, str | None]) -> list[tuple[Path, str | None]]:
     """Every file this run wants under the applications directory, in write order.
 
     Listed products first, then every Omarchy web-app entry that is not one of
     them, rewritten to forward, then the handler when `with_handler`. `owned`
     is the manifest's path-to-backup map: a rewritten entry's source is its
-    backup, since the file at its path is already the rewrite.
+    backup, since the file at its path is already the rewrite. An owned entry
+    that cannot be rewritten is planned with no text: kept, not written.
     """
     apps, plan, seen = applications_dir(), [], set()
     for entry in exp.get("list") or []:
@@ -952,7 +961,10 @@ def _plan(exp: dict, cfg: dict | None, handler: str | None, with_handler: bool, 
         if path in seen or path.name == HANDLER_ID:
             continue
         text = _forward_entry(path, owned.get(str(path)))
-        if text is not None:
+        if text is KEEP:
+            if str(path) in owned:
+                plan.append((path, None))
+        elif text is not None:
             plan.append((path, text))
     if with_handler:
         plan.append((apps / HANDLER_ID, _render_handler()))
@@ -1029,7 +1041,7 @@ def _restore_handler(previous: str | None) -> bool:
     return True
 
 
-def _unchanged(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, str]], previous: str | None) -> bool:
+def _unchanged(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, str | None]], previous: str | None) -> bool:
     """True when every planned file already holds its text and the manifest would be rewritten as it is.
 
     The sync runs once a minute from the listener, so the common case has to
@@ -1042,13 +1054,13 @@ def _unchanged(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, s
         return False
     files = []
     for path, text in plan:
-        if state.read_bounded(path) != text.encode("utf-8"):
+        if text is not None and state.read_bounded(path) != text.encode("utf-8"):
             return False
         files.append({"path": str(path), "backup": owned.get(str(path))})
     return old == {"files": files, "previous_handler": previous}
 
 
-def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, str]], previous: str | None) -> int:
+def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, str | None]], previous: str | None) -> int:
     """The plan written under the applications directory and recorded, finished or rolled back as one.
 
     A file at a planned path that is not this plugin's launcher is Omarchy's (or
@@ -1058,8 +1070,9 @@ def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, 
     or deleted. An owned path the plan no longer carries hands back what it
     shadowed, unless its launcher is already gone: a launcher the person removed
     shadows nothing, and bringing its backup back would resurrect the web app
-    they removed, so the backup goes with the record. The manifest is written
-    last, after every file it names. Nothing to change is nothing written.
+    they removed, so the backup goes with the record. A planned path with no
+    text is carried as recorded and not touched. The manifest is written last,
+    after every file it names. Nothing to change is nothing written.
     """
     if _unchanged(old, owned, plan, previous):
         return 0
@@ -1095,6 +1108,9 @@ def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, 
                 move(Path(backup), path) if present else stage(Path(backup))
         for path, text in plan:
             backup = owned.get(str(path))
+            if text is None:
+                files.append({"path": str(path), "backup": backup})
+                continue
             # A file or link is moved aside whole; anything else (a directory) is
             # not a launcher entry and the write below refuses it.
             present = path.is_file() or path.is_symlink()
@@ -1121,6 +1137,49 @@ def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, 
     return 0
 
 
+# How long setup and remove wait for the listener's sync to finish; the sync is a
+# few reads when nothing changed and one desktop-cache refresh (`UDD_TIMEOUT`) at most.
+ENTRIES_LOCK_TIMEOUT = 90.0
+
+
+@contextlib.contextmanager
+def _entries_lock(wait: float):
+    """One manifest transaction at a time across setup, remove, and the listener.
+
+    Yields True with the lock held, False when another holder kept it for
+    `wait` seconds: setup and remove wait, the listener's periodic sync gives
+    way at once. Without this a tick could see a file setup has just moved
+    into `entries-backup/`, take it for a launcher the person removed, and
+    delete the backup setup is about to record.
+    """
+    path = state.runtime_path("distraction-space.entries.lock")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lf = open(path, "a+", encoding="utf-8")
+    except OSError as e:
+        print(f"cannot open {path}: {e}", file=sys.stderr)
+        yield False
+        return
+    with lf:
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(0.05)
+        yield True
+
+
+def _busy() -> int:
+    print("the launcher entries are being written by another setup, remove, or the listener; "
+          "rerun in a moment", file=sys.stderr)
+    return 1
+
+
 def refresh_entries(exp: dict, cfg: dict | None) -> int:
     """The listener's half of the entry sync: what setup wrote, kept written.
 
@@ -1129,10 +1188,16 @@ def refresh_entries(exp: dict, cfg: dict | None) -> int:
     has written the manifest, and never the default browser: the handler file
     stays exactly as recorded, the recorded previous handler stands, and
     `xdg-settings` is not asked, so a default the person moved elsewhere is the
-    link check's notice and never fought over here.
+    link check's notice and never fought over here. A setup or remove under
+    way owns the files; this sync steps aside until the next period.
     """
     if not state.entries_path().exists():
         return 0
+    with _entries_lock(0) as held:
+        return _refresh_entries(exp, cfg) if held else 0
+
+
+def _refresh_entries(exp: dict, cfg: dict | None) -> int:
     old = state.read_entries()
     owned_files = _owned_files(old)
     if owned_files is None:
@@ -1146,9 +1211,14 @@ def refresh_entries(exp: dict, cfg: dict | None) -> int:
 def sync_entries(exp: dict, cfg: dict) -> int:
     """Launcher entries, the rewritten Omarchy web apps, and the URL handler, then the default browser.
 
-    The files are `_sync_files`' one transaction; only after the manifest names
-    every one of them is the default browser switched.
+    The files are `_sync_files`' one transaction under the entries lock; only
+    after the manifest names every one of them is the default browser switched.
     """
+    with _entries_lock(ENTRIES_LOCK_TIMEOUT) as held:
+        return _sync_entries(exp, cfg) if held else _busy()
+
+
+def _sync_entries(exp: dict, cfg: dict) -> int:
     old = state.read_entries()
     owned_files = _owned_files(old)
     if owned_files is None:
@@ -1196,6 +1266,11 @@ def sync_entries(exp: dict, cfg: dict) -> int:
 
 def remove_entries() -> int:
     """`setup --remove`: the previous default back, exactly the manifest's files gone, every backup home."""
+    with _entries_lock(ENTRIES_LOCK_TIMEOUT) as held:
+        return _remove_entries() if held else _busy()
+
+
+def _remove_entries() -> int:
     old = state.read_entries()
     files = _owned_files(old)
     if files is None:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import hashlib
 import io
 import json
@@ -12,6 +13,8 @@ import pwd
 import shutil
 import stat
 import sys
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -474,6 +477,65 @@ class SetupTests(unittest.TestCase):
         # A rerun in the same process does not name them again.
         rc, err = self._install()
         self.assertEqual((rc, err), (0, ""))
+
+    def test_an_owned_web_app_regenerated_with_a_malformed_exec_is_left_alone_and_still_recorded(self):
+        basecamp = self.apps / "Basecamp.desktop"
+        basecamp.write_text(OMARCHY_BASECAMP, encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        backup = self.box.state_dir / "entries-backup" / "Basecamp.desktop"
+        record = {"path": str(basecamp), "backup": str(backup)}
+        malformed = OMARCHY_BASECAMP.replace(BASECAMP_EXEC, 'omarchy-launch-webapp "https://x')
+        basecamp.write_text(malformed, encoding="utf-8")
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertEqual(len([ln for ln in err.splitlines() if str(basecamp) in ln]), 1)
+        # Left alone means exactly that: the file, its record, and its backup as they were.
+        self.assertEqual(basecamp.read_text(encoding="utf-8"), malformed)
+        self.assertIn(record, self._entries()["files"])
+        self.assertEqual(backup.read_text(encoding="utf-8"), OMARCHY_BASECAMP)
+        # Nothing to write: no cache refresh for the rerun.
+        self.assertEqual(self.udd_log.read_text(encoding="utf-8"), f"{self.apps}\n")
+        self.assertEqual(self._install(), (0, ""))
+        self.assertIn(record, self._entries()["files"])
+        # Remove still hands Omarchy's original back over it.
+        self.assertEqual(setup.remove(), 0)
+        self.assertEqual(basecamp.read_text(encoding="utf-8"), OMARCHY_BASECAMP)
+
+    def test_one_entries_transaction_at_a_time_across_setup_remove_and_the_listener(self):
+        basecamp = self.apps / "Basecamp.desktop"
+        basecamp.write_text(OMARCHY_BASECAMP, encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        cfg = json.loads(self.box.config_file.read_text(encoding="utf-8"))
+        exp = {"list": setup.catalog.expand(cfg)}
+        regenerated = OMARCHY_BASECAMP.replace("Icon=basecamp", "Icon=basecamp-new")
+        basecamp.write_text(regenerated, encoding="utf-8")
+        lock = self.box.runtime / "distraction-space.entries.lock"
+        with open(lock, "a+", encoding="utf-8") as holder:
+            fcntl.flock(holder, fcntl.LOCK_EX)
+            # The listener's sync gives way at once and touches nothing.
+            self.assertEqual(setup.refresh_entries(exp, cfg), 0)
+            self.assertEqual(basecamp.read_text(encoding="utf-8"), regenerated)
+            # Setup and remove wait; past their budget they report busy and change nothing.
+            err = io.StringIO()
+            with patch.object(setup, "ENTRIES_LOCK_TIMEOUT", 0.2), contextlib.redirect_stderr(err):
+                self.assertEqual(setup.sync_entries(exp, cfg), 1)
+                self.assertEqual(setup.remove_entries(), 1)
+            self.assertEqual(err.getvalue().count("rerun in a moment"), 2)
+            self.assertEqual(basecamp.read_text(encoding="utf-8"), regenerated)
+            self.assertTrue((self.box.state_dir / "entries.json").is_file())
+            # Within the budget, setup waits for the holder and then runs.
+            done = []
+            with patch.object(setup, "ENTRIES_LOCK_TIMEOUT", 5.0):
+                waiter = threading.Thread(target=lambda: done.append(setup.sync_entries(exp, cfg)))
+                waiter.start()
+                time.sleep(0.3)
+                self.assertEqual(done, [])
+                self.assertEqual(basecamp.read_text(encoding="utf-8"), regenerated)
+                fcntl.flock(holder, fcntl.LOCK_UN)
+                waiter.join(timeout=10)
+        self.assertEqual(done, [0])
+        self.assertIn(f"Exec={ROOT / 'distractions'} open --app ", basecamp.read_text(encoding="utf-8"))
+        self.assertIn("Icon=basecamp-new\n", basecamp.read_text(encoding="utf-8"))
 
     def test_a_regenerated_web_app_is_rewritten_from_the_new_file_and_a_removed_one_is_not_resurrected(self):
         basecamp = self.apps / "Basecamp.desktop"
