@@ -169,4 +169,4 @@ On the first load with no `distraction-space.json`, `list` is seeded from the un
 PATH=/usr/bin:$PATH python3 -m unittest discover -s tests
 ```
 
-366 tests as of this commit, all offline. `tests/harness.py` builds a temporary XDG root per test, and the socket2 feed, `hyprctl`, `getent`, `busctl`, `pactl`, `systemctl`, `systemd-run`, `xdg-settings`, `update-desktop-database`, the nft wrapper, and the `/proc` cgroup and cmdline reads (`DS_PROC_ROOT`) are all replaced with fakes, so nothing in the suite touches your real session, your user manager, your real config, or the firewall.
+367 tests as of this commit, all offline. `tests/harness.py` builds a temporary XDG root per test, and the socket2 feed, `hyprctl`, `getent`, `busctl`, `pactl`, `systemctl`, `systemd-run`, `xdg-settings`, `update-desktop-database`, the nft wrapper, and the `/proc` cgroup and cmdline reads (`DS_PROC_ROOT`) are all replaced with fakes, so nothing in the suite touches your real session, your user manager, your real config, or the firewall.

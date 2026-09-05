@@ -241,12 +241,15 @@ def import_profile(src, dst, replace=False, proc=None):
     Raises `Refused` before any byte moves when a precondition fails, and after
     the copy failed with the temporary sibling (and the backup) named.
     """
-    # Every path is canonical from here on: a relative or symlinked `--from`
-    # must reach the same user-data directory, browser, and lock as the real one.
-    src, dst = Path(src).expanduser().resolve(), Path(dst).resolve()
+    # The source is canonical from here on: a relative or symlinked `--from`
+    # must reach the same user-data directory, browser, and lock as the real
+    # one. The destination stays lexical: its parent is the `--user-data-dir`
+    # `open` passes, and a symlinked `Distraction` is moved aside as the link,
+    # never as its target; only the overlap check looks through it.
+    src, dst = Path(src).expanduser().resolve(), Path(dst)
     if not (src / "Preferences").is_file():
         raise Refused(f"{src} is not a Chromium profile: it has no Preferences file.")
-    if _contains(src, dst) or _contains(dst, src):
+    if _contains(src, dst.resolve()) or _contains(dst.resolve(), src):
         raise Refused(f"{src} is or contains {dst}; the source and the destination must be separate directories.")
     user_data, key = user_data_dir_of(src)
     names = BROWSERS[key][2] if key else ()

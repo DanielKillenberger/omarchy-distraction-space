@@ -293,6 +293,31 @@ class ProfileTests(unittest.TestCase):
         self.assertIn(str(backups[0]), err)
         self.assertFalse(self.tmp.exists())
 
+    def test_symlinked_destination_is_checked_and_moved_as_the_link(self):
+        make_profile(self.src)
+        target = self.box.home / "elsewhere" / "Profile"
+        target.mkdir(parents=True)
+        (target / "Preferences").write_bytes(b"old")
+        self.dst.parent.mkdir(parents=True)
+        os.symlink(target, self.dst)
+        # The running check is against the directory `open` passes, not the link's target.
+        self.add_proc(4242, ["/opt/google/chrome/chrome", f"--user-data-dir={self.dst.parent}"])
+        rc, _out, err = self.run_import(replace=True)
+        self.assertEqual(rc, 1)
+        self.assertIn("distraction browser", err)
+        self.assertTrue(self.dst.is_symlink())
+        (self.proc / "4242" / "cmdline").unlink()
+        (self.proc / "4242").rmdir()
+        rc, _out, err = self.run_import(replace=True)
+        self.assertEqual(rc, 0, err)
+        backups = list(self.dst.parent.glob("Distraction.bak-*"))
+        self.assertEqual(len(backups), 1)
+        self.assertTrue(backups[0].is_symlink(), "the backup is the target, not the link")
+        self.assertEqual(Path(os.readlink(backups[0])), target)
+        self.assertEqual((target / "Preferences").read_bytes(), b"old", "the link target was moved or written")
+        self.assertFalse(self.dst.is_symlink())
+        self.assertEqual((self.dst / "Preferences").read_bytes(), b"Preferences" * 3)
+
     def test_failed_copy_keeps_the_backup_and_the_sibling(self):
         make_profile(self.src)
         self.dst.mkdir(parents=True)
