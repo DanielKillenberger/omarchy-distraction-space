@@ -4,7 +4,9 @@ A window belongs on the space by class (the distraction profile's rule or a nati
 class), by process (its pid or an ancestor in the slice), or by adoption (a listed
 product's web app running in another browser profile, which is closed and reopened
 through `distractions open`). First match wins, every move is silent, and a window
-that lands while the person is elsewhere raises the Opened banner.
+that lands while the person is elsewhere raises the Opened banner. A released
+window (`distractions release`) is skipped by every layer until its deadline or
+until it closes.
 """
 
 import hashlib
@@ -14,6 +16,7 @@ import subprocess
 import threading
 import time
 from collections import OrderedDict
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ds import catalog, cgroup, state
@@ -33,12 +36,18 @@ _clients_cache = None
 _clients_lock = threading.Lock()
 # Addresses adoption has handled, oldest first; `closewindow` forgets one, the cap bounds the rest.
 _adopted = OrderedDict()
+# Exempt window addresses -> ISO deadline, as `release` recorded them (R17).
+_released = {}
+# `containment.snap_back`, set by the listener: a manual move off the space is reverted on its event (R18).
+snap_back = True
 
 
 def _reset_for_tests():
-    global _entries, _clients_cache
+    global _entries, _clients_cache, snap_back
     _entries = None
+    snap_back = True
     _adopted.clear()
+    _released.clear()
     with _clients_lock:
         _clients_cache = None
 
@@ -353,6 +362,7 @@ def _current_entries():
 
 
 def _norm_addr(a):
+    """One spelling for a window address: lowercase, no `0x`."""
     s = str(a or "").lower()
     return s[2:] if s.startswith("0x") else s
 
@@ -370,6 +380,53 @@ def _client_by_address(address):
         if isinstance(c, dict) and _norm_addr(c.get("address")) == want:
             return c
     return None
+
+
+def active_window():
+    """The focused window's client record, or None when nothing is focused or hyprctl fails."""
+    try:
+        data = hyprctl_json("activewindow")
+    except Exception as e:
+        _log(f"hyprctl activewindow: {e}")
+        return None
+    return data if isinstance(data, dict) and data.get("address") else None
+
+
+def release(address, until):
+    """Exempt one window from every layer until the ISO deadline `until` or until it closes."""
+    _released[address] = until
+
+
+def released():
+    """The exempt set as `state.json` lists it: `{address: until}`."""
+    return dict(_released)
+
+
+def past(until):
+    """Whether the ISO deadline is behind now; an unreadable deadline counts as past."""
+    try:
+        return datetime.fromisoformat(until) <= datetime.now(timezone.utc)
+    except (TypeError, ValueError):
+        return True
+
+
+def expire_released():
+    """Drop every exemption past its deadline; returns their addresses."""
+    gone = [a for a, until in _released.items() if past(until)]
+    for a in gone:
+        del _released[a]
+    return gone
+
+
+def _forget(address):
+    want = _norm_addr(address)
+    for a in [a for a in _released if _norm_addr(a) == want]:
+        del _released[a]
+
+
+def _is_released(address):
+    want = _norm_addr(address)
+    return bool(want) and any(_norm_addr(a) == want for a in _released)
 
 
 def _strip_www(host):
@@ -488,10 +545,10 @@ def contain(client, klass=None, opened=False):
 
     `opened` marks a fresh `openwindow`, which the profile rule may already have
     placed on the space: the banner fires for it without a move. A scan or a move
-    event announces only a window it moved. Returns the layer that claimed the
-    window, or None.
+    event announces only a window it moved. A released window is skipped before
+    any layer runs. Returns the layer that claimed the window, or None.
     """
-    if not isinstance(client, dict):
+    if not isinstance(client, dict) or _is_released(client.get("address")):
         return None
     klass = klass or client.get("class") or client.get("initialClass") or ""
     decision = classify(klass, client.get("pid"))
@@ -511,6 +568,12 @@ def contain(client, klass=None, opened=False):
     if name and landed:
         _feedback().opened(name)
     return layer
+
+
+def contain_address(address):
+    """The layers over one window by address, once its exemption has ended; a gone window claims nothing."""
+    client = _client_by_address(address)
+    return contain(client) if client is not None else None
 
 
 def move_to_space(address):
@@ -590,8 +653,12 @@ def _handle_event(line):
         return
     if kind == "closewindow":
         _adopted.pop(_norm_addr(address), None)
+        _forget(address)
         return
     if kind not in ("openwindow", "movewindow", "movewindowv2"):
+        return
+    if kind != "openwindow" and not snap_back:
+        # A manual move stands; only a fresh window is placed (R18).
         return
     client = _client_by_address(address)
     klass = client.get("class") if isinstance(client, dict) else ""

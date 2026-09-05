@@ -11,3 +11,7 @@ o.bind("SUPER + CTRL + SHIFT + F", "Lock or unlock the space",
   helper .. [[ status --json | grep -F '"locked": true' && ]] .. helper .. " unlock || " .. helper .. " lock")
 o.bind("SUPER + TAB", "Next workspace", helper .. " next")
 o.bind("SUPER + SHIFT + TAB", "Previous workspace", helper .. " prev")
+
+-- Optional: exempt the focused window from containment for containment.release_minutes
+-- (`distractions release 10` for a custom duration). Super+Ctrl+Shift+E is unbound in stock Omarchy.
+-- o.bind("SUPER + CTRL + SHIFT + E", "Release window from the distraction space", helper .. " release")

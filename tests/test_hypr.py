@@ -385,6 +385,50 @@ class HyprTests(unittest.TestCase):
         hypr.handle_event("movewindow>>0xdead,1")
         self.assertEqual(self._dispatches(), [close, close, close])
 
+    def test_released_window_skips_every_layer_and_snap_back_off_ignores_moves(self):
+        hypr.apply_rules([TELEGRAM, WHATSAPP])
+        self.proc.add(100, 1, f"{SLICE_PATH}/run-1.scope")
+        hypr.release("0xAAA", "2099-01-01T00:00:00+00:00")  # spelled unlike the events
+        self.assertEqual(hypr.released(), {"0xAAA": "2099-01-01T00:00:00+00:00"})
+        for client in (
+            self._client("0xaaa", NATIVE, "2"),
+            self._client("0xaaa", "google-chrome", "2", pid=100),
+            self._client("0xaaa", FOREIGN_WA, "2"),
+        ):
+            self.assertIsNone(hypr.contain(client), client["class"])
+        self._state(clients=[self._client("0xaaa", NATIVE, "2"), self._client("0xbbb", NATIVE, "2")])
+        self.hypr_log.write_text("", encoding="utf-8")
+        hypr.handle_event("movewindow>>0xaaa,2")
+        hypr.handle_event(f"openwindow>>0xaaa,2,{NATIVE},Telegram")
+        self.assertEqual((self._dispatches(), self._open_calls(), self._opened_titles()), ([], [], []))
+        # Unreleased with snap_back off: a manual move stands, a fresh window is still placed.
+        hypr.snap_back = False
+        hypr.handle_event("movewindow>>0xbbb,2")
+        hypr.handle_event("movewindowv2>>0xbbb,2,2")
+        self.assertEqual(self._dispatches(), [])
+        hypr.handle_event(f"openwindow>>0xbbb,2,{NATIVE},Telegram")
+        move_b = hypr.move_window_lua("0xbbb")
+        self.assertEqual(self._dispatches(), [move_b])
+        # snap_back on: the move is reverted (the version 2 behavior).
+        hypr.snap_back = True
+        hypr.handle_event("movewindow>>0xbbb,2")
+        self.assertEqual(self._dispatches(), [move_b, move_b])
+        # The exemption ends on closewindow; a reused address is contained again.
+        hypr.handle_event("closewindow>>0xaaa")
+        self.assertEqual(hypr.released(), {})
+        self.assertEqual(hypr.contain_address("0xaaa"), "class")
+        self.assertEqual(self._dispatches(), [move_b, move_b, hypr.move_window_lua("0xaaa")])
+        self.assertIsNone(hypr.contain_address("0xgone"))
+        # A deadline behind now, or one that does not parse, is past; the others stay.
+        hypr.release("0xaaa", "2000-01-01T00:00:00+00:00")
+        hypr.release("0xbbb", "soon")
+        hypr.release("0xccc", "2099-01-01T00:00:00+00:00")
+        self.assertEqual(hypr.expire_released(), ["0xaaa", "0xbbb"])
+        self.assertEqual(hypr.released(), {"0xccc": "2099-01-01T00:00:00+00:00"})
+        self.assertTrue(hypr.past("2000-01-01T00:00:00+00:00"))
+        self.assertTrue(hypr.past("2099-01-01T00:00:00"), "a naive deadline cannot be compared")
+        self.assertFalse(hypr.past("2099-01-01T00:00:00+00:00"))
+
     def test_failed_move_on_a_scan_raises_no_banner(self):
         hypr.apply_rules([TELEGRAM])
         client = self._client("0xaaa", NATIVE, "1")

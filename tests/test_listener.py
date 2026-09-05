@@ -314,9 +314,10 @@ class ListenerTests(unittest.TestCase):
         self.box.config_file.write_text(json.dumps(cfg) + "\n", encoding="utf-8")
         return cfg
 
-    def _workspace(self, name, wid=1, clients=None):
+    def _workspace(self, name, wid=1, clients=None, active=None):
         write_json(self.hypr_state, {
             "activeworkspace": {"id": wid, "name": name},
+            "activewindow": active or {},
             "clients": clients or [],
             "workspaces": [
                 {"id": 1, "name": "1", "windows": 1},
@@ -464,6 +465,19 @@ class ListenerTests(unittest.TestCase):
         if not self.hook_log.exists():
             return []
         return [ln for ln in self.hook_log.read_text(encoding="utf-8").splitlines() if ln]
+
+    def _dispatches(self):
+        if not self.hypr_log.exists():
+            return []
+        out = []
+        for line in self.hypr_log.read_text(encoding="utf-8").splitlines():
+            argv = json.loads(line) if line.strip() else []
+            if argv[:1] == ["dispatch"]:
+                out.append(argv[1])
+        return out
+
+    def _released(self):
+        return (self._state() or {}).get("released")
 
     def _getent_hosts(self):
         if not self.getent_log.exists():
@@ -877,6 +891,71 @@ class ListenerTests(unittest.TestCase):
         self.assertEqual(self._hooks().count("enter"), 1)
         self.assertEqual(self._hooks().count("leave"), 1)
         self.assertTrue(_wait(lambda: (self._state() or {}).get("on_space") is False, 3), self._state())
+
+    def test_release_exempts_the_focused_window_until_it_closes_or_expires(self):
+        telegram = {"address": "0xaaa", "class": "org.telegram.desktop", "workspace": {"id": 1, "name": "1"}}
+        move = hypr.move_window_lua("0xaaa")
+        self._cfg(list=["Telegram", "x.com"])
+        self._workspace("1", 1, clients=[telegram], active=telegram)
+        self._start()
+        self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: self._dispatches() == [move], 4), "the boot scan moved it")
+        r = self.box.run("release", "5", timeout=16)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(list(self._released()), ["0xaaa"], self._state())
+        until = self._released()["0xaaa"]
+        self.assertGreater(datetime.fromisoformat(until), datetime.now(timezone.utc) + timedelta(minutes=4))
+        self.assertEqual(json.loads(self.box.run("status", "--json").stdout)["released"], {"0xaaa": until})
+        # Dragged off the space, reopened, and rescanned: the exemption holds through all three.
+        self._send("movewindow>>0xaaa,1")
+        self._send("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
+        self._send("configreloaded>>")
+        self._workspace("distraction", 5, clients=[telegram], active=telegram)
+        self._send("workspacev2>>5,distraction")
+        self.assertTrue(_wait(lambda: self._hooks().count("enter") == 1, 4), "the events before it were handled")
+        self.assertEqual(self._dispatches(), [move])
+        # Closed: pruned.
+        self._send("closewindow>>0xaaa")
+        self.assertTrue(_wait(lambda: self._released() == {}, 4), self._state())
+        # Expired with snap_back on (the default): moved back once.
+        until = _iso(2)
+        self.assertEqual(self._reload(f"release 0xaaa {until}"), b"ok")
+        self.assertEqual(self._released(), {"0xaaa": until})
+        self.assertTrue(_wait(lambda: self._dispatches() == [move, move], 6), self._dispatches())
+        self.assertEqual(self._released(), {})
+        time.sleep(1.2)
+        self.assertEqual(self._dispatches(), [move, move])
+        # A deadline already past, or unreadable, is refused and records nothing.
+        self.assertEqual(self._reload(f"release 0xaaa {_iso(-1)}"), b"error")
+        self.assertEqual(self._reload("release 0xaaa soon"), b"error")
+        self.assertEqual(self._reload("release 0xaaa"), b"error")
+        self.assertEqual(self._released(), {})
+
+    def test_snap_back_off_ignores_moves_and_release_reports_its_errors(self):
+        telegram = {"address": "0xaaa", "class": "org.telegram.desktop", "workspace": {"id": 1, "name": "1"}}
+        self._workspace("1", 1, clients=[telegram], active=telegram)
+        r = self.box.run("release", "0", timeout=3)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("not a positive integer", r.stderr)
+        r = self.box.run("release", timeout=3)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(len(self._notices("No listener running")), 1)
+        self._cfg(list=["Telegram", "x.com"], containment={"snap_back": False})
+        self._workspace("1", 1, clients=[telegram])
+        self._start()
+        self._wait_nft("replace ds")
+        r = self.box.run("release", timeout=16)
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(len(self._notices("No window to release")), 1)
+        self.assertEqual(self._released(), {})
+        # A manual move stands; a fresh window is still placed.
+        self.hypr_log.write_text("", encoding="utf-8")
+        self._send("movewindow>>0xaaa,1")
+        self._send("movewindowv2>>0xaaa,1,1")
+        self._send("openwindow>>0xaaa,1,org.telegram.desktop,Telegram")
+        move = hypr.move_window_lua("0xaaa")
+        self.assertTrue(_wait(lambda: move in self._dispatches(), 4), self._dispatches())
+        self.assertEqual(self._dispatches(), [move])
 
     def _evals(self, marker):
         if not self.hypr_log.exists():

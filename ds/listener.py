@@ -26,16 +26,30 @@ def cmd_reload(args): return _ask("reload")
 
 def cmd_refresh(args): return _ask("refresh")
 
-def _ask(verb):
-    """One verb to the running listener: 0 on an `ok` reply, 1 otherwise."""
-    failed = f"{verb.capitalize()} failed"
+def cmd_release(args):
+    """Exempt the focused window from containment (R17): 0 recorded, 1 no window or no listener.
+
+    A non-positive duration never reaches here; the parser exits 2 on it.
+    """
+    minutes = getattr(args, "minutes", None)
+    if minutes is None:
+        minutes = (_read_cfg() or config.DEFAULTS)["containment"]["release_minutes"]
+    window = hypr.active_window()
+    if window is None:
+        ui.notify("No window to release", "Focus the window first, then run: distractions release")
+        return 1
+    return _ask(f"release {window['address']} {lock.until_iso(minutes)}")
+
+def _ask(line):
+    """One request line to the running listener: 0 on an `ok` reply, 1 otherwise."""
+    failed = f"{line.split()[0].capitalize()} failed"
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     connected = False
     try:
         sock.settimeout(_reload_wait())
         sock.connect(str(state.runtime_path("distraction-space.sock")))
         connected = True
-        sock.sendall(verb.encode() + b"\n")
+        sock.sendall(line.encode() + b"\n")
         buf = b""
         while b"\n" not in buf:
             chunk = sock.recv(256)
@@ -196,7 +210,7 @@ class _Ctx:
         self.clients = []
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
         self.hold_failed_at = 0.0
-        self.links, self.browser, self.released = "off", None, {}
+        self.links, self.browser = "off", None
         self.links_noted = False
         self.capture, self.mute = hold.Capture(), hold.Mute()
     def _note_invalid(self):
@@ -211,6 +225,22 @@ class _Ctx:
         if not self.hold_noted:
             ui.notify("Notification hold unavailable", "The shell lacks silencedSenders. Run: distractions setup")
             self.hold_noted = True
+    def release(self, address, until):
+        """Record one exemption; a deadline already past or unreadable is refused."""
+        if not address or hypr.past(until):
+            return False
+        hypr.release(address, until)
+        self.write_state()
+        return True
+    def expire_released(self):
+        """An exemption past its deadline ends; with snap_back on, that window is contained once more."""
+        gone = hypr.expire_released()
+        if not gone:
+            return
+        self.write_state()
+        if hypr.snap_back:
+            for address in gone:
+                hypr.contain_address(address)
     def check_links(self):
         """Whether listed links still route here; a displaced handler is noticed once per lifetime."""
         self.links = _links_state(self.cfg)
@@ -262,6 +292,7 @@ class _Ctx:
             state.write_expansion(self.exp)
         self.enforce(reason)
     def enforce(self, reason):
+        hypr.snap_back = (self.cfg or config.DEFAULTS)["containment"]["snap_back"]
         hypr.apply_rules(self.exp)
         # The scan's Opened banners read the nudge and the lock through feedback, so it starts first.
         feedback.start(self.cfg or {"nudges": self.exp.get("nudges") or {}}, lock.is_locked)
@@ -385,6 +416,7 @@ class _Ctx:
             lock.run_hook("unlock", _env("unlock", purpose or "", self.summarize()))
             self.write_state(True)
         self.space()
+        self.expire_released()
         self.capture.tick()
         self.mute.tick()
         self.sync_hold()
@@ -434,7 +466,7 @@ class _Ctx:
             "site_block": net.site_block, "listener_pid": os.getpid(),
             "hold": self.hold_on is True, "held": hold.held_counts(), "notification_hold": self.hold_ipc,
             "pass_through": feedback.pass_through_state(),
-            "links": self.links, "browser": self.browser, "released": dict(self.released),
+            "links": self.links, "browser": self.browser, "released": hypr.released(),
             "updated": state.now_iso(),
         }
         key = (obj["locked"], obj["until"], obj["purpose"], obj["on_space"], obj["site_block"],
@@ -597,7 +629,11 @@ def _accept_reload(rs, ctx):
         ctx.clients.append(_Client(conn))
 
 def _dispatch_client(c, ctx, verb):
-    result = ctx.reload() if verb == "reload" else ctx.refresh() if verb == "refresh" else False
+    words = verb.split()
+    if words[:1] == ["release"] and len(words) == 3:
+        result = ctx.release(words[1], words[2])
+    else:
+        result = ctx.reload() if verb == "reload" else ctx.refresh() if verb == "refresh" else False
     if result is True:
         _send_reply(c.sock, b"ok\n")
         c.gen = "done"
