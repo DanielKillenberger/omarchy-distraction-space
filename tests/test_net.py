@@ -143,6 +143,38 @@ class NetTests(unittest.TestCase):
         self.assertIn("203.0.113.1", addrs)
         self.assertIn("203.0.113.20", addrs)
 
+    def test_delayed_reader_receives_complete_input_across_poll_intervals(self):
+        import hashlib
+        script = ("import hashlib,sys,time; time.sleep(0.25); "
+                  "data=sys.stdin.buffer.read(); "
+                  "print(str(len(data)) + ':' + hashlib.sha256(data).hexdigest())")
+        cases = ((b"a" * 262144, {}, b"a" * 262144),
+                 ("a" * 262144, {"text": True}, b"a" * 262144),
+                 ("é" * 131072, {"encoding": "utf-8"}, "é".encode() * 131072),
+                 ("é☃" * 131072, {"encoding": "latin-1", "errors": "replace"},
+                  b"\xe9?" * 131072))
+        for payload, options, expected in cases:
+            with self.subTest(options=options):
+                result = net.run_command([sys.executable, "-c", script], input=payload,
+                                         capture_output=True, timeout=2, **options)
+                output = result.stdout.decode() if isinstance(result.stdout, bytes) else result.stdout
+                self.assertEqual(result.returncode, 0)
+                self.assertEqual(output.strip(),
+                                 str(len(expected)) + ":" + hashlib.sha256(expected).hexdigest())
+        self.assertEqual(net._children, {})
+
+    def test_command_input_file_closes_when_launch_fails(self):
+        sources = []
+        def fail(*args, **kwargs):
+            sources.append(kwargs["stdin"])
+            raise FileNotFoundError("missing")
+        with mock.patch.object(net.subprocess, "Popen", side_effect=fail):
+            with self.assertRaises(FileNotFoundError):
+                net.run_command(["missing"], input=b"policy", timeout=1)
+        self.assertEqual(len(sources), 1)
+        self.assertTrue(sources[0].closed)
+        self.assertEqual(net._children, {})
+
     def test_successful_command_does_not_signal_reaped_process_group(self):
         with mock.patch.object(net.os, "killpg", wraps=os.killpg) as killpg:
             result = net.run_command([sys.executable, "-c", "print('done')"],

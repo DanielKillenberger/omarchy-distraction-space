@@ -7,6 +7,7 @@ import json
 import os
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
@@ -35,7 +36,15 @@ def run_command(args, *, timeout, input=None, capture_output=False, check=False,
     if cancel is not None and cancel.is_set():
         raise OSError("reconciliation stopped")
     if input is not None:
-        kwargs["stdin"] = subprocess.PIPE
+        text_mode = any(kwargs.get(key) for key in ("text", "universal_newlines", "encoding", "errors"))
+        options = ({"encoding": kwargs.get("encoding"), "errors": kwargs.get("errors")}
+                   if text_mode else {})
+        with tempfile.TemporaryFile(mode="w+" if text_mode else "w+b", **options) as source:
+            source.write(input)
+            source.seek(0)
+            kwargs["stdin"] = source
+            return run_command(args, timeout=timeout, capture_output=capture_output,
+                               check=check, **kwargs)
     if capture_output:
         kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     proc = subprocess.Popen(args, start_new_session=True, **kwargs)
@@ -48,11 +57,11 @@ def run_command(args, *, timeout, input=None, capture_output=False, check=False,
             if remaining <= 0 or (cancel is not None and cancel.is_set()):
                 raise subprocess.TimeoutExpired(args, timeout)
             try:
-                out, err = proc.communicate(input=input, timeout=min(remaining, 0.1))
+                out, err = proc.communicate(timeout=min(remaining, 0.1))
                 completed = True
                 break
             except subprocess.TimeoutExpired:
-                input = None
+                pass
         result = subprocess.CompletedProcess(args, proc.returncode, out, err)
         if check:
             result.check_returncode()
