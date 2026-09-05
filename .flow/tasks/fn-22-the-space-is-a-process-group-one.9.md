@@ -34,9 +34,27 @@ Rewrites every workspace-keyed statement in the docs, adds the upgrade note, bum
 
 
 ## Done summary
-TBD
+Rewrote every workspace-keyed statement in `README.md` and `docs/internals.md` for the process-group design and bumped `manifest.json` to 3.0.0 (R15); the full suite is green on the final tree (R16). The README describes the slice, the browser profile, the login-once upgrade cost in the first sentence of `## Upgrading from 2.x`, the three containment layers, the static table with `site_block.enabled`, the URL handler, the two banners, slice-first mute, `release` and `containment.snap_back`, and every new config key and verb; the web-app audio limit is gone and the three parked unknowns sit in Limits as caveats. Internals gains The slice, Browser profile, URL handler, Launcher entries and `entries.json`, and Banners sections; Network replaces Network generations; State files carry `links`, `browser`, `released`, `entries.json`, `entries-backup/`, and the `expansion.json` additions. `docs/marketplace-submission.md` is untouched.
 
+### What changed (commits 1c385d4, dab458b, cd03c2e; base 5f2b52f)
+- `README.md`, `docs/internals.md`, `manifest.json` (the worker's commit).
+- Conductor follow-up found while the docs were written from the code: `state.json.browser` was never assigned, against R14. `ds/listener.py` now resolves the basename at start and reload through `launch.pick_browser`, the internals line describes that instead of a null, the listener tests sandbox `XDG_DATA_DIRS`, and the links-off test proves the link check never asks `xdg-settings` by watching the call count across ticks. The documented test count moved to 346.
+- Written on the session model rather than bridged to grok: the README voice is judgment territory under the routing rule.
+
+### Left for later, recorded on purpose
+- `feedback._maybe_banner` shim and its test remain; `distractions menu` does not expose the new keys.
+
+### Review
+cursor / gpt-5.6-sol-high, two rounds: round 1 NEEDS_WORK (documented test count one short after the browser-state fix), round 2 SHIP with R15 and R16 met.
+
+### Gates
+- baseline: green via handoff (f5bc1d46)
+- verify: `PATH=/usr/bin:$PATH python3 -m unittest discover -s tests` at dab458b, 346 tests, OK; receipt `.flow/tmp/green-receipts/dab458b9-unittest.json`; cd03c2e is docs-only on top
+- classify: FULL
+
+stage: impl-review - ran (cursor gpt-5.6-sol-high, 2 rounds, SHIP)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 1c385d4, dab458b, cd03c2e
+- Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (verify: green, 346 tests at dab458b; receipt .flow/tmp/green-receipts/dab458b9-unittest.json)
 - PRs:
