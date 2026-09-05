@@ -228,7 +228,8 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(len(self._lines(self.run_log)), 1)
         for argv in (["open", "ftp://x"], ["open", "mailto:a@b"], ["open"], ["open", "no-such-thing"],
                      ["open", "https://[::1"], ["open", "https://a b.com/"], ["open", "https://x.com:99999/"],
-                     ["open", "https://-bad-.example/"], ["open", "https://x.com:0/"]):
+                     ["open", "https://-bad-.example/"], ["open", "https://x.com:0/"],
+                     ["open", "https://youtube.com\\@evil.com/"], ["open", "https://a@b@youtube.com/"]):
             with self.subTest(argv=argv):
                 self.assertEqual(self.box.run(*argv).returncode, 2)
 

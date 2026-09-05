@@ -109,6 +109,14 @@ def _entry_url(entry):
 
 
 _HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+# RFC 3986 authority: optional userinfo, then a reg-name or a bracketed IP
+# literal, then an optional port. Nothing outside those character sets, so a
+# backslash, a space, or a second `@` never reaches the host split.
+_AUTHORITY = re.compile(
+    r"^(?:[A-Za-z0-9\-._~%!$&'()*+,;=:]*@)?"
+    r"(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9\-._~%!$&'()*+,;=]+)"
+    r"(?::[0-9]*)?$"
+)
 
 
 def _url_host(url):
@@ -122,12 +130,12 @@ def _url_host(url):
         parts = urlsplit(url)
         if parts.scheme.lower() not in ("http", "https"):
             return None
+        if not _AUTHORITY.match(parts.netloc):
+            return None
         host, port = parts.hostname, parts.port
     except ValueError:
         return None
     if not host or port is not None and not 1 <= port <= 65535:
-        return None
-    if any(c.isspace() for c in parts.netloc):
         return None
     if host.startswith("[") or ":" in host:
         # IPv6 literal, already validated by urlsplit's bracket handling.
