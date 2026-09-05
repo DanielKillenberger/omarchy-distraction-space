@@ -41,9 +41,32 @@ Lands the process boundary itself (R7) and proves the parked unknown about `sock
 
 
 ## Done summary
-TBD
+Landed the process boundary for R7: `distractions-nft` renders `socket cgroupv2 level 5 "<slice>" accept` as the first rule of both chains, derives the slice path from `SUDO_UID` alone, and refuses to run when the slice cgroup directory is missing; `ds/cgroup.py` reads slice membership from `/proc`; `install/app-distraction.slice` is installed, started, stopped, and removed by `setup`.
 
+### What changed (commits 53c409d, 84ca58d, 6a1f701; base c29e022)
+- `distractions-nft`: `slice_path(uid)`, `_invoking_uid()` (ASCII digits only; else exit 2 `refused: no invoking uid`), `_require_slice()` (`DS_CGROUP_ROOT` or `/sys/fs/cgroup`; missing directory exits 1 `refused: slice cgroup missing`). `render_table(v4, v6, cgroup)` takes the path; the fn-21 stdin grammar, caps, and table confinement are unchanged. Both verbs carry the rule and the check.
+- `ds/cgroup.py`: `SLICE`, `SLICE_LEVEL`, `slice_path`, `cgroup_of`, `in_slice`, `ancestor_in_slice(pid, hops=8)`, `systemctl_user`, `ensure_slice`. `/proc` reads follow `hold._stat_fields`; `DS_PROC_ROOT` honored.
+- `ds/setup.py`: `sync_slice()` after the root transaction; `remove()` order is now sync slice, flush, `remove_slice()`, root teardown, so a manager failure leaves the wrapper and grant for a retry. A second remove skips the root half when the wrapper and its record are both gone, so it succeeds after the passwordless grant is removed.
+- Tests: `tests/test_nft.py` (rule order, uid derivation and refusal, missing-slice refusal), `tests/test_cgroup.py` (new), `tests/test_setup.py` (fake `systemctl` that refuses start/stop of a unit without a file; install idempotent; remove ordering, stop failure keeps root files, missing unit restored for the flush, second remove with sudo denied). Per-test env cleanup ends the `DS_VISUDO_LOG`/`DS_VISUDO_FAIL` leak from the setup tests into the clone tests.
+
+### Review
+cursor / gpt-5.6-sol-high, three rounds: round 1 NEEDS_WORK (remove ordering P1, second-remove idempotency P2), round 2 NEEDS_WORK (second remove still called sudo), round 3 SHIP with R7 met.
+
+### Touches deviation (declared)
+`tests/test_clone.py` gained a fake `systemctl` so existing `setup.install()` tests never reach the real user manager. Test-only.
+
+### Left open, recorded here on purpose
+- Root verification on this machine (the AC's privileged apply and the slice-vs-shell reachability check) needs an interactive sudo password the run cannot supply. The conductor has asked the person to run it; the result is to be recorded in the spec's Parked unknowns before task .3 starts, per the early proof point.
+- Sibling note for fn-22.2 in the run notes: the listener must `ensure_slice()` before every wrapper call, `flush` included.
+
+### Gates
+- baseline: green (293 tests, pre-edit)
+- verify: green, `PATH=/usr/bin:$PATH python3 -m unittest discover -s tests` at 6a1f701, 309 tests; receipt `.flow/tmp/green-receipts/6a1f7011-unittest.json`
+- classify: FULL
+
+stage: impl-review - ran (cursor gpt-5.6-sol-high, 3 rounds, SHIP)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 53c409d0f41dc4153ae07c8594df7b0d49a8616f, 84ca58d, 6a1f701
+- Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (verify: green, 309 tests at 6a1f701; receipt .flow/tmp/green-receipts/6a1f7011-unittest.json), PATH=/usr/bin:$PATH python3 -m unittest tests.test_setup tests.test_clone tests.test_nft tests.test_cgroup (56 tests, OK, in this order)
 - PRs:
