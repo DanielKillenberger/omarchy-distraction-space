@@ -1,11 +1,56 @@
 {
   "branch_name": "fn-25-reliable-links-and-deliberate-window",
+  "completion_review_status": "unknown",
+  "completion_reviewed_at": null,
   "created_at": "2026-09-05T19:23:02.333848Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-25-reliable-links-and-deliberate-window",
+  "impl_review_rounds": {
+    "fn-25-reliable-links-and-deliberate-window.1": 0
+  },
   "next_task": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "02e1f9b1455d846f5beb50409260eb4d3365c8b1e03b1811ced289d64533ee8f",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "e1f1b18187255680db41edf29b31d0383084b1d4",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 3697,
+      "output_sha256": "7726ea2f34fa0f7cb13282e540942f107e0b33b36464f8697c8676c336d96732",
+      "reservation_id": "332a88e0e8e04e7b99ff481db266f3b4",
+      "round_consumed": true,
+      "scope": "impl:fn-25-reliable-links-and-deliberate-window.1",
+      "superseded_by": null,
+      "task": "fn-25-reliable-links-and-deliberate-window.1",
+      "timestamp": "2026-09-05T19:40:42.656304Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-25-reliable-links-and-deliberate-window.1": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-25-reliable-links-and-deliberate-window.1": 0
+  },
   "spec_path": ".flow/specs/fn-25-reliable-links-and-deliberate-window.md",
   "status": "open",
   "title": "Reliable links and deliberate window migration",
@@ -20,5 +65,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T19:37:34.096248Z"
+  "updated_at": "2026-09-05T19:40:43.087869Z"
 }
