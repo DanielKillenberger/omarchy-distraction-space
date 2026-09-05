@@ -1,42 +1,36 @@
-I have what I need; no further reads are required. Final analysis follows.
-
 ## Scope reviewed
 
-Change `ae9b3e9d..8edafdba` (diff at `/tmp/fable-fn-27-responsive-listener-and-efficient.2-8edafdba/diff.txt`): `ds/net.py` (`_check_result`, `_Reconciler`, `run_command` cleanup, notice text), `ds/listener.py` (reconciler wiring, waiter budget, `_ask` text), `docs/internals.md`, `tests/test_net.py`, `tests/test_listener.py`. Sibling task .3's `check ds` verb is present in `distractions-nft:248-282` and is treated as an available dependency, not re-reviewed.
+Change `1ca5c457..3c8c949c` (diff at `/tmp/fable-fn-27-responsive-listener-and-efficient.2-3c8c949c/diff.txt`): `ds/net.py` `run_command` stdin staging and two new tests in `tests/test_net.py`. This is a follow-up compatibility fix inside the task's declared files; the reconciler/listener logic reviewed previously is untouched by this range.
 
 ## Correctness walkthrough (verified against source)
 
-**Baseline rules (R3).** `ds/net.py:347-389`: the baseline is written only at line 387, after `_apply_result` returned `"on"` *and* `_check_result` returned a validated identity *and* `current()` still holds. The equal-policy shortcut (line 365-372) requires both a matching normalized tuple and a fresh check whose `(dev, ino)` equals the stored identity. Equal addresses alone never return `"on"` without a check. Normalization dedupes and sorts by `(version, int)`; `test_reconcile_equal_reordered_policy_checks_every_cycle` records the before/after counts (3 replaces legacy → 1 replace + 3 checks), satisfying R6's measurement requirement.
+**The bug and the fix.** The previous loop called `proc.communicate(input=input, timeout=0.1)` and, on `TimeoutExpired`, retried with `input=None`. On CPython 3.11 the retry only registers stdin for writing when the *argument* is truthy, so any payload larger than the pipe buffer whose reader was slower than one poll interval was truncated and the child hung until the outer deadline. The red log (`/tmp/fn27-2-compat-red.log`) shows exactly that on 3.11.16: all four 262144-byte variants raise `TimeoutExpired` from `net.py:49` (pre-fix line numbering). The fix (`ds/net.py:38-47`) writes the payload to a `tempfile.TemporaryFile`, seeks to 0, and passes it as `stdin`, then recurses with `input=None`. `Popen` receives a real fd, so `communicate` has no stdin to manage and the child reads the whole payload regardless of poll timing. `/tmp/fn27-2-compat-311.log` and `-314.log` show 24/27 tests green.
 
-**Drift/identity/failure (R4).** Nonzero check, changed `ino`, changed `dev`, malformed JSON, `OSError`, and `TimeoutExpired` all yield `None` from `_check_result` (lines 319-335; note `type(...) is not int` correctly rejects JSON booleans) and take the invalidate → replace → check path, bounded to exactly one replacement per cycle. A failed post-check notifies and reports `unavailable` without seeding a baseline (lines 384-386). Covered by `test_reconcile_drift_identity_failure_and_recovery`, `test_reconcile_failed_apply_or_postcheck_never_seeds_baseline`, `test_reconcile_rejects_malformed_check_and_bounds_repair`, and the listener-level `test_unverifiable_check_reports_error_then_replaces_on_recovery`.
+**Text-mode fidelity.** `text_mode` at line 39 mirrors subprocess's own rule (`encoding or errors or text or universal_newlines`). `TemporaryFile(mode="w+", encoding=None, errors=None)` resolves to the locale/UTF-8-mode encoding the same way subprocess's `TextIOWrapper` does; `newline=None` on both sides translates `\n`→`os.linesep`, a no-op on Linux. `seek(0)` flushes the text/buffered writer before `Popen` inherits the descriptor. The four test cases (bytes, `text=True`, explicit UTF-8, Latin-1 with `errors="replace"` → `b"\xe9?"`) pin this, asserting exact length and SHA-256.
 
-**Sudoers permits `check ds`.** I specifically checked this because a verb-enumerated grant would have made every verification fail in production. `install/sudoers.omarchy-distraction-space:3` grants `NOPASSWD:` on the wrapper path with no argument restriction, so no grant change is needed.
+**Lifecycle.** The `with` block closes the parent's handle on return and on `Popen` failure; `test_command_input_file_closes_when_launch_fails` asserts `closed` and `_children == {}`. The cleanup `finally` at lines 69-95 is unchanged; `proc.stdin` is now `None` for input calls, so the stream-close loop is unaffected. Cancellation is checked before the temp file is created and again in the recursive call — harmless.
 
-**Generation/disable ordering (R2 preservation).** `listener.py:337-338` invalidates before bumping `gen` when blocking is disabled; `take_result` (line 407-409) invalidates on any stale generation; `work()`'s exception path (line 371) and shutdown (line 183) invalidate. I traced the one interleaving that could set a baseline after a disable: worker passes `current()` at `net.py:382`, main thread invalidates and bumps `latest`, worker writes baseline at line 387. Because the worker is serialized on `busy` and `take_result` for that generation is necessarily stale (→ invalidate) before any subsequent `reconcile` can run, the stale baseline is unreachable. `test_disable_during_check_never_repairs_or_acknowledges_stale_policy` and `test_reconcile_obsolete_check_never_repairs_or_seeds` pin this.
+**No call site conflict.** `input=` is used only by `_apply_result` (`net.py:314-318`, `stdin=DEVNULL` only on the no-input flush branch) and `_check_result` (`net.py:330-334`). `cgroup.py:80`, `launch.py:431`, `setup.py:717/1003` pass `stdin` without `input`. So the new `kwargs["stdin"] = source` never overrides a caller-supplied stdin.
 
-**Waiter budget.** `_reload_wait` now includes `3 * COMMAND_TIMEOUT`; with `SYSTEMCTL_TIMEOUT=30`, `UDD_TIMEOUT=60`, the docs' 295 s figure is arithmetically correct. The stall test now asserts exactly three network commands for `sudo` (stale check + repair + post-check), which matches the traced behavior.
+**Wrapper and contract.** `distractions-nft:56-62` reads `sys.stdin.buffer.read(MAX_STDIN_BYTES + 1)`; a regular file is indistinguishable from a pipe for that read, and the byte cap still applies. `docs/internals.md:73` says "one address per line on stdin" with no pipe assumption. `ds/summary.py:237-241` already uses the identical staging pattern, so this follows an established repository precedent for subprocess input.
 
-**`run_command` cleanup change.** `completed` gating (`net.py:44-76`) skips `killpg` only after `communicate` returned; the timeout path still kills the group even when the leader has exited. Both cases have focused tests. Conductor-authorized; no regression identified.
+## Prior findings (re-review status)
 
-## Findings
+1. `net.py` invalid cached address → wrong notice text — **not-fixed**, nonblocking, outside this diff's range.
+2. `listener.py` `_ask` text for refused `release` — **not-fixed**, nonblocking; the task summary records the generic message as accepted and tested.
+3. Disabled/empty policy flushes each cycle — **withdrawn** as a finding; it is the documented, accepted design.
+4. Listener-level fake `sudo` never changes identity — **not-fixed**, nonblocking suggestion.
+5. Refresh during in-flight equal check forces a replace — **withdrawn**; design note only.
 
-No blocking findings. Nonblocking observations, ranked:
+## New findings
 
-1. **`ds/net.py:350-352` — invalid cached address surfaces as the wrong notice.** Trigger: a hand-edited `addrs.json` entry that `ipaddress.ip_address` rejects (only reachable through manual edits; `_write_cache` only stores parsed addresses). Impact: `ValueError` propagates to `listener.py:370-373`, producing state `unavailable` plus the "Network update failed / Keeping the current site block" notice, whereas pre-change the wrapper refusal produced "Site block unavailable". End state is identical; only the message differs. Optional fix: catch `ValueError` in normalization and route it through `_notice_unavailable()` → `"unavailable"`.
+No blocking findings. Nonblocking:
 
-2. **`ds/listener.py:66` — `_ask` error text now slightly wrong for `release`.** A refused `release` (past deadline / window gone) now reads "could not complete all requested work". Cosmetic; consider branching the message on the verb.
+1. **`ds/net.py:45` — explicit `stdin=` combined with `input=` is silently overridden.** `subprocess.run` raises `ValueError` for that combination; here the caller's `stdin` is replaced without error. Trigger: none today (verified above). Optional fix: `if "stdin" in kwargs: raise ValueError(...)` before staging.
+2. **Interpreter coverage is a property of the runner, not the test.** The new test only demonstrates the 3.11 regression when executed on 3.11; on 3.12+ the old code also passed. The red/green logs supply that evidence for this run; the conductor should keep the 3.11 gate in place so the test continues to mean what it means.
 
-3. **Behavior change: disabled/empty policy flushes every periodic cycle** (`net.py:356-363`, `test_site_block_disabled_flushes_each_refresh_and_keeps_hold`). This replaces the prior flush-once shortcut. It is justified by task .3's summary (check cannot certify table absence) and `destroy table` is idempotent, but it is one privileged `sudo` call per minute while disabled. Documented at `docs/internals.md:79`. Acceptable within the spec's "no cache shortcut" boundary.
+## Acceptance check (this range)
 
-4. **Test gap (minor):** the listener-level fake `sudo` always returns `{"dev":1,"ino":2}`, so recreated-slice identity change is exercised only at unit level with mocked `run_command`. Given that unit coverage exists, this is a suggestion, not a requirement.
-
-5. **Design note:** any refresh/reload arriving during an in-flight equal-policy check discards the baseline and forces a replace on the coalesced rerun (visible as the 3-command count in the stall test). Safe and bounded; slightly more work than strictly necessary.
-
-## Acceptance check
-
-- Reordered equal addresses, modified policy/table, missing table, recreated slice, failed apply/check, recovery — covered.
-- Periodic verification remains; explicit refresh/reload completion stays truthful (`observed_at.site_block` advances only after a real check/flush; `test_equal_refresh_checks_and_advances_observation_without_replace`).
-- Before/after replacement counts recorded deterministically.
-- No new privileged surface: only the fixed `check ds` verb via the same wrapper path and bounded stdin; wrapper validation untouched.
+Task files only (`ds/net.py`, `tests/test_net.py`); wrapper validation and privileged surface untouched; no supported-Python change; `_children` bookkeeping asserted empty in both new tests; existing timeout-descendant, reaped-child, stale-disable and stalled-firewall tests remain in the green logs.
 
 <verdict>SHIP</verdict>

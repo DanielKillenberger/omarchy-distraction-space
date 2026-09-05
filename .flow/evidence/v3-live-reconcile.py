@@ -16,10 +16,14 @@ original = net.run_command
 calls = []
 
 def namespace_command(args, **kwargs):
+    translated = [sys.executable, str(Path(root) / 'distractions-nft')]
+    if args[:2] == translated:
+        # The runner delegates once after preparing its temporary stdin file.
+        return original(args, **kwargs)
     if args[:2] != ['sudo', '-n']:
         raise AssertionError(args)
     calls.append(args[-2])
-    return original([sys.executable, str(Path(root) / 'distractions-nft'), *args[-2:]], **kwargs)
+    return original([*translated, *args[-2:]], **kwargs)
 
 net.run_command = namespace_command
 reconciler = net._Reconciler()

@@ -24,9 +24,10 @@
     "flush",
     "flush"
   ],
-  "source_commit": "8edafdbad6d49d5068eacb2199187aad66a789ba",
+  "python_version": "3.11.16",
+  "source_commit": "3c8c949c8b7c9cccef33f97fbb9e1ddfd193be2b",
   "source_sha256": {
-    "ds/net.py": "82dc4c1d1d81040b5399298ae1712ce0f978c9ff0bb7e1876b70d75be3be07ba",
+    "ds/net.py": "1ccd632b3ddf39e894804aa2af16276924d20c484995a9d15ab089a18f7684b7",
     "distractions-nft": "b8a031ac06732735141fd1f2df620d24877c30e995e6c79e2b9d737102233a25"
   }
 }

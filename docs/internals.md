@@ -197,6 +197,8 @@ On the first load with no `distraction-space.json`, `list` is seeded from the un
 
 ## Tests
 
+Run the full suite on both the minimum Python 3.11 and the current interpreter. For 3.11, put that interpreter's `bin` directory before `/usr/bin` in the command below so subprocesses and fake-tool shebangs use it too. The delayed-reader regression in `tests.test_net` must run on 3.11 to catch its subprocess stdin-retry behavior; it also checks exact byte counts and hashes for text encodings. Command input uses a temporary file so cancellation polling cannot interrupt delivery halfway through a payload.
+
 ```bash
 PATH=/usr/bin:$PATH python3 -m unittest discover -s tests
 ```

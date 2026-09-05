@@ -1,0 +1,41 @@
+{
+  "code_commit": "3c8c949c8b7c9cccef33f97fbb9e1ddfd193be2b",
+  "full_suites": [
+    {
+      "python": "3.14.7",
+      "command": "PATH=/usr/bin:$PATH python3 -m unittest discover -s tests",
+      "tests": 447,
+      "passed": 446,
+      "skipped": 1,
+      "seconds": 183.057,
+      "exit_code": 0,
+      "log_sha256": "248c18e7bb914a9a9784ae5facefb54ee7569310043191fabc078f4021deca03"
+    },
+    {
+      "python": "3.11.16",
+      "command": "PATH=/tmp/ds-python-compat/cpython-3.11.16-linux-x86_64-gnu/bin:/usr/bin:$PATH python3 -m unittest discover -s tests",
+      "tests": 447,
+      "passed": 446,
+      "skipped": 1,
+      "seconds": 172.128,
+      "exit_code": 0,
+      "log_sha256": "8aba80a7db2061381b40030198f275d2d12e4949b227db1e7711b5546fc048a9"
+    }
+  ],
+  "qml_lint": {
+    "exit_code": 0,
+    "warnings": "Two documented existing Qt type warnings"
+  },
+  "live_wrapper_suite": {
+    "tests": 20,
+    "skips": 0,
+    "result": "PASS"
+  },
+  "live_evidence": [
+    "fn26-live-validation.json",
+    "v3-live-reconcile.json"
+  ],
+  "review_model": "claude-fable-5-1",
+  "version": "3.0.0",
+  "release_actions": []
+}

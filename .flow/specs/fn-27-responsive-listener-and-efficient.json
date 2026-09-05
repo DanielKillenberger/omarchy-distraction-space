@@ -185,11 +185,43 @@
       "task": null,
       "timestamp": "2026-09-05T21:33:26.200486Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "1cd37d2ee14f316eeed0e3d276069ec33f3fb2d34a5d8bb7104fb60f1b25437c",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "claude-cli",
+        "digest_truncated": false,
+        "items": [],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 1,
+      "head_sha": "3c8c949c8b7c9cccef33f97fbb9e1ddfd193be2b",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 4776,
+      "output_sha256": "2bae7598ee4ae651ea10a8e05be094316c71b1dccfb11b0135d989622f77f911",
+      "reservation_id": "a35cd589ed824e3ea59a229186e7fa14",
+      "round_consumed": true,
+      "scope": "impl:fn-27-responsive-listener-and-efficient.2",
+      "superseded_by": null,
+      "task": "fn-27-responsive-listener-and-efficient.2",
+      "timestamp": "2026-09-05T21:39:03.211034Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-27-responsive-listener-and-efficient.1": 1,
-    "impl:fn-27-responsive-listener-and-efficient.2": 1,
+    "impl:fn-27-responsive-listener-and-efficient.2": 2,
     "impl:fn-27-responsive-listener-and-efficient.3": 1,
     "plan#completion": 1
   },
@@ -215,5 +247,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T21:33:26.647921Z"
+  "updated_at": "2026-09-05T21:39:03.667644Z"
 }
