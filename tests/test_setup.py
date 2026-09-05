@@ -156,6 +156,9 @@ import os, sys
 from pathlib import Path
 args = sys.argv[1:]
 Path(os.environ["DS_XDG_LOG"]).open("a").write(" ".join(args) + "\n")
+if os.environ.get("BROWSER"):
+    sys.stderr.write("xdg-settings: $BROWSER is set and can't be changed with xdg-settings\n")
+    sys.exit(4)
 store = Path(os.environ["DS_XDG_DEFAULT"])
 if args == ["get", "default-web-browser"]:
     if not store.exists():
@@ -409,6 +412,14 @@ class SetupTests(unittest.TestCase):
         self.assertEqual([f["path"] for f in self._entries()["files"]],
                          [str(self.apps / "org.telegram.desktop.desktop"), str(self.apps / setup.HANDLER_ID)])
         self.assertEqual(self._entries()["previous_handler"], "google-chrome.desktop")
+
+    def test_browser_variable_in_the_session_does_not_block_the_switch(self):
+        # Omarchy exports BROWSER; the real xdg-settings exits 4 while it is set.
+        os.environ["BROWSER"] = "google-chrome-stable"
+        self.addCleanup(os.environ.pop, "BROWSER", None)
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        self.assertEqual(self._links(), "on")
 
     def test_handler_failure_leaves_links_displaced_and_setup_exits_0(self):
         os.environ["DS_XDG_SET_RC"] = "4"

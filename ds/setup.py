@@ -687,12 +687,24 @@ def _backup_dir() -> Path:
     return state.state_path("entries-backup")
 
 
+def _xdg_env() -> dict[str, str]:
+    """The environment for `xdg-settings`: the session's, minus `BROWSER`.
+
+    Omarchy exports `BROWSER`, and `xdg-settings` refuses to change or even
+    report the default browser while it is set (exit 4). Omarchy's own
+    launcher drops the variable for the call; so does this plugin.
+    """
+    env = dict(os.environ)
+    env.pop("BROWSER", None)
+    return env
+
+
 def _xdg_settings(*args: str) -> tuple[int, str]:
     """`xdg-settings` as the person, never through sudo. A missing tool answers like its own exit 3."""
     try:
         proc = subprocess.run(
             # Short: the listener asks on its own loop, and a hung tool must not hold it.
-            ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=5,
+            ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=5, env=_xdg_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return 3, ""
