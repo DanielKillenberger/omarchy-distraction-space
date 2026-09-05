@@ -49,9 +49,28 @@ The single way into the slice (R1) and the forwarder for everything else (R2). S
 
 
 ## Done summary
-TBD
+`distractions open <target>` lands as `ds/launch.py` plus the CLI verb: a URL, list entry name, or catalog name resolves to a web launch (distraction browser, `--user-data-dir=$XDG_DATA_HOME/omarchy/distraction-space/browser --profile-directory=Distraction --app=<url>`) or a native launch (catalog `desktop` id's `Exec`), each run detached as a transient scope through `systemd-run --user --scope --quiet --collect --slice=app-distraction.slice`; an unlisted URL is forwarded outside the slice through the recorded previous handler's parsed `Exec` line, falling back to `omarchy-launch-browser` when the record is missing or self-referring (R1, R2).
 
+### What changed (commits 80f3536, c2bdeba, 9f7090f, 3556e38, 100b1e5; base 5b87284)
+- `ds/launch.py` (new): `classify_host` (listed or subdomain; the list names its own `www.` aliases), `_url_host` (control characters refused whole, RFC 3986 authority with percent triplets, port 1–65535, label grammar), `resolve_target` (URL scheme → http(s) only; else list entry; else catalog name logged once as not network-restricted; else usage), `pick_browser` (config argv wins; else the `omarchy-launch-webapp` case list on `xdg-settings get default-web-browser`, else `chromium.desktop`), `launch_in_slice` (detached `Popen`, `OSError` caught), `focus_existing`, `forward` (Desktop Entry `Exec` grammar with key-file escapes, double and single quotes, outside-quote backslash escapes, field-code substitution; `Exec` read from `[Desktop Entry]` only), `desktop_files` nearest first and `exec_argv(skip_own=True)` so a native launch passes over the plugin's own launcher entry that setup puts in front of the system entry.
+- `distractions`: `open` subcommand → `launch.cmd_open`. Exit 0 launched/focused/forwarded, 1 no browser or no forwarder, 2 usage or malformed URL.
+- `tests/test_launch.py` (new): one case per acceptance line through fakes on PATH, table-driven `parse_exec`, `expand_fields`, `classify_host`, `read_exec` group selection, malformed-authority usage cases, and the setup-then-open native regression.
+
+### Review
+cursor / gpt-5.6-sol-high, three rounds, each NEEDS_WORK on a narrowing URL-validation finding (unclosed IPv6 bracket, backslash before `@`, bare `%` and control characters), all fixed; flowctl's stall guard stopped a fourth cursor round on the same lineage. The person chose codex / gpt-6-astra at medium: round 1 NEEDS_WORK on a new P1 (native launch recursing into the plugin's own launcher after setup), round 2 SHIP with R1 and R2 met.
+
+### Live checks left open, handed to the person
+- Second `open` of the same host while on the space should focus the existing `chrome-<host>__-Distraction` window; the `hl.dsp.focus({ window = ... })` form is inferred from the Lua stubs.
+- On this machine `~/.local/share/applications/google-chrome.desktop` runs `~/.local/bin/omarchy-open-chrome`, a personal wrapper that reroutes YouTube URLs to the Omarchy web app; the profile flags precede `--app=` so it passes them through today, and the wrapper is redundant once the URL handler routes listed links.
+
+### Gates
+- baseline: green via handoff (b5bd9393)
+- verify: `PATH=/usr/bin:$PATH python3 -m unittest discover -s tests` at 100b1e5 on the integrated target, 336 tests, OK; receipt `.flow/tmp/green-receipts/100b1e5f-unittest.json`
+- classify: FULL
+
+stage: impl-review - ran (cursor gpt-5.6-sol-high 3 rounds, stalled; codex gpt-6-astra medium 2 rounds, SHIP)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 80f3536, c2bdeba, 9f7090f, 3556e38, 100b1e5
+- Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (verify: green, 336 tests at 100b1e5 on the integrated target; receipt .flow/tmp/green-receipts/100b1e5f-unittest.json), PATH=/usr/bin:$PATH python3 -m unittest tests.test_launch
 - PRs:
