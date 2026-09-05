@@ -1,0 +1,48 @@
+{
+  "backup": "/home/daniel/.local/state/omarchy/distraction-space/install-backups/20260905-235028",
+  "previous_commit": "f0cc79ad28dd3ad827be7e4ebe2e2c77355de66b",
+  "target_commit": "62c9f619246b4739ccc181d3427adff576a65d7b",
+  "plugin": "/home/daniel/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space",
+  "listener_pid": 1601077,
+  "setup_exit": 0,
+  "source_files_verified": 20,
+  "health": {
+    "state": "healthy",
+    "listener": "responsive",
+    "reasons": [],
+    "services": {
+      "site_block": {
+        "state": "healthy",
+        "enabled": true,
+        "reason": "On at the last check.",
+        "observed_at": "2026-09-05T21:52:08+00:00",
+        "age_seconds": 1.0
+      },
+      "notification_hold": {
+        "state": "healthy",
+        "enabled": true,
+        "reason": "On at the last check.",
+        "observed_at": "2026-09-05T21:51:28+00:00",
+        "age_seconds": 41.0
+      },
+      "links": {
+        "state": "healthy",
+        "enabled": true,
+        "reason": "On at the last check.",
+        "observed_at": "2026-09-05T21:52:08+00:00",
+        "age_seconds": 1.0
+      }
+    }
+  },
+  "installed_commit": "62c9f619246b4739ccc181d3427adff576a65d7b",
+  "authorization": "User: well install it then. Local installation authorized after prior no-deployment constraint; no push or main merge authorized.",
+  "verification": [
+    "omarchy plugin validate: exit 0",
+    "Installed 20 source files match reviewed checkout",
+    "Privileged wrapper matches reviewed wrapper bytes",
+    "setup: exit 0",
+    "Installed distractions refresh: exit 0",
+    "status: healthy; listener responsive",
+    "Omarchy plugin enabled; shell rescanned"
+  ]
+}
