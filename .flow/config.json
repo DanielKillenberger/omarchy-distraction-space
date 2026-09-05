@@ -37,7 +37,7 @@
     "enabled": false
   },
   "review": {
-    "backend": "host",
+    "backend": "codex:gpt-6-astra:medium",
     "maxIterations": 8
   },
   "scouts": {
