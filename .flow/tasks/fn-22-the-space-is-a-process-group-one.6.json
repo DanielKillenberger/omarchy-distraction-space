@@ -1,0 +1,17 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-05T10:04:16.795725Z",
+  "depends_on": [
+    "fn-22-the-space-is-a-process-group-one.3",
+    "fn-22-the-space-is-a-process-group-one.5"
+  ],
+  "id": "fn-22-the-space-is-a-process-group-one.6",
+  "priority": null,
+  "spec": "fn-22-the-space-is-a-process-group-one",
+  "spec_path": ".flow/tasks/fn-22-the-space-is-a-process-group-one.6.md",
+  "status": "todo",
+  "title": "Windows: profile rule, pid/ancestor safety net, adoption, Opened banner wiring",
+  "updated_at": "2026-09-05T10:04:16.795725Z"
+}

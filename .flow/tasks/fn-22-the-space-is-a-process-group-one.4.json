@@ -1,0 +1,16 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-05T10:04:16.795652Z",
+  "depends_on": [
+    "fn-22-the-space-is-a-process-group-one.2"
+  ],
+  "id": "fn-22-the-space-is-a-process-group-one.4",
+  "priority": null,
+  "spec": "fn-22-the-space-is-a-process-group-one",
+  "spec_path": ".flow/tasks/fn-22-the-space-is-a-process-group-one.4.md",
+  "status": "todo",
+  "title": "Setup: launcher entries with backup, URL handler, entries manifest, remove, displaced check",
+  "updated_at": "2026-09-05T10:04:16.795652Z"
+}

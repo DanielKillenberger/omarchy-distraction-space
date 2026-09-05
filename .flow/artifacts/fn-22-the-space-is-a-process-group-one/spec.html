@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fn-22 spec lens — The space is a process group</title>
+<style>
+:root {
+  --bg: #0c0b09; --panel: #14120e; --panel-2: #1a1712;
+  --line: #2c2719; --line-soft: #211d14;
+  --ink: #e8e2d4; --dim: #9a917c; --faint: #645d4c;
+  --amber: #ffb454; --amber-deep: #cc8b33;
+  --green: #87d96c; --red: #f07178; --cyan: #5ccfe6; --violet: #c9a7f5;
+  --mono: "Berkeley Mono", "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono); font-size:14px; line-height:1.65; }
+body::before { content:""; position:fixed; inset:0; pointer-events:none; z-index:999;
+  background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,180,84,0.012) 2px 4px),
+    radial-gradient(ellipse 120% 60% at 50% -10%, rgba(255,180,84,0.05), transparent 60%); }
+.wrap { max-width:1160px; margin:0 auto; padding:0 26px 80px; }
+a { color:var(--cyan); text-decoration:none; border-bottom:1px solid var(--line); }
+a:hover { color:var(--amber); }
+code { font-family:var(--mono); color:var(--cyan); font-size:.94em; }
+.lbl { font-size:10px; letter-spacing:.18em; text-transform:uppercase; color:var(--faint); }
+nav.rail { position:sticky; top:0; z-index:50; background:rgba(12,11,9,.86); backdrop-filter:blur(6px); border-bottom:1px solid var(--line); padding:8px 0; display:flex; gap:18px; flex-wrap:wrap; }
+nav.rail a { font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--dim); border:0; }
+nav.rail a:hover { color:var(--amber); }
+.kicker { margin-top:34px; font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--amber); }
+.kicker span { color:var(--faint); margin:0 8px; }
+h1 { font-size:26px; line-height:1.25; margin:8px 0 18px; font-weight:600; }
+h1 .id { color:var(--amber); }
+.dials { display:flex; border:1px solid var(--line); background:var(--panel); margin-bottom:34px; }
+.dial { flex:1; padding:12px 16px; border-right:1px solid var(--line); }
+.dial:last-child { border-right:0; }
+.dial b { display:block; font-size:19px; }
+section { margin-top:40px; animation: rise .5s ease both; }
+section:nth-of-type(1) { animation-delay:0.05s; }section:nth-of-type(2) { animation-delay:0.10s; }section:nth-of-type(3) { animation-delay:0.15s; }section:nth-of-type(4) { animation-delay:0.20s; }section:nth-of-type(5) { animation-delay:0.25s; }section:nth-of-type(6) { animation-delay:0.30s; }section:nth-of-type(7) { animation-delay:0.35s; }section:nth-of-type(8) { animation-delay:0.40s; }section:nth-of-type(9) { animation-delay:0.45s; }
+@keyframes rise { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+.shead { display:flex; align-items:baseline; gap:14px; border-bottom:1px solid var(--line); padding-bottom:6px; margin-bottom:16px; }
+.shead .num { color:var(--amber); font-weight:700; }
+.shead h2 { font-size:17px; margin:0; text-transform:uppercase; letter-spacing:.08em; font-weight:600; }
+.shead .note { margin-left:auto; color:var(--faint); font-size:11px; }
+.tldr { font-family:var(--serif); font-size:20px; line-height:1.6; max-width:920px; margin:0 0 16px; }
+.tldr strong { color:var(--amber); font-weight:600; } .tldr em { color:var(--cyan); font-style:italic; }
+.thesis { border:1px solid var(--line); border-left:3px solid var(--amber); background:var(--panel); padding:12px 16px; color:var(--dim); }
+table { width:100%; border-collapse:collapse; }
+th { text-align:left; font-size:10px; letter-spacing:.16em; text-transform:uppercase; color:var(--faint); padding:6px 8px; border-bottom:1px solid var(--line); }
+td { padding:8px; border-bottom:1px solid var(--line-soft); vertical-align:top; color:var(--dim); }
+tr:hover td, tr.lit td { color:var(--ink); background:#1c170d; }
+td.rid { color:var(--amber); font-weight:700; white-space:nowrap; }
+details summary { cursor:pointer; } details p { margin:8px 0 0; } .err { color:var(--faint); }
+.tchip { display:inline-block; border:1px solid var(--line); padding:0 6px; font-size:11px; color:var(--cyan); margin:1px 2px; }
+.tchip.miss { color:var(--red); border-color:var(--red); }
+.dagwrap { position:relative; overflow-x:auto; border:1px solid var(--line); background:var(--panel); padding:16px; }
+#edges { position:absolute; left:0; top:0; pointer-events:none; }
+#edges path { fill:none; stroke:var(--line); stroke-width:1.2; } #edges path.crit { stroke:var(--amber); stroke-width:2; }
+.daggrid { display:flex; gap:56px; position:relative; }
+.dagcol { display:flex; flex-direction:column; gap:14px; min-width:210px; }
+.node { border:1px solid var(--line); background:var(--panel-2); padding:8px 10px; width:210px; }
+.node:hover { border-color:var(--amber); }
+.node .nid { color:var(--amber); font-weight:700; } .node .nsz { float:right; color:var(--faint); font-size:10px; }
+.node .nt { font-size:12px; color:var(--dim); margin-top:4px; line-height:1.4; }
+.legend { margin-top:10px; color:var(--faint); font-size:11px; } .legend i { display:inline-block; width:22px; height:2px; vertical-align:middle; margin-right:6px; }
+.waves { display:flex; gap:22px; flex-wrap:wrap; margin-top:12px; }
+.grid2 { display:grid; grid-template-columns:1fr 1fr; gap:18px; }
+.card { border:1px solid var(--line); background:var(--panel); padding:12px 16px; }
+.card.is { border-left:3px solid var(--green); } .card.isnot { border-left:3px solid var(--red); }
+.card ul { margin:0; padding-left:18px; color:var(--dim); } .card.is li::marker { content:"✓ "; color:var(--green); } .card.isnot li::marker { content:"✕ "; color:var(--red); }
+.dec { border:1px solid var(--line); background:var(--panel); padding:10px 14px; margin-bottom:8px; color:var(--dim); }
+.dec .dtag { color:var(--amber); font-weight:700; margin-right:8px; }
+.proof { border:1px solid var(--amber-deep); background:linear-gradient(180deg, var(--panel-2), var(--panel)); padding:14px 18px; color:var(--dim); }
+footer { margin-top:60px; border-top:1px solid var(--line); padding-top:14px; color:var(--faint); font-size:12px; }
+.stamp { display:inline-block; border:1px solid var(--line); padding:4px 8px; margin-top:8px; }
+@media (max-width:760px) { .grid2 { grid-template-columns:1fr; } .dials { flex-wrap:wrap; } .dial { min-width:50%; } .wrap { padding:0 14px 60px; } }
+@media print {
+  :root { --bg:#fff; --panel:#fafaf7; --panel-2:#f2f0ea; --line:#ccc7ba; --line-soft:#e2ded2;
+          --ink:#1a1812; --dim:#4a463c; --faint:#8a8678; --amber:#9a6a10; --amber-deep:#9a6a10;
+          --green:#2e7d32; --red:#b3261e; --cyan:#0a6e8a; --violet:#6a3fae; }
+  body::before { display:none; }
+  nav.rail, .progress { display:none; }
+  section { break-inside:avoid-page; animation:none; }
+  .dagwrap { overflow:visible; }
+  @page { size: A4 landscape; margin: 1.2cm; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav class="rail"><a href="#thesis">Thesis</a><a href="#dag">Tasks</a><a href="#ac">Acceptance</a><a href="#bounds">Boundaries</a><a href="#decisions">Decisions</a><a href="#proof">Proof point</a><a href="#parked">Parked</a></nav>
+<div class="kicker">spec lens<span>·</span>flow-next plan<span>·</span>2026-09-05</div>
+<h1><span class="id">fn-22</span> The space is a process group: one boundary for windows, links, network, and sound</h1>
+<div class="dials">
+  <div class="dial"><b>open</b><span class="lbl">status</span></div>
+  <div class="dial"><b>18</b><span class="lbl">acceptance criteria</span></div>
+  <div class="dial"><b>9</b><span class="lbl">tasks</span></div>
+  <div class="dial"><b>18 / 18</b><span class="lbl">R-ID coverage</span></div>
+  <div class="dial"><b>5</b><span class="lbl">critical-path depth</span></div>
+  <div class="dial"><b>1 S · 8 M</b><span class="lbl">sizes</span></div>
+</div>
+
+<section id="thesis">
+<div class="shead"><span class="num">01</span><h2>Thesis</h2><span class="note">scope: business</span></div>
+<p class="tldr">Version 2 decides <em>inside or outside</em> by the workspace the person is viewing, and every reported inconsistency follows from that. Version 3 keys everything on <strong>which processes belong to the space</strong>: a systemd slice plus a separate browser profile, so windows, links, network, and sound share one boundary the kernel can enforce.</p>
+<div class="thesis">Nothing is resolved or applied on workspace changes. Listed hosts are reachable from the slice always and refused from everything else always. A listed link clicked anywhere opens inside the space. Two banners replace the attribution machinery. Slice members are muted while the person is away.</div>
+</section>
+
+<section id="dag">
+<div class="shead"><span class="num">02</span><h2>Task graph</h2><span class="note">9 tasks · hover a node to light its R-IDs</span></div>
+<div class="dagwrap"><svg id="edges"></svg><div class="daggrid" id="dagg"><div class="dagcol"><div class="lbl">L0</div><div class="node" id="n1" data-deps="" data-rids="R7"><span class="nid">.1</span><span class="nsz">M</span><div class="nt">Slice unit, cgroup helper, and the wrapper&#x27;s cgroup accept rule</div></div><div class="node" id="n2" data-deps="" data-rids="R8,R9,R14"><span class="nid">.2</span><span class="nsz">M</span><div class="nt">Static network schedule, site_block.enabled, refresh verb, and the v3 schema</div></div></div><div class="dagcol"><div class="lbl">L1</div><div class="node" id="n3" data-deps="n1,n2" data-rids="R1,R2"><span class="nid">.3</span><span class="nsz">M</span><div class="nt">distractions open: target resolution, browser profile, slice launch, forwarding</div></div><div class="node" id="n4" data-deps="n2" data-rids="R3,R4"><span class="nid">.4</span><span class="nsz">M</span><div class="nt">Setup: launcher entries with backup, URL handler, entries manifest, remove, displaced check</div></div><div class="node" id="n5" data-deps="n2" data-rids="R10,R11"><span class="nid">.5</span><span class="nsz">M</span><div class="nt">Feedback: two banner kinds, one debounce table, attribution machinery removed</div></div><div class="node" id="n7" data-deps="n1" data-rids="R12,R13"><span class="nid">.7</span><span class="nsz">S</span><div class="nt">Mute keys on slice membership first; locking on the space leaves it</div></div></div><div class="dagcol"><div class="lbl">L2</div><div class="node" id="n6" data-deps="n3,n5" data-rids="R5,R6,R10"><span class="nid">.6</span><span class="nsz">M</span><div class="nt">Windows: profile rule, pid/ancestor safety net, adoption, Opened banner wiring</div></div></div><div class="dagcol"><div class="lbl">L3</div><div class="node" id="n8" data-deps="n6" data-rids="R17,R18"><span class="nid">.8</span><span class="nsz">M</span><div class="nt">Release verb and the containment.snap_back policy</div></div></div><div class="dagcol"><div class="lbl">L4</div><div class="node" id="n9" data-deps="n1,n2,n3,n4,n5,n6,n7,n8" data-rids="R15,R16"><span class="nid">.9</span><span class="nsz">M</span><div class="nt">Docs, manifest 3.0.0, upgrade section, and the full-suite gate</div></div></div></div></div>
+<div class="legend"><i style="background:var(--amber)"></i>critical path .1 → .3 → .6 → .8 → .9 (5 deep) &nbsp;&nbsp; <i style="background:var(--line)"></i>dependency &nbsp;&nbsp; nodes in one column are parallel candidates</div>
+<div class="waves"><div class="wave"><span class="lbl">W1</span> <span class=tchip>.1</span> <span class=tchip>.2</span></div><div class="wave"><span class="lbl">W2</span> <span class=tchip>.3</span> <span class=tchip>.4</span> <span class=tchip>.5</span> <span class=tchip>.7</span></div><div class="wave"><span class="lbl">W3</span> <span class=tchip>.6</span></div><div class="wave"><span class="lbl">W4</span> <span class=tchip>.8</span></div><div class="wave"><span class="lbl">W5</span> <span class=tchip>.9</span></div></div>
+</section>
+
+<section id="ac">
+<div class="shead"><span class="num">03</span><h2>Acceptance criteria</h2><span class="note">18 rows · owned by</span></div>
+<table><thead><tr><th>R-ID</th><th>Criterion</th><th>Owned by</th></tr></thead><tbody><tr data-rid="R1"><td class="rid">R1</td><td><details><summary><code>distractions open &lt;url&gt;</code> with a listed host launches the distraction browser as a transient scope in <code>app-distraction.slice</code> with the profi…</summary><p><code>distractions open &lt;url&gt;</code> with a listed host launches the distraction browser as a transient scope in <code>app-distraction.slice</code> with the profile flags, and the window lands on <code>name:distraction</code> without changing the focused workspace.</p><p class="err"><span class="lbl">errors</span> no Chromium-family browser available exits 1 with one notice; a malformed or non-http(s) URL exits 2; a running window for the same host is focused instead of duplicated.</p></details></td><td><span class="tchip">.3</span></td></tr>
+<tr data-rid="R2"><td class="rid">R2</td><td><details><summary><code>distractions open &lt;url&gt;</code> with an unlisted host forwards to the recorded previous handler and exits 0.</summary><p><code>distractions open &lt;url&gt;</code> with an unlisted host forwards to the recorded previous handler and exits 0.</p><p class="err"><span class="lbl">errors</span> a missing or self-referring record forwards to <code>omarchy-launch-browser</code>; a handler whose <code>Exec</code> cannot be parsed exits 1 with one notice.</p></details></td><td><span class="tchip">.3</span></td></tr>
+<tr data-rid="R3"><td class="rid">R3</td><td><details><summary>After setup, the plugin&#x27;s handler is the <code>xdg-settings</code> default for http and https, a listed link clicked in any app opens in the space, and…</summary><p>After setup, the plugin&#x27;s handler is the <code>xdg-settings</code> default for http and https, a listed link clicked in any app opens in the space, and <code>setup --remove</code> restores the recorded previous default.</p><p class="err"><span class="lbl">errors</span> <code>xdg-settings</code> failure leaves <code>links: displaced</code> in state with one notice; <code>open_links_in_space: false</code> skips registration and reports <code>links: off</code>.</p></details></td><td><span class="tchip">.4</span></td></tr>
+<tr data-rid="R4"><td class="rid">R4</td><td><details><summary>Setup writes one launcher entry per listed product with <code>Exec=distractions open &lt;name&gt;</code>, named to shadow the Omarchy web app or the native a…</summary><p>Setup writes one launcher entry per listed product with <code>Exec=distractions open &lt;name&gt;</code>, named to shadow the Omarchy web app or the native app&#x27;s system entry, records each file in the manifest, and remove deletes exactly those files.</p><p class="err"><span class="lbl">errors</span> an unwritable applications directory fails setup with the path in the message and writes no manifest; a file not in the manifest is never deleted.</p></details></td><td><span class="tchip">.4</span></td></tr>
+<tr data-rid="R5"><td class="rid">R5</td><td><details><summary>Every window of the distraction profile matches one Hyprland rule, and a window whose pid or ancestor within eight hops is in the slice is m…</summary><p>Every window of the distraction profile matches one Hyprland rule, and a window whose pid or ancestor within eight hops is in the slice is moved to the space by the safety net.</p><p class="err"><span class="lbl">errors</span> an unreadable cgroup file for the pid skips the pid check and falls back to class matching.</p></details></td><td><span class="tchip">.6</span></td></tr>
+<tr data-rid="R6"><td class="rid">R6</td><td><details><summary>A listed product&#x27;s web-app window from a browser outside the slice is closed and reopened through <code>open</code>, once per window address.</summary><p>A listed product&#x27;s web-app window from a browser outside the slice is closed and reopened through <code>open</code>, once per window address.</p><p class="err"><span class="lbl">errors</span> a failed <code>open</code> leaves the window where it is, moved to the space by class, and logs one line.</p></details></td><td><span class="tchip">.6</span></td></tr>
+<tr data-rid="R7"><td class="rid">R7</td><td><details><summary>The rendered nftables table accepts traffic from the slice cgroup before any reject or redirect, and keeps the version 2 rules after it. A l…</summary><p>The rendered nftables table accepts traffic from the slice cgroup before any reject or redirect, and keeps the version 2 rules after it. A listed host is reachable from a process in the slice and refused from a process outside it regardless of the active workspace.</p><p class="err"><span class="lbl">errors</span> the wrapper refuses the version 2 stdin bounds unchanged; an <code>nft</code> that rejects the cgroup rule exits 1 and state reports <code>site_block: unavailable</code>.</p></details></td><td><span class="tchip">.1</span></td></tr>
+<tr data-rid="R8"><td class="rid">R8</td><td><details><summary>Entering and leaving the space performs no resolution and no wrapper call. Resolution runs on start, reload, <code>refresh</code>, and every 60 seconds…</summary><p>Entering and leaving the space performs no resolution and no wrapper call. Resolution runs on start, reload, <code>refresh</code>, and every 60 seconds.</p><p class="err"><span class="lbl">errors</span> a failed batch keeps the last good set with one notice, as in version 2.</p></details></td><td><span class="tchip">.2</span></td></tr>
+<tr data-rid="R9"><td class="rid">R9</td><td><details><summary><code>site_block.enabled: false</code> destroys the table, stops resolution, and reports <code>site_block: off</code>, while windows, links, mute, and hold keep w…</summary><p><code>site_block.enabled: false</code> destroys the table, stops resolution, and reports <code>site_block: off</code>, while windows, links, mute, and hold keep working.</p><p class="err"><span class="lbl">errors</span> none beyond R7.</p></details></td><td><span class="tchip">.2</span></td></tr>
+<tr data-rid="R10"><td class="rid">R10</td><td><details><summary>Exactly two banner kinds exist. Opened fires when a listed window lands on the space while the person is elsewhere, with an action that ente…</summary><p>Exactly two banner kinds exist. Opened fires when a listed window lands on the space while the person is elsewhere, with an action that enters; Blocked fires from the TLS router for a listed SNI, with an action that opens the site root in the space. Each fires at most once per list entry per 60 seconds and never while the person is on the space.</p><p class="err"><span class="lbl">errors</span> the lock active turns the Opened action into the lock notice and puts the lock end in the body.</p></details></td><td><span class="tchip">.5</span> <span class="tchip">.6</span></td></tr>
+<tr data-rid="R11"><td class="rid">R11</td><td><details><summary>The peer-port attribution, the <code>/proc</code> inode and pid walks, the Hyprland-owner walk, and the provenance rate limiter are removed, and `distr…</summary><p>The peer-port attribution, the <code>/proc</code> inode and pid walks, the Hyprland-owner walk, and the provenance rate limiter are removed, and <code>distractions banners</code> reads the three-field line.</p><p class="err"><span class="lbl">errors</span> none.</p></details></td><td><span class="tchip">.5</span></td></tr>
+<tr data-rid="R12"><td class="rid">R12</td><td><details><summary>With <code>mute_sounds</code> on and the hold in effect, a sink input whose process is in the slice is muted, and a web app&#x27;s audio in the distraction …</summary><p>With <code>mute_sounds</code> on and the hold in effect, a sink input whose process is in the slice is muted, and a web app&#x27;s audio in the distraction profile is muted on this machine. Catalog identity matching remains for streams outside the slice. Slice membership bypasses the version 2 bare-browser guard: an unlisted page in a distraction-profile window is muted too.</p><p class="err"><span class="lbl">errors</span> an unreadable cgroup file falls through to catalog matching; the version 2 unmute safety rules stay.</p></details></td><td><span class="tchip">.7</span></td></tr>
+<tr data-rid="R13"><td class="rid">R13</td><td><details><summary>Locking while on the space leaves it.</summary><p>Locking while on the space leaves it.</p><p class="err"><span class="lbl">errors</span> no other workspace occupied leaves the person in place, as <code>leave</code> does today.</p></details></td><td><span class="tchip">.7</span></td></tr>
+<tr data-rid="R14"><td class="rid">R14</td><td><details><summary><code>state.json</code> and <code>status --json</code> carry <code>links</code> and <code>browser</code>, and a version 2 config file loads with every new key at its default.</summary><p><code>state.json</code> and <code>status --json</code> carry <code>links</code> and <code>browser</code>, and a version 2 config file loads with every new key at its default.</p><p class="err"><span class="lbl">errors</span> an invalid <code>browser</code> argv is reported by <code>config set</code> before the write, as other keys are.</p></details></td><td><span class="tchip">.2</span></td></tr>
+<tr data-rid="R15"><td class="rid">R15</td><td><details><summary>The README describes the slice, the profile, the login-once upgrade cost, the two banners, and the network switch, and the plugin manifest r…</summary><p>The README describes the slice, the profile, the login-once upgrade cost, the two banners, and the network switch, and the plugin manifest reads 3.0.0.</p><p class="err"><span class="lbl">errors</span> none.</p></details></td><td><span class="tchip">.9</span></td></tr>
+<tr data-rid="R16"><td class="rid">R16</td><td><details><summary><code>PATH=/usr/bin:$PATH python3 -m unittest discover -s tests</code> passes offline with fakes for <code>systemd-run</code>, <code>xdg-settings</code>, and the cgroup file…</summary><p><code>PATH=/usr/bin:$PATH python3 -m unittest discover -s tests</code> passes offline with fakes for <code>systemd-run</code>, <code>xdg-settings</code>, and the cgroup file reads added to the harness.</p><p class="err"><span class="lbl">errors</span> none.</p></details></td><td><span class="tchip">.1–.9</span></td></tr>
+<tr data-rid="R17"><td class="rid">R17</td><td><details><summary><code>distractions release [minutes]</code> exempts the focused window from all three containment layers until the deadline or until the window closes,…</summary><p><code>distractions release [minutes]</code> exempts the focused window from all three containment layers until the deadline or until the window closes, <code>status --json</code> lists <code>released</code> as <code>{address: until}</code>, and the window keeps its network because it stays in the slice.</p><p class="err"><span class="lbl">errors</span> no focused window, or the listener not running, exits 1 with one notice; a non-positive duration exits 2; a window that closes is pruned from the set on <code>closewindow</code>.</p></details></td><td><span class="tchip">.8</span></td></tr>
+<tr data-rid="R18"><td class="rid">R18</td><td><details><summary>With <code>containment.snap_back: true</code>, a manual move of an unreleased slice member or listed class off the space is reverted on the `movewindow…</summary><p>With <code>containment.snap_back: true</code>, a manual move of an unreleased slice member or listed class off the space is reverted on the <code>movewindow</code> event; with <code>false</code>, only <code>openwindow</code> triggers containment.</p><p class="err"><span class="lbl">errors</span> none beyond R5.</p></details></td><td><span class="tchip">.8</span></td></tr></tbody></table>
+</section>
+
+<section id="bounds">
+<div class="shead"><span class="num">04</span><h2>Boundaries</h2><span class="note">scope: business</span></div>
+<div class="grid2">
+<div class="card is"><div class="lbl">is</div><ul><li>A systemd slice and a browser profile as the one boundary</li><li><code>distractions open</code>, launcher entries with backup, an http/https URL handler</li><li>A static nftables table with the cgroup accept rule first, behind <code>site_block.enabled</code></li><li>Two banners, one debounce table, attribution removed</li><li>Slice-first mute; <code>release</code> and <code>containment.snap_back</code></li><li>Version 3.0.0 on a branch, R1 to R18</li></ul></div>
+<div class="card isnot"><div class="lbl">is not</div><ul><li>No Firefox web apps. Firefox has no <code>--app</code> window with a host-bearing class; a Firefox default browser gets <code>chromium</code> for web products, as Omarchy itself does.</li><li>No browser extension and no HTTPS block page. Feedback on port 443 stays a banner.</li><li>No change to the notification hold mechanism, the shell patch, the clone lifecycle, the summary, or the lock prompts.</li><li>No per-window or per-tab network policy inside the work browser. The unit of network policy is the process group.</li><li>No automatic purge of the distraction profile on remove.</li><li>No change to the three Hyprland snippets. Existing installs keep them.</li><li>No Encrypted Client Hello handling; the version 2 limit stands.</li><li>No <code>main</code> push. Work happens on a branch until the 2.1.0 marketplace review completes.</li></ul></div>
+</div>
+</section>
+
+<section id="decisions">
+<div class="shead"><span class="num">05</span><h2>Decision context</h2><span class="note">19 entries</span></div>
+<div class="dec"><span class="dtag">D1</span> Slice over workspace as the network key. nftables can match a socket&#x27;s cgroup and cannot match a window&#x27;s workspace, so the slice is the only boundary the kernel can enforce. It also removes every network action from the enter and leave paths, which is where the generation counter, the waiters, and the flush lived.</div><div class="dec"><span class="dtag">D2</span> Separate browser profile over a shared one. The shared process id (3463 for WhatsApp, X, and the work browser on this machine) makes per-process policy impossible without it. The cost is one login per web app after upgrade. The benefit is that windows, network, and audio all become attributable with no heuristics.</div><div class="dec"><span class="dtag">D3</span> Routing links over refusing them. A refusal is a dead end the person has to recover from by hand. A route ends where the person wanted to go. The URL handler is one desktop file and one <code>xdg-settings</code> call, both reversible.</div><div class="dec"><span class="dtag">D4</span> Keeping the block, static and switchable. The block is the only answer to the typed-URL path. Making it static makes it predictable, and the switch makes the decision cheap to revisit.</div><div class="dec"><span class="dtag">D5</span> Adoption over silent containment of foreign web-app windows. A contained but blocked window is the exact broken state the person reported. Closing and reopening it in the right process is the only outcome that works, and the only page state at risk is the start URL.</div><div class="dec"><span class="dtag">D6</span> Rejected: <code>exec</code> dispatcher window rules by pid. Chromium&#x27;s single-instance handoff means the second launch&#x27;s pid never owns a window.</div><div class="dec"><span class="dtag">D7</span> Rejected: DNS-level block. It cannot be scoped to a process group and would need root at query time.</div><div class="dec"><span class="dtag">D8</span> Rejected: a browser extension. Per-browser, per-profile, and outside what an Omarchy plugin can install.</div><div class="dec"><span class="dtag">D9</span> Rejected: matching the notification sender by bus pid and cgroup. Better than app-name matching, but the shell patch is the suppression mechanism and stays out of scope here.</div><div class="dec"><span class="dtag">D10</span> One nftables table, not a second network stack. The browser profile is a process boundary; the network policy is still the single table fn-9 set as a boundary.</div><div class="dec"><span class="dtag">D11</span> A persistent slice unit over an on-demand transient slice, because nftables pins the rule to a cgroup id at load time and an on-demand slice can be garbage-collected between launches.</div><div class="dec"><span class="dtag">D12</span> Backup and replace for Omarchy&#x27;s same-name web-app entries, chosen by the person on 2026-09-05 over leaving them alone and relying on adoption, which would show a window flash on every app-menu click.</div><div class="dec"><span class="dtag">D13</span> Mute everything in the slice, chosen on 2026-09-05: the version 2 bare-browser guard stays for streams outside the slice only.</div><div class="dec"><span class="dtag">D14</span> <code>release</code> plus <code>containment.snap_back</code>, chosen on 2026-09-05 over a config-only or verb-only shape, because working with a chat app on a work workspace for a while is a real case and containment should not have to be switched off globally to allow it.</div><div class="dec"><span class="dtag">D15</span> fn-1 R1/R6 and fn-9 R2: the block applied and lifted by the current workspace. Replaced by the slice as the network key (R7, R8).</div><div class="dec"><span class="dtag">D16</span> fn-11 R1: one window rule per expanded web entry. Replaced by the single profile rule (R5); the native per-class rules and the <code>configreloaded</code> re-apply stay.</div><div class="dec"><span class="dtag">D17</span> fn-13 R2: X contained by class and blocked by host in a shared browser. X becomes a web target in the distraction profile.</div><div class="dec"><span class="dtag">D18</span> fn-15 R1/R2 and fn-20 R1–R3: banner suppression by peer-port attribution and the provenance line. Removed by construction (R10, R11).</div><div class="dec"><span class="dtag">D19</span> Kept unchanged: fn-21&#x27;s sudoers transaction and wrapper bounds, fn-14&#x27;s reject rules, fn-18&#x27;s <code>pass_through</code>, <code>keep_reachable</code>, and SNI routers.</div>
+</section>
+
+<section id="proof">
+<div class="shead"><span class="num">06</span><h2>Early proof point</h2><span class="note">task .1</span></div>
+<div class="proof">Task .1 validates the core approach: the wrapper renders the cgroup accept rule, <code>nft</code> applies it under root on this kernel, and the persistent slice keeps the rule live across launches. If it fails, re-evaluate the static-table design before .3 and later; the window, link, and sound halves do not depend on it.</div>
+</section>
+
+<section id="parked">
+<div class="shead"><span class="num">07</span><h2>Parked unknowns</h2><span class="note">3 open</span></div>
+<div class="card"><ul><li>Whether <code>socket cgroupv2 level 5</code> applies under root on kernel 7.1.9 and nftables 1.1.6. The parser accepts it; a privileged apply during the first network task settles it.</li><li>Whether <code>application.process.id</code> on the distraction browser&#x27;s sink inputs resolves to a process inside the slice on PipeWire here. One <code>pactl</code> listing with the distraction browser playing sound settles it.</li><li>Whether Brave, Edge, Opera, Vivaldi, and Helium honor <code>--profile-directory</code> in the window class the way google-chrome does. One launch per installed browser settles it; the rule pattern already accepts any prefix.</li></ul></div>
+</section>
+
+<footer>Render lens, not record. Source: <code>.flow/specs/fn-22-the-space-is-a-process-group-one.md</code> and <code>.flow/tasks/fn-22-the-space-is-a-process-group-one.*.md</code>.<br>
+<span class="stamp">staleness stamp · spec updated_at 2026-09-05T10:04:16.355994Z · repo commit 982e239 · rendered 2026-09-05</span></footer>
+</div>
+<script>
+(function () {
+  var svg = document.getElementById('edges');
+  var wrap = svg.parentElement;
+  var CRIT = { 'n1>n3':1,'n3>n6':1,'n6>n8':1,'n8>n9':1 };
+  function draw() {
+    var grid = document.getElementById('dagg');
+    var w = Math.max(grid.scrollWidth, wrap.clientWidth), h = grid.scrollHeight + 32;
+    svg.setAttribute('width', w); svg.setAttribute('height', h);
+    svg.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    svg.innerHTML = '';
+    var wb = wrap.getBoundingClientRect();
+    document.querySelectorAll('#dagg .node').forEach(function (n) {
+      (n.dataset.deps || '').split(',').filter(Boolean).forEach(function (d) {
+        var a = document.getElementById(d).getBoundingClientRect(), b = n.getBoundingClientRect();
+        var x1 = a.right - wb.left + wrap.scrollLeft, y1 = a.top + a.height / 2 - wb.top;
+        var x2 = b.left - wb.left + wrap.scrollLeft, y2 = b.top + b.height / 2 - wb.top;
+        var mx = (x1 + x2) / 2;
+        var p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        p.setAttribute('d', 'M' + x1 + ',' + y1 + ' C' + mx + ',' + y1 + ' ' + mx + ',' + y2 + ' ' + x2 + ',' + y2);
+        if (CRIT[d + '>' + n.id]) p.setAttribute('class', 'crit');
+        svg.appendChild(p);
+      });
+    });
+  }
+  window.addEventListener('resize', draw);
+  requestAnimationFrame(draw);
+  document.querySelectorAll('#dagg .node').forEach(function (n) {
+    var rids = (n.dataset.rids || '').split(',').filter(Boolean);
+    n.addEventListener('mouseenter', function () { rids.forEach(function (r) { var row = document.querySelector('tr[data-rid="' + r + '"]'); if (row) row.classList.add('lit'); }); });
+    n.addEventListener('mouseleave', function () { rids.forEach(function (r) { var row = document.querySelector('tr[data-rid="' + r + '"]'); if (row) row.classList.remove('lit'); }); });
+  });
+  try {
+    document.querySelectorAll('#ac details').forEach(function (d, i) {
+      var k = 'fn22-ac-' + i;
+      if (localStorage.getItem(k) === '1') d.open = true;
+      d.addEventListener('toggle', function () { localStorage.setItem(k, d.open ? '1' : '0'); });
+    });
+  } catch (e) {}
+})();
+</script>
+</body>
+</html>
