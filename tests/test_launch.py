@@ -209,9 +209,25 @@ class LaunchTests(unittest.TestCase):
         r = self.box.run("open", "Telegram")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self._launches(), [SLICE_PREFIX + ["Telegram", "--"]])
+        # After setup the plugin's own launcher shadows the system entry under
+        # XDG_DATA_HOME; a native launch must pass it over, never launch itself.
+        own = self.data_home / "applications"
+        own.mkdir(parents=True, exist_ok=True)
+        (own / "org.telegram.desktop.desktop").write_text(
+            f"[Desktop Entry]\nType=Application\nName=Telegram\nExec={ROOT / 'distractions'} open Telegram\n",
+            encoding="utf-8")
+        r = self.box.run("open", "Telegram")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches(2)[1], SLICE_PREFIX + ["Telegram", "--"])
+        # With only the plugin's own entry present there is nothing to launch: one notice, exit 1.
+        (self.apps / "org.telegram.desktop.desktop").unlink()
+        r = self.box.run("open", "Telegram")
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(self._launches(2)), 2)
+        self._desktop("org.telegram.desktop", "Telegram -- %u")
         r = self.box.run("open", "Discord")
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self._launches(2)[1], SLICE_PREFIX + ["google-chrome-stable", *self._profile_flags("https://discord.com/")])
+        self.assertEqual(self._launches(3)[2], SLICE_PREFIX + ["google-chrome-stable", *self._profile_flags("https://discord.com/")])
         log = state.state_path("log").read_text(encoding="utf-8")
         self.assertEqual(log.count("not network-restricted"), 1)
         self.assertIn("Discord", log)

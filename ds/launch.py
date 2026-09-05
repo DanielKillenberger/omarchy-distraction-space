@@ -221,8 +221,15 @@ def desktop_file(desktop_id):
     `org.telegram.desktop.desktop`); an `xdg-settings` id carries it. Both
     spellings are tried, suffixed first. A path-shaped id is refused.
     """
+    for path in desktop_files(desktop_id):
+        return path
+    return None
+
+
+def desktop_files(desktop_id):
+    """Every desktop file for `desktop_id` across the share dirs, nearest first."""
     if not isinstance(desktop_id, str) or not desktop_id or "/" in desktop_id or desktop_id.startswith("."):
-        return None
+        return
     names = [desktop_id + ".desktop"]
     if desktop_id.endswith(".desktop"):
         names.append(desktop_id)
@@ -230,8 +237,14 @@ def desktop_file(desktop_id):
         for name in names:
             path = d / "applications" / name
             if path.is_file():
-                return path
-    return None
+                yield path
+
+
+def _is_own_launcher(argv):
+    """True for an Exec that is this plugin's `distractions open ...`: setup writes such
+    an entry in front of a native app's system entry, and a native launch that
+    resolved to it would only launch itself again."""
+    return bool(argv) and Path(argv[0]).name == "distractions" and argv[1:2] == ["open"]
 
 
 def read_exec(path):
@@ -360,16 +373,20 @@ def expand_fields(argv, url=None):
     return out
 
 
-def exec_argv(desktop_id, url=None):
-    """The launchable argv of `<desktop_id>.desktop`, or None when the file or its Exec is unusable."""
-    path = desktop_file(desktop_id)
-    if path is None:
-        return None
-    argv = parse_exec(read_exec(path))
-    if not argv:
-        return None
-    argv = expand_fields(argv, url)
-    return argv or None
+def exec_argv(desktop_id, url=None, skip_own=False):
+    """The launchable argv of `<desktop_id>.desktop`, or None when the file or its Exec is unusable.
+
+    With `skip_own`, an entry whose Exec is this plugin's own launcher is passed
+    over for the next file of the same id, which is the shadowed system entry.
+    """
+    for path in desktop_files(desktop_id):
+        argv = parse_exec(read_exec(path))
+        if not argv:
+            return None
+        if skip_own and _is_own_launcher(argv):
+            continue
+        return expand_fields(argv, url) or None
+    return None
 
 
 # --- browser -----------------------------------------------------------------
@@ -492,7 +509,9 @@ def _open_web(target, cfg):
 
 
 def _open_native(target):
-    argv = exec_argv(target.desktop)
+    # Setup puts this plugin's own `distractions open <name>` entry in front of
+    # the app's system entry; the launch must reach the app, never itself.
+    argv = exec_argv(target.desktop, skip_own=True)
     if argv is None:
         _notice("Distraction space", f"{target.desktop}.desktop has no usable Exec line.")
         return 1
