@@ -1,0 +1,14 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-05T22:44:13.265727Z",
+  "depends_on": [],
+  "id": "fn-30-publish-reviewed-v3-and-refresh-the.1",
+  "priority": null,
+  "spec": "fn-30-publish-reviewed-v3-and-refresh-the",
+  "spec_path": ".flow/tasks/fn-30-publish-reviewed-v3-and-refresh-the.1.md",
+  "status": "todo",
+  "title": "Publish tested v3 through PR23 and refresh issue4518",
+  "updated_at": "2026-09-05T22:44:13.265727Z"
+}
