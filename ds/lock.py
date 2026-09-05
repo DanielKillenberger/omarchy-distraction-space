@@ -39,6 +39,9 @@ def is_locked():
 def lock(minutes, purpose):
     purpose = purpose or ""
     until = None if minutes is None else _until_iso(minutes)
+    # Locking while on the space leaves it the way `leave` does; the lock is written either way.
+    if hypr.on_space() is True:
+        hypr.cycle("next")
 
     def _do():
         if is_locked():

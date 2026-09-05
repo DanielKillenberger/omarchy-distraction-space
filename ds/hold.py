@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ds import catalog, config, state
+from ds import catalog, cgroup, config, state
 
 FIELD_CAP = 4096
 FILE_CAP = 64 * 1024
@@ -489,10 +489,18 @@ def _is_browser(app, binary) -> bool:
 
 
 def attribute_stream(item, table, proc=None):
-    """The list entry name a sink-input belongs to, or None; a bare browser stream is never a member."""
+    """The list entry name a sink-input belongs to, `cgroup.SLICE` for a stream whose process is in the slice, or None.
+
+    Slice membership is checked first and counts regardless of window class; outside
+    the slice a bare browser stream is never a member. An unreadable cgroup file
+    reads as "not in the slice" and falls through to the catalog rules.
+    """
     props = item.get("properties") if isinstance(item, dict) else None
     if not isinstance(props, dict):
         return None
+    pid = stream_pid(item)
+    if pid is not None and cgroup.in_slice(pid, proc or PROC):
+        return cgroup.SLICE
     app = normalize(props.get("application.name"))
     binary = normalize(os.path.basename(str(props.get("application.process.binary") or "")))
     if not _is_browser(app, binary):
@@ -501,7 +509,7 @@ def attribute_stream(item, table, proc=None):
             name = table["binaries"].get(binary)
         if name is not None:
             return name
-    return pwa_name(stream_pid(item), table["hosts"], proc)
+    return pwa_name(pid, table["hosts"], proc)
 
 
 def muted_path():
