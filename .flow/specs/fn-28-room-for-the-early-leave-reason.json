@@ -1,0 +1,24 @@
+{
+  "branch_name": "fn-28-room-for-the-early-leave-reason",
+  "created_at": "2026-09-05T22:05:10.419138Z",
+  "depends_on_epics": [],
+  "id": "fn-28-room-for-the-early-leave-reason",
+  "next_task": 1,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": null,
+  "spec_path": ".flow/specs/fn-28-room-for-the-early-leave-reason.md",
+  "status": "open",
+  "title": "Room for the early-leave reason",
+  "tracker": {
+    "baseHashFlow": null,
+    "baseHashTracker": null,
+    "depRelations": [],
+    "id": null,
+    "identifier": null,
+    "lastSyncedAt": null,
+    "mergeBaseFlow": null,
+    "mergeBaseTracker": null,
+    "url": null
+  },
+  "updated_at": "2026-09-05T22:05:10.427139Z"
+}
