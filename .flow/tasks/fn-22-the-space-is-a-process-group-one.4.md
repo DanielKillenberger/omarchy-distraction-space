@@ -46,9 +46,24 @@ The reversible install surface for links and launchers (R3, R4). Split from `ope
 
 
 ## Done summary
-TBD
+Setup writes one launcher entry per listed product and the URL-handler entry under the person's applications directory, moves aside whole any file it does not own into `entries-backup/`, records everything in `entries.json` written after every file it names, and rolls the whole run back on a write failure. `setup --remove` undoes the user-level half first: hands the recorded default back while the plugin still holds it, deletes exactly the manifest's paths, moves backups home byte-for-byte, drops the manifest, and prints the kept browser profile path. The listener's `check_links` runs on start, reload, and every period, asks `xdg-settings` only once the manifest names the handler, and notifies once per lifetime naming `distractions setup` (R3, R4).
 
+### What changed (commits d5601c7, d02c955, a3eaec9; base 31235f1; the worker's 3fe0528 was cherry-picked as d5601c7)
+- `ds/setup.py`: `sync_entries`, `remove_entries`, `_plan`, `_render_entry`, `_render_handler`, `_class_prefix`, `_wm_class`, `_write_text`, `_rollback`, `_restore_handler`, `default_handler`, `_owned_files`, `_update_desktop_database`. After review: `default_handler` reports whether xdg-settings answered, and an unanswered query never changes the default at install nor deletes anything at remove; a failed restore keeps the handler; the manifest is refused whole unless every path is a direct child of the applications directory and every backup its twin under the backup directory; owned entries about to be replaced or dropped are staged so rollback restores their exact bytes; the database refresh is best effort and runs after the record; the window-class prefix follows a configured browser argv; switching links off restores the default before the handler file goes and keeps the file with `links: displaced` when that fails.
+- `ds/listener.py`: `check_links` on start, reload, and the periodic tick; `_links_state` treats an unanswered query as displaced.
+- Tests: `tests/test_setup.py` (shadow and restore, re-run convergence, dropped entry, exit-4 displaced, switch off, mid-run rollback, unwritable directory, unanswered query at install and remove, failed restore at remove, foreign manifest refused, rollback of drifted owned files and a dropped entry, best-effort database refresh, configured-browser class, links-off hand-back), `tests/test_listener.py` (displaced on a later tick with one notice; off when nothing is registered or the switch is off), `tests/test_clone.py` (fake `xdg-settings` and `update-desktop-database`, sandboxed `XDG_DATA_HOME`; test-only Touches deviation).
+
+### Review
+cursor / gpt-5.6-sol-high, three rounds: round 1 NEEDS_WORK (five findings: lost previous handler on a failed query, unvalidated manifest paths, incomplete rollback, database timeout escaping, class prefix ignoring the configured browser), round 2 NEEDS_WORK (links-off dropped the handler before the restore was known), round 3 SHIP with R3 and R4 met.
+
+### Gates
+- baseline: green via handoff (b5bd9393)
+- verify: `PATH=/usr/bin:$PATH python3 -m unittest discover -s tests` at a3eaec9 on the integrated target, 336 tests, OK; receipt `.flow/tmp/green-receipts/a3eaec98-unittest.json`
+- classify: FULL
+
+stage: impl-review - ran (cursor gpt-5.6-sol-high, 3 rounds, SHIP)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
-- Commits:
-- Tests:
+- Commits: d5601c7, d02c955, a3eaec9
+- Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (verify: green, 336 tests at a3eaec9 on the integrated target; receipt .flow/tmp/green-receipts/a3eaec98-unittest.json), PATH=/usr/bin:$PATH python3 -m unittest tests.test_setup tests.test_clone tests.test_listener
 - PRs:
