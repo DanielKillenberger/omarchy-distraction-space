@@ -78,7 +78,14 @@ def build_parser():
     sub.add_parser("senders")
     banners = sub.add_parser("banners")
     banners.add_argument("--count", type=positive_int, default=20, metavar="N")
-    sub.add_parser("open").add_argument("target")
+    op = sub.add_parser(
+        "open", allow_abbrev=False,
+        usage="%(prog)s [--app] [target] [browser flags...]",
+        description="Open a listed site or app in the distraction space; forward anything else to the previous browser. "
+                    "Unknown -flags (--incognito, --private-window, ...) pass through to the forwarded browser unchanged.",
+    )
+    op.add_argument("--app", action="store_true", help="forward an unlisted URL as an app window (--app=<url>)")
+    op.add_argument("target", nargs="?", help="an http(s) URL, a list entry, or a catalog name; none forwards the bare browser")
     pr = sub.add_parser("profile").add_subparsers(dest="profile_cmd")
     imp = pr.add_parser("import", help="copy the existing browser profile into the distraction profile once")
     imp.add_argument("--from", dest="source", metavar="PROFILE_DIR", help="a Chromium profile directory instead of the default browser's main profile")
@@ -87,9 +94,17 @@ def build_parser():
 
 
 def main(argv=None):
-    args = build_parser().parse_args(argv)
-    if not args.command:
-        sys.exit(2)
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if not argv or (argv[0].startswith("-") and argv[0] not in ("-h", "--help")):
+        # Omarchy's browser keybind runs the default browser's Exec first token
+        # alone, with nothing or a private-window flag: the bare binary is `open`.
+        argv.insert(0, "open")
+    parser = build_parser()
+    args, extras = parser.parse_known_args(argv)
+    if args.command == "open":
+        args.flags = extras
+    elif extras:
+        parser.error(f"unrecognized arguments: {' '.join(extras)}")
     try:
         rc = COMMANDS[args.command](args)
     except NotImplementedError:

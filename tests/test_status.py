@@ -205,11 +205,6 @@ class StatusTests(unittest.TestCase):
                 self.assertEqual(r.returncode, 2, r.stderr)
                 self.assertIn("not yet", r.stderr)
 
-    def test_no_command_exits_2(self):
-        box = self._box()
-        r = box.run()
-        self.assertEqual(r.returncode, 2)
-
 
 class BoundedReadTests(unittest.TestCase):
     """What a reader materializes from a state path someone else can replace."""

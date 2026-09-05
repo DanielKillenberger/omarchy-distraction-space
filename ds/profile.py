@@ -10,6 +10,7 @@ destination is renamed to a dated backup with `--replace` and never deleted.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import socket
@@ -235,6 +236,28 @@ def copy_profile(src, tmp):
     return copied
 
 
+def disable_default_browser_prompt(preferences):
+    """Set `browser.check_default_browser` to false in the copied `Preferences`, atomically.
+
+    The distraction profile is never the default browser (the plugin's handler
+    is), so Chrome would ask on every start; the main profile keeps its own
+    answer. Raises `ValueError` when the file is not the JSON object Chrome writes.
+    """
+    preferences = Path(preferences)
+    try:
+        with preferences.open("r", encoding="utf-8") as f:
+            prefs = json.load(f)
+    except (UnicodeDecodeError, ValueError) as e:
+        raise ValueError(f"{preferences} is not the JSON Chrome writes: {e}") from e
+    if not isinstance(prefs, dict):
+        raise ValueError(f"{preferences} is not a JSON object")
+    browser = prefs.get("browser")
+    if not isinstance(browser, dict):
+        browser = prefs["browser"] = {}
+    browser["check_default_browser"] = False
+    state.write_json(preferences, prefs)
+
+
 def import_profile(src, dst, replace=False, proc=None):
     """Copy `src` into `dst` after every precondition holds; returns (bytes, seconds).
 
@@ -289,8 +312,9 @@ def import_profile(src, dst, replace=False, proc=None):
     started = time.monotonic()
     try:
         copied = copy_profile(src, tmp)
+        disable_default_browser_prompt(tmp / "Preferences")
         os.rename(tmp, dst)
-    except (OSError, shutil.Error) as e:
+    except (OSError, shutil.Error, ValueError) as e:
         kept = [f"the partial copy stays at {tmp}"] if tmp.exists() else []
         if backup is not None:
             kept.append(f"the previous profile stays at {backup}")

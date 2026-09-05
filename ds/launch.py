@@ -3,9 +3,13 @@
 A target is a URL, a list entry name, or a catalog name, in that order. A web
 target runs the distraction browser as a transient scope in `app-distraction.slice`
 with the profile flags; a native target runs its desktop entry's `Exec` line the
-same way. A URL whose host is neither listed nor a subdomain of a listed host is
-forwarded to the handler setup recorded, outside the slice, the way that handler
-would have run it.
+same way. Everything else is forwarded to the handler setup recorded, outside
+the slice, the way that handler would have run it: a URL whose host is neither
+listed nor a subdomain of a listed host, no target at all (Omarchy's browser
+keybind runs the default browser's Exec with nothing, or with a private-window
+flag), and `--app <url>` for an unlisted URL (what `omarchy-launch-webapp`
+does). Browser flags pass through to the forward unchanged; a launch into the
+space has its own flags and ignores them.
 """
 
 from __future__ import annotations
@@ -27,7 +31,7 @@ FALLBACK_FORWARDER = "omarchy-launch-browser"
 CHROMIUM_FAMILY = ("google-chrome", "brave", "microsoft-edge", "opera", "vivaldi", "helium")
 DEFAULT_BROWSER_ID = "chromium.desktop"
 SCOPE_ARGV = ["systemd-run", "--user", "--scope", "--quiet", "--collect", f"--slice={cgroup.SLICE}", "--"]
-USAGE = "usage: distractions open <http(s)-url | list entry | catalog name>"
+USAGE = "usage: distractions open [--app] [http(s)-url | list entry | catalog name] [browser flags...]"
 
 _EXEC_LINE = re.compile(r"^\s*Exec\s*=\s*(.*?)\s*$")
 _FIELD_CODE = re.compile(r"%(.)")
@@ -424,6 +428,31 @@ def profile_flags(url):
     return [f"--user-data-dir={profile_dir()}", f"--profile-directory={PROFILE}", f"--app={url}"]
 
 
+NEW_PROFILE_PREFERENCES = {"browser": {"check_default_browser": False}}
+
+
+def ensure_profile():
+    """Create the distraction profile with Chrome's default-browser prompt off, once.
+
+    Chrome asks per profile and rewrites `Preferences` on exit, so the key is
+    written only when the profile directory does not exist yet, before the
+    first launch; an existing directory is the person's and is never touched.
+    A directory that cannot be made is left to the browser, which creates it.
+    """
+    profile = profile_dir() / PROFILE
+    try:
+        profile.mkdir(parents=True)
+    except FileExistsError:
+        return
+    except OSError as e:
+        _log(f"{profile}: {e}")
+        return
+    try:
+        state.write_json(profile / "Preferences", NEW_PROFILE_PREFERENCES)
+    except OSError as e:
+        _log(f"{profile / 'Preferences'}: {e}")
+
+
 # --- launching ---------------------------------------------------------------
 
 def _settle_seconds():
@@ -433,7 +462,7 @@ def _settle_seconds():
         return 1.0
 
 
-def _detached(argv, program=None):
+def _detached(argv, program=None, env=None):
     """Start argv in its own session with its streams closed; False when it did not start.
 
     `program` is the binary whose start is being judged when argv wraps it (the
@@ -451,7 +480,7 @@ def _detached(argv, program=None):
         proc = subprocess.Popen(
             argv,
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            start_new_session=True, env=env,
         )
     except OSError as e:
         _log(f"{argv[0]}: {e}")
@@ -525,6 +554,7 @@ def _open_web(target, cfg):
     if browser is None:
         _notice("No distraction browser", "No Chromium-family browser was found. Set `browser` in the config.")
         return 1
+    ensure_profile()
     if launch_in_slice(browser + profile_flags(target.url)):
         return 0
     _notice("Distraction space", f"{browser[0]} could not be started in the slice.")
@@ -544,17 +574,36 @@ def _open_native(target):
     return 1
 
 
-def forward(url):
-    """Hand an unlisted URL to the recorded previous handler, never inside the slice."""
+def forward(url=None, flags=(), app=False):
+    """Hand what the space does not own to the previous handler, never inside the slice.
+
+    The handler's Exec carries `url` in its field code, or loses the code when
+    there is none, the way `omarchy-launch-browser` runs a browser bare; with
+    `app` the URL goes after the Exec as `--app=<url>` instead, the way
+    `omarchy-launch-webapp` runs it. `flags` are appended verbatim. No usable
+    previous handler (none recorded, this plugin's own entry, an Exec that does
+    not parse) falls back to `omarchy-launch-browser` with `BROWSER` dropped;
+    that script resolves the default browser again, so when the default is
+    this plugin the fallback would only come straight back, and nothing is
+    launched: exit 1 with one line, as when the script is missing.
+    """
     handler = state.read_entries()["previous_handler"]
-    if not handler or handler == HANDLER_ID:
-        argv = [FALLBACK_FORWARDER, url]
-    else:
-        argv = exec_argv(handler, url)
+    argv = env = None
+    if handler and handler != HANDLER_ID:
+        argv = exec_argv(handler, None if app else url, skip_own=True)
         if argv is None:
-            _notice("Link not forwarded", f"{handler} has no usable Exec line; the link was dropped.")
+            _log(f"{handler} has no usable Exec line; forwarding through {FALLBACK_FORWARDER}")
+    if argv is None:
+        if _default_browser_id() == HANDLER_ID:
+            _notice("Link not forwarded", f"no previous browser is recorded and {FALLBACK_FORWARDER} would resolve to this plugin again; rerun: distractions setup")
             return 1
-    if _detached(argv):
+        argv = [FALLBACK_FORWARDER] + ([] if url is None or app else [url])
+        env = dict(os.environ)
+        env.pop("BROWSER", None)
+    if app and url is not None:
+        argv.append(f"--app={url}")
+    argv.extend(flags)
+    if _detached(argv, env=env):
         return 0
     _notice("Link not forwarded", f"{argv[0]} could not be started.")
     return 1
@@ -574,14 +623,25 @@ def _expansion(cfg):
     return {"list": catalog.expand(cfg)}
 
 
-def open_target(arg):
+def open_target(arg=None, app=False, flags=()):
+    """0 when something was launched or forwarded, 1 when nothing could be, 2 for a malformed target.
+
+    No target forwards bare; an unlisted URL forwards, as an app window with
+    `app`; a listed or catalog target opens in the space, where `app` changes
+    nothing (the space always opens app windows) and `flags` are not applied.
+    """
+    flags = list(flags)
+    if arg is None:
+        return forward(None, flags)
     cfg = _read_cfg()
     target = resolve_target(arg, _expansion(cfg), catalog.load_catalog())
     if target is None:
         print(USAGE, file=sys.stderr)
         return 2
     if target.kind == "forward":
-        return forward(target.url)
+        return forward(target.url, flags, app)
+    if flags:
+        _log(f"{target.entry.get('name')}: {' '.join(flags)} not applied; a space launch has its own flags")
     if not target.restricted:
         _log(f"{target.entry.get('name')} is not in the list; the launch is not network-restricted")
     if target.kind == "native":
@@ -590,4 +650,4 @@ def open_target(arg):
 
 
 def cmd_open(args):
-    return open_target(args.target)
+    return open_target(args.target, app=args.app, flags=getattr(args, "flags", ()))

@@ -38,6 +38,11 @@ sys.exit(int(os.environ.get("DS_FAKE_RC", "0")))
 
 NOOP = "import sys\nsys.exit(0)\n"
 
+# `omarchy-launch-browser` recurses into the plugin while `BROWSER` names it (Omarchy
+# exports it); the fake refuses to run with the variable present, so a forward that
+# forgot to drop it fails the launch instead of logging a line.
+FALLBACK = "import os, sys\nif 'BROWSER' in os.environ:\n    sys.exit(3)\n" + LOGGER % "DS_FORWARD_LOG"
+
 XDG_SETTINGS = r"""
 import os, sys
 if sys.argv[1:3] == ["get", "default-web-browser"]:
@@ -104,7 +109,7 @@ class LaunchTests(unittest.TestCase):
         for binary in ("google-chrome-stable", "chromium", "brave"):
             self.box.fake_bin(binary, NOOP)
         os.environ["DS_LAUNCH_SETTLE"] = "0.2"
-        self.box.fake_bin("omarchy-launch-browser", LOGGER % "DS_FORWARD_LOG")
+        self.box.fake_bin("omarchy-launch-browser", FALLBACK)
         self.box.fake_bin("firefox-fake", LOGGER % "DS_FORWARD_LOG")
         self.box.fake_bin("omarchy-notification-send", LOGGER % "DS_NOTIFY_LOG")
         self.box.fake_bin("xdg-settings", XDG_SETTINGS)
@@ -175,20 +180,97 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(self._wait_lines(self.forward_log, 1), [["firefox-fake", "https://example.com/p?q=1"]])
         self.assertEqual(len(self._lines(self.run_log)), 1)
 
-    def test_missing_or_self_handler_falls_back_and_unparseable_exec_exits_1(self):
-        for n, record in enumerate((None, launch.HANDLER_ID), start=1):
+    def test_unusable_previous_handler_falls_back_with_browser_dropped(self):
+        # Nothing recorded, the plugin's own id, another id whose entry is the plugin's
+        # launcher, an Exec that does not parse: each forwards through the fallback (R1).
+        self._desktop("shadow", f"{ROOT / 'distractions'} open %u")
+        self._desktop("broken", 'firefox-fake "unbalanced %u')
+        for n, record in enumerate((None, launch.HANDLER_ID, "shadow.desktop", "broken.desktop"), start=1):
             with self.subTest(record=record):
                 state.write_entries({"files": [], "previous_handler": record})
-                r = self.box.run("open", "https://example.com/")
+                r = self.box.run("open", "https://example.com/", extra_env={"BROWSER": "omarchy-launch-browser"})
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(self._wait_lines(self.forward_log, n)[-1], ["omarchy-launch-browser", "https://example.com/"])
-        self._desktop("broken", 'firefox-fake "unbalanced %u')
-        state.write_entries({"files": [], "previous_handler": "broken.desktop"})
-        r = self.box.run("open", "https://example.com/")
-        self.assertEqual(r.returncode, 1)
-        self.assertEqual(len(self._lines(self.notify_log)), 1)
-        self.assertEqual(len(self._lines(self.forward_log)), 2)
         self.assertFalse(self.run_log.exists())
+        self.assertEqual(self._lines(self.notify_log), [])
+        # The fallback resolves the default browser again; when that is this plugin it
+        # would only come straight back, so nothing is launched: one line, exit 1.
+        state.write_entries({"files": [], "previous_handler": None})
+        r = self.box.run("open", extra_env={"DS_XDG_BROWSER": launch.HANDLER_ID})
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+        self.assertEqual(len(self._lines(self.notify_log)), 1)
+        # No fallback script on PATH either (the real one is; the PATH holds only
+        # the fakes and an interpreter for them): one line, exit 1.
+        (self.box.bin / "omarchy-launch-browser").unlink()
+        pybin = self.box.runtime / "pybin"
+        pybin.mkdir()
+        (pybin / "python3").symlink_to(sys.executable)
+        r = self.box.run("open", extra_env={"PATH": f"{self.box.bin}{os.pathsep}{pybin}"})
+        self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+        self.assertEqual(len(self._lines(self.notify_log)), 2)
+        self.assertEqual(len(self._lines(self.forward_log)), 4)
+
+    def test_no_target_forwards_the_bare_browser_with_flags_in_any_order(self):
+        state.write_entries({"files": [], "previous_handler": "firefox.desktop"})
+        cases = (
+            ("open alone", ["open"], ["firefox-fake"]),
+            # `omarchy-launch-browser` runs the handler Exec's first token alone, and
+            # with `--incognito` for the private keybind: the bare binary forwards.
+            ("bare binary", [], ["firefox-fake"]),
+            ("private keybind", ["--incognito"], ["firefox-fake", "--incognito"]),
+            ("flags only", ["open", "--private-window", "-x"], ["firefox-fake", "--private-window", "-x"]),
+            ("flag before url", ["open", "--incognito", "https://example.com/"], ["firefox-fake", "https://example.com/", "--incognito"]),
+            ("flag after url", ["open", "https://example.com/", "--incognito"], ["firefox-fake", "https://example.com/", "--incognito"]),
+        )
+        for n, (label, argv, want) in enumerate(cases, start=1):
+            with self.subTest(label):
+                r = self.box.run(*argv)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self._wait_lines(self.forward_log, n)[-1], want)
+        self.assertFalse(self.run_log.exists())
+        # A listed target opens in the space as always; the flags belong to a forward.
+        r = self.box.run("open", "--incognito", "https://www.youtube.com/")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches()[0], SLICE_PREFIX + ["google-chrome-stable", *self._profile_flags("https://www.youtube.com/")])
+        self.assertEqual(len(self._lines(self.forward_log)), len(cases))
+
+    def test_app_forwards_an_unlisted_url_as_an_app_window(self):
+        state.write_entries({"files": [], "previous_handler": "firefox.desktop"})
+        r = self.box.run("open", "--app", "https://example.com/", "--class=Example", "extra")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._wait_lines(self.forward_log, 1)[-1], ["firefox-fake", "--app=https://example.com/", "--class=Example", "extra"])
+        state.write_entries({"files": [], "previous_handler": None})
+        r = self.box.run("open", "https://example.com/", "--app")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._wait_lines(self.forward_log, 2)[-1], ["omarchy-launch-browser", "--app=https://example.com/"])
+        self.assertFalse(self.run_log.exists())
+        # A listed target with --app opens in the space as today, web and native alike.
+        r = self.box.run("open", "--app", "https://www.youtube.com/")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches()[0], SLICE_PREFIX + ["google-chrome-stable", *self._profile_flags("https://www.youtube.com/")])
+        r = self.box.run("open", "Telegram", "--app")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches(2)[1], SLICE_PREFIX + ["Telegram", "--"])
+        self.assertEqual(len(self._lines(self.forward_log)), 2)
+        self.assertEqual(self.box.run("open", "--app", "https://[::1").returncode, 2)
+
+    def test_first_launch_creates_the_profile_that_never_asks(self):
+        profile = launch.profile_dir() / launch.PROFILE
+        self.assertIn(self.box.home.parent, profile.parents, profile)
+        r = self.box.run("open", "https://www.youtube.com/")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self._launches()
+        self.assertEqual(json.loads((profile / "Preferences").read_text(encoding="utf-8")), {"browser": {"check_default_browser": False}})
+        # An existing profile is the person's: nothing in it is written.
+        (profile / "Preferences").write_bytes(b"chrome's own")
+        (profile / "Cookies").write_bytes(b"logins")
+        r = self.box.run("open", "https://www.youtube.com/")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self._launches(2)
+        self.assertEqual((profile / "Preferences").read_bytes(), b"chrome's own")
+        self.assertEqual(sorted(p.name for p in profile.iterdir()), ["Cookies", "Preferences"])
 
     def test_existing_profile_window_is_focused_instead_of_relaunched(self):
         window = {"address": "0xabc", "class": "chrome-www.youtube.com__-Distraction",
@@ -280,7 +362,7 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertEqual(len(self._lines(self.notify_log)), 1)
         self.assertEqual(len(self._lines(self.run_log)), 1)
-        for argv in (["open", "ftp://x"], ["open", "mailto:a@b"], ["open"], ["open", "no-such-thing"],
+        for argv in (["open", "ftp://x"], ["open", "mailto:a@b"], ["open", "no-such-thing"],
                      ["open", "https://[::1"], ["open", "https://a b.com/"], ["open", "https://x.com:99999/"],
                      ["open", "https://-bad-.example/"], ["open", "https://x.com:0/"],
                      ["open", "https://youtube.com\\@evil.com/"], ["open", "https://a@b@youtube.com/"],

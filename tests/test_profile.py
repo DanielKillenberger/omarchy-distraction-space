@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import io
+import json
 import os
 import socket
 import sys
@@ -33,6 +34,8 @@ sys.exit(1)
 """
 
 KEPT = ("Preferences", "Cookies", "Extensions/abc/manifest.json", "Service Worker/Database/y", "Local Storage/leveldb/000.log")
+# What Chrome writes: the prompt on, plus a key the import must carry over untouched.
+PREFERENCES = b'{"browser": {"check_default_browser": true, "show_home_button": true}, "profile": {"name": "Person 1"}}'
 SKIPPED = (
     "Cache/data_0", "Code Cache/js/x", "GPUCache/x", "DawnCache/x", "DawnGraphiteCache/x", "DawnWebGPUCache/x",
     "ShaderCache/x", "GrShaderCache/x", "Service Worker/CacheStorage/x", "Service Worker/ScriptCache/x",
@@ -46,7 +49,7 @@ def make_profile(root: Path) -> int:
     for rel in KEPT:
         p = root / rel
         p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_bytes(rel.encode() * 3)
+        p.write_bytes(PREFERENCES if rel == "Preferences" else rel.encode() * 3)
         kept += p.stat().st_size
     for rel in SKIPPED:
         p = root / rel
@@ -55,6 +58,10 @@ def make_profile(root: Path) -> int:
     os.symlink("otherhost-1", root / "SingletonLock")
     os.symlink("Cookies", root / "CookiesLink")
     return kept
+
+
+def preferences(profile: Path) -> dict:
+    return json.loads((profile / "Preferences").read_text(encoding="utf-8"))
 
 
 class ProfileTests(unittest.TestCase):
@@ -101,14 +108,23 @@ class ProfileTests(unittest.TestCase):
         self.assertFalse(self.dst.exists(), "the destination was created")
         self.assertFalse(self.tmp.exists(), "the temporary sibling was left behind")
 
+    def assert_imported_preferences(self, profile):
+        """The copied `Preferences`: the prompt off, every other key as Chrome wrote it (R5)."""
+        prefs = preferences(profile)
+        self.assertIs(prefs["browser"]["check_default_browser"], False)
+        self.assertIs(prefs["browser"]["show_home_button"], True)
+        self.assertEqual(prefs["profile"], {"name": "Person 1"})
+
     # --- R1 -------------------------------------------------------------------
 
     def test_import_copies_the_profile_minus_caches_through_a_sibling(self):
         kept = make_profile(self.src)
         r = self.box.run("profile", "import")
         self.assertEqual(r.returncode, 0, r.stderr)
-        for rel in KEPT:
+        for rel in KEPT[1:]:
             self.assertEqual((self.dst / rel).read_bytes(), rel.encode() * 3, rel)
+        self.assert_imported_preferences(self.dst)
+        self.assertEqual((self.src / "Preferences").read_bytes(), PREFERENCES, "the source Preferences was modified")
         for rel in SKIPPED:
             self.assertFalse((self.dst / rel).exists(), rel)
         self.assertFalse((self.dst / "Cache").exists())
@@ -288,7 +304,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(len(backups), 1)
         self.assertRegex(backups[0].name, r"^Distraction\.bak-\d{8}-\d{6}$")
         self.assertEqual((backups[0] / "Cookies").read_bytes(), b"post-upgrade logins")
-        self.assertEqual((self.dst / "Preferences").read_bytes(), b"Preferences" * 3)
+        self.assert_imported_preferences(self.dst)
         self.assertIn(str(backups[0]), err)
         self.assertFalse(self.tmp.exists())
 
@@ -315,7 +331,7 @@ class ProfileTests(unittest.TestCase):
         self.assertEqual(Path(os.readlink(backups[0])), target)
         self.assertEqual((target / "Preferences").read_bytes(), b"old", "the link target was moved or written")
         self.assertFalse(self.dst.is_symlink())
-        self.assertEqual((self.dst / "Preferences").read_bytes(), b"Preferences" * 3)
+        self.assert_imported_preferences(self.dst)
 
     def test_failed_copy_keeps_the_backup_and_the_sibling(self):
         make_profile(self.src)
@@ -340,6 +356,17 @@ class ProfileTests(unittest.TestCase):
         self.assertIn(str(backups[0]), err)
         self.assertIn("No space left", err)
 
+    def test_preferences_that_are_not_json_fail_the_copy_like_a_disk_error(self):
+        make_profile(self.src)
+        (self.src / "Preferences").write_bytes(b"not json")
+        rc, _out, err = self.run_import()
+        self.assertEqual(rc, 1)
+        self.assertIn("the copy failed", err)
+        self.assertIn("Preferences", err)
+        self.assertNotIn("Traceback", err)
+        self.assertTrue(self.tmp.is_dir(), "the partial copy was removed")
+        self.assertFalse(self.dst.exists(), "a profile that would prompt was put in place")
+
     def test_failed_moves_are_refused_on_one_line_with_the_profile_untouched(self):
         make_profile(self.src)
         self.dst.mkdir(parents=True)
@@ -363,12 +390,12 @@ class ProfileTests(unittest.TestCase):
         self.assertFalse(list(self.dst.parent.glob("Distraction.bak-*")), "a backup was made for a copy that never started")
 
     def test_progress_reports_every_threshold_a_file_crosses(self):
-        make_profile(self.src)
+        kept = make_profile(self.src)
         (self.src / "Cookies").write_bytes(b"x" * 13)
         with mock.patch.object(profile, "PROGRESS_STEP", 4):
             rc, _out, err = self.run_import()
         self.assertEqual(rc, 0, err)
-        self.assertEqual(err.count("MB copied"), (13 + 300 - len(b"Cookies" * 3)) // 4)
+        self.assertEqual(err.count("MB copied"), (kept - len(b"Cookies" * 3) + 13) // 4)
 
     def test_backup_names_carry_a_counter_on_collision(self):
         base = self.box.home / "Distraction.bak-20260905-120000"
