@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import time
 import unittest
@@ -23,8 +24,9 @@ sys.path.insert(0, str(ROOT))
 from ds import catalog, launch, state
 
 _ENV_KEYS = (
-    "DS_SYSTEMD_RUN_LOG", "DS_FORWARD_LOG", "DS_NOTIFY_LOG", "DS_HYPR_LOG", "DS_HYPR_STATE",
-    "DS_XDG_BROWSER", "XDG_DATA_HOME", "XDG_DATA_DIRS", "DS_LAUNCH_SETTLE", "DS_FAKE_RC",
+    "DS_SYSTEMD_RUN_LOG", "DS_BROWSER_LOG", "DS_FORWARD_LOG", "DS_NOTIFY_LOG", "DS_HYPR_LOG",
+    "DS_HYPR_STATE", "DS_XDG_BROWSER", "XDG_DATA_HOME", "XDG_DATA_DIRS", "DS_LAUNCH_SETTLE",
+    "DS_FAKE_RC",
 )
 
 LOGGER = r"""
@@ -37,7 +39,50 @@ with p.open("a", encoding="utf-8") as f:
 sys.exit(int(os.environ.get("DS_FAKE_RC", "0")))
 """
 
+# Records pid+argv, then execs the target after `--` so the browser fake inherits
+# this PID. Used by the trampoline regression; the default logger only records.
+SYSTEMD_RUN_EXEC = r"""
+import json, os, sys
+from pathlib import Path
+p = Path(os.environ["DS_SYSTEMD_RUN_LOG"])
+p.parent.mkdir(parents=True, exist_ok=True)
+with p.open("a", encoding="utf-8") as f:
+    f.write(json.dumps({"pid": os.getpid(), "argv": [os.path.basename(sys.argv[0])] + sys.argv[1:]}) + "\n")
+target = sys.argv[sys.argv.index("--") + 1:]
+os.execvp(target[0], target)
+"""
+
+BROWSER_PID_LOG = r"""
+import json, os, sys
+from pathlib import Path
+p = Path(os.environ["DS_BROWSER_LOG"])
+p.parent.mkdir(parents=True, exist_ok=True)
+with p.open("a", encoding="utf-8") as f:
+    f.write(json.dumps({"pid": os.getpid(), "argv": [os.path.basename(sys.argv[0])] + sys.argv[1:]}) + "\n")
+sys.exit(int(os.environ.get("DS_FAKE_RC", "0")))
+"""
+
 NOOP = "import sys\nsys.exit(0)\n"
+
+_BROWSER_APP_ID_CASES = (
+    ("google-chrome", "com.google.Chrome"),
+    ("google-chrome-stable", "com.google.Chrome"),
+    ("chrome", "com.google.Chrome"),
+    ("omarchy-open-chrome", "com.google.Chrome"),
+    ("google-chrome-beta", "com.google.Chrome.beta"),
+    ("google-chrome-unstable", "com.google.Chrome.unstable"),
+    ("google-chrome-canary", "com.google.Chrome.canary"),
+    ("chromium", "org.chromium.Chromium"),
+    ("/usr/bin/google-chrome-stable", "com.google.Chrome"),
+    ("foo/chromium", "org.chromium.Chromium"),
+    ("google-chrome-stable-wrapper", None),
+    ("chromium-browser", None),
+    ("brave", None),
+    ("Chrome", None),
+    ("google-chrome-beta-extra", None),
+    ("omarchy-open-chrome-safe", None),
+    ("microsoft-edge", None),
+)
 
 # `omarchy-launch-browser` recurses into the plugin while `BROWSER` names it (Omarchy
 # exports it); the fake refuses to run with the variable present, so a forward that
@@ -151,8 +196,28 @@ class LaunchTests(unittest.TestCase):
             time.sleep(0.02)
         raise TimeoutError(f"{path} has {len(self._lines(path))} lines, wanted {n}")
 
+    def _scope_argv(self, argv):
+        """Known browsers must carry `--unit=app-<id>-<pid>.scope`; strip it so
+        existing checks keep comparing the rest of argv exactly. Native targets
+        and unknown wrappers stay on the generic prefix with no unit."""
+        if not isinstance(argv, list) or "--" not in argv:
+            return argv
+        dash = argv.index("--")
+        target = argv[dash + 1] if dash + 1 < len(argv) else ""
+        app_id = launch._browser_app_id(target) if target else None
+        prefix, rest = argv[:dash], argv[dash:]
+        units = [a for a in prefix if a.startswith("--unit=")]
+        if app_id is None:
+            self.assertEqual(units, [], argv)
+            return argv
+        self.assertEqual(len(units), 1, argv)
+        unit = units[0]
+        self.assertRegex(unit, rf"^--unit=app-{re.escape(app_id)}-\d+\.scope$")
+        self.assertEqual(prefix[-1], unit, argv)
+        return prefix[:-1] + rest
+
     def _launches(self, n=1):
-        return self._wait_lines(self.run_log, n)
+        return [self._scope_argv(line) for line in self._wait_lines(self.run_log, n)]
 
     def _hypr(self):
         return [" ".join(a) for a in self._lines(self.hypr_log)]
@@ -445,6 +510,85 @@ class LaunchTests(unittest.TestCase):
                      ["open", "https://youtube.com/\tx"]):
             with self.subTest(argv=argv):
                 self.assertEqual(self.box.run(*argv).returncode, 2)
+
+    def test_known_browser_trampoline_keeps_portal_scope_pid_and_opaque_argv(self):
+        # The trampoline execs systemd-run then the browser so Chromium's portal
+        # scope name (app-<id>-<pid>.scope) is the unit we already created.
+        browser_log = self.box.runtime / "browser.log"
+        pwn = self.box.runtime / "pwned"
+        os.environ["DS_BROWSER_LOG"] = str(browser_log)
+        opaque = [
+            "space arg",
+            "it's \"quoted\"",
+            "line\nbreak",
+            "$HOME",
+            "`uname`",
+            f"$(touch {pwn})",
+            "; true",
+            "a|b",
+            "x && y",
+        ]
+        self.box.fake_bin("systemd-run", SYSTEMD_RUN_EXEC)
+        self.box.fake_bin("google-chrome-stable", BROWSER_PID_LOG)
+        self.box.config_file.write_text(
+            json.dumps({"browser": ["google-chrome-stable", *opaque]}), encoding="utf-8"
+        )
+        url = "https://www.youtube.com/"
+        r = self.box.run("open", url, extra_env={"DS_BROWSER_LOG": str(browser_log)})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        run = self._wait_lines(self.run_log, 1)[0]
+        browser = self._wait_lines(browser_log, 1)[0]
+        self.assertEqual(run["pid"], browser["pid"])
+        argv = run["argv"]
+        self.assertEqual(argv[0], "systemd-run")
+        self.assertEqual(
+            argv[1:6],
+            ["--user", "--scope", "--quiet", "--collect", "--slice=app-distraction.slice"],
+        )
+        self.assertEqual(argv[6], f"--unit=app-com.google.Chrome-{run['pid']}.scope")
+        self.assertEqual(argv[7], "--")
+        delivered = ["google-chrome-stable", *opaque, *self._profile_flags(url)]
+        self.assertEqual(argv[8:], delivered)
+        self.assertEqual(browser["argv"], delivered)
+        self.assertFalse(pwn.exists())
+
+    def test_unknown_wrapper_and_public_launch_in_slice_stay_generic(self):
+        self.box.fake_bin("google-chrome-stable-wrapper", NOOP)
+        self.box.config_file.write_text(
+            json.dumps({"browser": ["google-chrome-stable-wrapper"]}), encoding="utf-8"
+        )
+        url = "https://www.youtube.com/"
+        r = self.box.run("open", url)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(
+            self._launches()[0],
+            SLICE_PREFIX + ["google-chrome-stable-wrapper", *self._profile_flags(url)],
+        )
+        self.assertTrue(launch.launch_in_slice(["google-chrome-stable", "--foo"]))
+        self.assertEqual(
+            self._wait_lines(self.run_log, 2)[1],
+            SLICE_PREFIX + ["google-chrome-stable", "--foo"],
+        )
+
+    def test_browser_exec_failure_after_scope_is_a_failed_launch(self):
+        browser_log = self.box.runtime / "browser.log"
+        os.environ["DS_BROWSER_LOG"] = str(browser_log)
+        self.box.fake_bin("systemd-run", SYSTEMD_RUN_EXEC)
+        self.box.fake_bin("google-chrome-stable", BROWSER_PID_LOG)
+        r = self.box.run(
+            "open", "https://youtu.be/abc",
+            extra_env={"DS_FAKE_RC": "1", "DS_BROWSER_LOG": str(browser_log)},
+        )
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertEqual(len(self._wait_lines(browser_log, 1)), 1)
+        self.assertEqual(len(self._lines(self.notify_log)), 1)
+
+
+class BrowserAppIdTests(unittest.TestCase):
+    def test_exact_basename_map(self):
+        for binary, want in _BROWSER_APP_ID_CASES:
+            with self.subTest(binary=binary):
+                self.assertEqual(launch._browser_app_id(binary), want)
 
 
 class ExecParsingTests(unittest.TestCase):

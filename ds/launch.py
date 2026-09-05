@@ -32,6 +32,25 @@ FALLBACK_FORWARDER = "omarchy-launch-browser"
 CHROMIUM_FAMILY = ("google-chrome", "brave", "microsoft-edge", "opera", "vivaldi", "helium")
 DEFAULT_BROWSER_ID = "chromium.desktop"
 SCOPE_ARGV = ["systemd-run", "--user", "--scope", "--quiet", "--collect", f"--slice={cgroup.SLICE}", "--"]
+# Chromium names its portal scope from GetAppName
+# (base/version_info/nix/version_extra_utils.cc) and the browser PID
+# (components/dbus/xdg/systemd.cc). Pre-create that unit inside the distraction
+# slice. A wrapper mapped here must exec the browser so the PID stays $$.
+_BROWSER_APP_IDS = {
+    "google-chrome": "com.google.Chrome",
+    "google-chrome-stable": "com.google.Chrome",
+    "chrome": "com.google.Chrome",
+    "omarchy-open-chrome": "com.google.Chrome",
+    "google-chrome-beta": "com.google.Chrome.beta",
+    "google-chrome-unstable": "com.google.Chrome.unstable",
+    "google-chrome-canary": "com.google.Chrome.canary",
+    "chromium": "org.chromium.Chromium",
+}
+_BROWSER_SCOPE_SCRIPT = """\
+app_id=$1 slice=$2
+shift 2
+exec systemd-run --user --scope --quiet --collect --slice="$slice" --unit="app-$app_id-$$.scope" -- "$@"
+"""
 USAGE = "usage: distractions open [--app] [http(s)-url | list entry | catalog name] [browser flags...]"
 
 _EXEC_LINE = re.compile(r"^\s*Exec\s*=\s*(.*?)\s*$")
@@ -513,11 +532,31 @@ def _detached(argv, program=None, env=None):
 def launch_in_slice(argv):
     """Run argv as a transient scope in the slice, detached.
 
-    `systemd-run --scope` blocks until its child exits, so it is never waited on.
-    A Chromium that hands the launch to its running instance exits at once and
-    the scope ends empty; that is not a failure.
+    `systemd-run --scope` execs the target in the current PID. The launcher is
+    never waited on past the settle window. A Chromium that hands the launch to
+    its running instance exits at once and the scope ends empty; that is not a
+    failure.
     """
     return _detached(SCOPE_ARGV + list(argv), program=argv[0])
+
+
+def _browser_app_id(binary):
+    """Chromium portal application id for an exact known basename, else None."""
+    return _BROWSER_APP_IDS.get(Path(binary).name)
+
+
+def _launch_browser_in_slice(argv):
+    """Run a known browser as Chromium's own portal scope inside the slice.
+
+    Unknown wrappers keep the generic `launch_in_slice` path.
+    """
+    app_id = _browser_app_id(argv[0])
+    if app_id is None:
+        return launch_in_slice(argv)
+    return _detached(
+        ["/bin/bash", "-c", _BROWSER_SCOPE_SCRIPT, "distraction-browser", app_id, cgroup.SLICE, *argv],
+        program=argv[0],
+    )
 
 
 def profile_class(host):
@@ -570,7 +609,7 @@ def _open_web(target, cfg):
         _notice("No distraction browser", "No Chromium-family browser was found. Set `browser` in the config.")
         return 1
     ensure_profile()
-    if launch_in_slice(browser + profile_flags(target.url)):
+    if _launch_browser_in_slice(browser + profile_flags(target.url)):
         return 0
     _notice("Distraction space", f"{browser[0]} could not be started in the slice.")
     return 1
