@@ -1,7 +1,4 @@
 {
-  "assignee": null,
-  "claim_note": "",
-  "claimed_at": null,
   "created_at": "2026-09-05T19:31:03.537407Z",
   "depends_on": [
     "fn-27-responsive-listener-and-efficient.1",
@@ -13,5 +10,5 @@
   "spec_path": ".flow/tasks/fn-27-responsive-listener-and-efficient.2.md",
   "status": "todo",
   "title": "Skip unchanged firewall replacement only after verification",
-  "updated_at": "2026-09-05T20:34:24.538685Z"
+  "updated_at": "2026-09-05T21:32:27.154137Z"
 }

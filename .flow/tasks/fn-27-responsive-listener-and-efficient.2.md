@@ -28,6 +28,6 @@ stage: impl-review - ran (model: claude-fable-5-1).
 stage: plan-sync - skipped(config: planSync.enabled=false).
 No push, merge, release or deployment.
 ## Evidence
-- Commits: 7cea6ff, 8edafdb, 075f4e2
-- Tests: PATH=/usr/bin:$PATH python3 -m unittest tests.test_net tests.test_nft tests.test_listener (95 passed,1 intentional skip), PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (445 passed,1 intentional skip), Real kernel reconciliation in disposable namespace: .flow/evidence/v3-live-reconcile.json
+- Commits:
+- Tests:
 - PRs:

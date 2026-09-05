@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-27-responsive-listener-and-efficient",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-05T21:33:26.647378Z",
   "created_at": "2026-09-05T19:23:03.407753Z",
   "default_impl": null,
   "default_review": null,
@@ -153,16 +153,50 @@
       "task": "fn-27-responsive-listener-and-efficient.2",
       "timestamp": "2026-09-05T21:27:38.597346Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "3b7bf601f288c2cb406ff370bbeb87d0ef3fa9d182edafe5593755854b360c3d",
+      "backend": "claude-cli",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "claude-cli",
+        "digest_truncated": false,
+        "items": [],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1bacfd0e6904f99553f2e89917eab254515acaa6",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "verdict",
+      "output_bytes": 9297,
+      "output_sha256": "cf511d491542e44609aba3abee359b21a7f736309cb9c9565b0e141788f01d4c",
+      "reservation_id": "5102ae1b3f34406da0b68dd50f76eb01",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-05T21:33:26.200486Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-27-responsive-listener-and-efficient.1": 1,
     "impl:fn-27-responsive-listener-and-efficient.2": 1,
-    "impl:fn-27-responsive-listener-and-efficient.3": 1
+    "impl:fn-27-responsive-listener-and-efficient.3": 1,
+    "plan#completion": 1
   },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "completion": 0,
     "impl:fn-27-responsive-listener-and-efficient.1": 0,
     "impl:fn-27-responsive-listener-and-efficient.2": 0,
     "impl:fn-27-responsive-listener-and-efficient.3": 0
@@ -181,5 +215,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T21:27:39.042346Z"
+  "updated_at": "2026-09-05T21:33:26.647921Z"
 }

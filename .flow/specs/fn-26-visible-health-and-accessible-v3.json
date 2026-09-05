@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-26-visible-health-and-accessible-v3",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-05T21:30:20.958571Z",
   "created_at": "2026-09-05T19:23:02.786193Z",
   "default_impl": null,
   "default_review": null,
@@ -14,7 +14,7 @@
     "fn-26-visible-health-and-accessible-v3.3": 0
   },
   "next_task": 1,
-  "plan_review_rounds": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "review_attempts": [
@@ -95,27 +95,44 @@
       "task": "fn-26-visible-health-and-accessible-v3.2",
       "timestamp": "2026-09-05T21:17:42.034514Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "91743ea69b3fb21239d47f725bee1abdee2ed461eee9fb7572e273ba951fb558",
+      "backend": "claude-cli",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1bacfd0e6904f99553f2e89917eab254515acaa6",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "verdict",
+      "output_bytes": 7704,
+      "output_sha256": "2f5c9152085e000093ef8ef5f70ad66d523e440c1a2d4d1c968b613dd71da153",
+      "reservation_id": "7f9d85f6e78e48fc883ee68031ce10b3",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-05T21:30:20.515141Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-26-visible-health-and-accessible-v3.1": 1,
     "impl:fn-26-visible-health-and-accessible-v3.2": 1,
-    "impl:fn-26-visible-health-and-accessible-v3.3": 1
+    "impl:fn-26-visible-health-and-accessible-v3.3": 1,
+    "plan#completion": 1
   },
-  "review_pending_rounds": {
-    "plan": 1
-  },
-  "review_reservations": {
-    "7f9d85f6e78e48fc883ee68031ce10b3": {
-      "artifact_sha256": "91743ea69b3fb21239d47f725bee1abdee2ed461eee9fb7572e273ba951fb558",
-      "counter_scope": "plan",
-      "epoch": 0,
-      "exclusive": true,
-      "forced": false,
-      "review_type": "completion"
-    }
-  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
   "review_transport_failures": {
+    "completion": 0,
     "impl:fn-26-visible-health-and-accessible-v3.1": 0,
     "impl:fn-26-visible-health-and-accessible-v3.2": 0,
     "impl:fn-26-visible-health-and-accessible-v3.3": 0
@@ -134,5 +151,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T21:25:59.341915Z"
+  "updated_at": "2026-09-05T21:30:20.959045Z"
 }
