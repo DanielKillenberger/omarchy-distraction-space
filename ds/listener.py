@@ -226,8 +226,15 @@ class _Ctx:
             ui.notify("Notification hold unavailable", "The shell lacks silencedSenders. Run: distractions setup")
             self.hold_noted = True
     def release(self, address, until):
-        """Record one exemption; a deadline already past or unreadable is refused."""
+        """Record one exemption; a past or unreadable deadline, or a window that is gone, is refused.
+
+        The address was read from `activewindow` a moment ago; if that window
+        closed in between, its `closewindow` may already have passed and nothing
+        would ever prune the record, so only a client Hyprland still lists counts.
+        """
         if not address or hypr.past(until):
+            return False
+        if hypr._client_by_address(address) is None:
             return False
         hypr.release(address, until)
         self.write_state()

@@ -84,6 +84,7 @@ BAD_VALUES = [
     ("containment.snap_back", "1"),
     ("containment.release_minutes", "0"),
     ("containment.release_minutes", "-1"),
+    ("containment.release_minutes", "99999999"),
     ("containment.release_minutes", "true"),
     ("list", '["not a host"]'),
     ("list", '[{"name": "Y"}]'),

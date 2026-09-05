@@ -15,6 +15,9 @@ from ds import state
 from ds.catalog import DEFAULT_LIST, expand, is_class_entry, is_hostname, load_catalog
 
 HOLD_VALUES = ("off-space", "locked", "never")
+# A release is a pause, not a policy change: one week is the longest deadline a
+# person can ask for, and it keeps the ISO deadline representable.
+RELEASE_MAX_MINUTES = 7 * 24 * 60
 NUDGE_KEYS = ("app_banner", "block_page")
 HOOK_NAMES = ("lock", "unlock", "enter", "leave")
 DEFAULTS = {
@@ -166,7 +169,8 @@ def validate(cfg):
     containment = cfg.get("containment")
     _need(isinstance(containment, dict), "containment")
     _need(_bool(containment.get("snap_back")), "containment.snap_back")
-    _need(_pos(containment.get("release_minutes")), "containment.release_minutes")
+    minutes = containment.get("release_minutes")
+    _need(_pos(minutes) and minutes <= RELEASE_MAX_MINUTES, "containment.release_minutes")
     _need(cfg.get("hold_notifications") in HOLD_VALUES, "hold_notifications")
     _need(_bool(cfg.get("mute_sounds")), "mute_sounds")
     lock = cfg.get("lock")

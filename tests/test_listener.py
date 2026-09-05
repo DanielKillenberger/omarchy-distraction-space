@@ -929,6 +929,8 @@ class ListenerTests(unittest.TestCase):
         self.assertEqual(self._reload(f"release 0xaaa {_iso(-1)}"), b"error")
         self.assertEqual(self._reload("release 0xaaa soon"), b"error")
         self.assertEqual(self._reload("release 0xaaa"), b"error")
+        # A window Hyprland no longer lists is refused too: nothing would ever prune it.
+        self.assertEqual(self._reload(f"release 0xdead {_iso(5)}"), b"error")
         self.assertEqual(self._released(), {})
 
     def test_snap_back_off_ignores_moves_and_release_reports_its_errors(self):
@@ -937,6 +939,10 @@ class ListenerTests(unittest.TestCase):
         r = self.box.run("release", "0", timeout=3)
         self.assertEqual(r.returncode, 2, r.stderr)
         self.assertIn("not a positive integer", r.stderr)
+        # An unbounded duration would overflow the deadline: refused at the parser.
+        r = self.box.run("release", "99999999999", timeout=3)
+        self.assertEqual(r.returncode, 2, r.stderr)
+        self.assertIn("minute limit", r.stderr)
         r = self.box.run("release", timeout=3)
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertEqual(len(self._notices("No listener running")), 1)
