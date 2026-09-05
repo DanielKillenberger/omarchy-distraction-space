@@ -75,7 +75,7 @@ omarchy plugin remove io.github.danielkillenberger.distraction-space
 
 **Sounds from the space mute.** With `mute_sounds` on, the listener mutes the PulseAudio streams of listed apps for the length of the hold. A stream whose process is in the slice is muted first, whatever its window class, which is what makes WhatsApp Web, Discord, and the other web apps mutable: their audio comes from a child of the distraction browser. Outside the slice it matches the catalog's audio identity against `application.name` and `application.process.binary`, as before, and never mutes a bare browser stream. It records what it muted as sink-input index plus `pid:starttime`, and unmutes only a stream whose identity still matches, so a stream you muted yourself stays muted.
 
-**The lock runs for a set time.** `distractions lock` asks for a duration (25 minutes by default) and what the time is for, then refuses `enter` until the deadline. Locking while you are on the space leaves it first. Leaving early takes `distractions unlock` with a reason of at least 50 characters, and the plugin appends the time, the purpose, and the reason to its log. The native reason prompt opens wider and fits within the screen edges. It remains a single-line input, so very long reasons are elided while editing. There is no start-locked setting, so the lock never begins on its own.
+**The lock runs for a set time.** `distractions lock` asks you to type whole minutes (with the configured default shown as an example; `0` means until manual unlock) and what the time is for, then refuses `enter` until the deadline. Locking while you are on the space leaves it first. Leaving early takes `distractions unlock` with a reason of at least 50 characters, and the plugin appends the time, the purpose, and the reason to its log. The native reason prompt opens wider and fits within the screen edges. It remains a single-line input, so very long reasons are elided while editing. There is no start-locked setting, so the lock never begins on its own.
 
 ## Keys
 
@@ -137,7 +137,7 @@ Two separate things happen to a listed app. Its windows move to the distraction 
 | `nudges.block_page` | `true` | The block page on port 80, and the blocked banner for a listed HTTPS host |
 | `hold_notifications` | `"off-space"` | When the hold applies: `off-space`, `locked`, or `never` |
 | `mute_sounds` | `true` | Mute the space's audio streams, and listed apps' streams outside it, during the hold |
-| `lock.default_minutes` | `25` | The duration the lock menu offers first |
+| `lock.default_minutes` | `25` | The example shown in the native minutes prompt |
 | `lock.ask_purpose` | `true` | Ask what the locked time is for |
 | `lock.reason_min_chars` | `50` | Characters required to unlock early; `0` unlocks with no prompt |
 | `summary.command` | `"off"` | `off`, `auto` (the agent from `omarchy default agent`), or an argv array that reads the held records on stdin |
@@ -159,7 +159,7 @@ With no config file, the first load seeds `list` from your existing `~/.config/o
 | `profile import [--from DIR] [--replace]` | Copy the default browser's main profile, or the Chromium profile at `DIR`, into the distraction profile once, skipping caches, and print the destination and the byte count. Exit 1 while either browser runs, when the source is not a Chromium profile or overlaps the destination, or when the destination exists without `--replace`. |
 | `toggle` / `enter` / `leave` | Enter or leave the space. `enter` refuses while locked. |
 | `next` / `prev` | Cycle occupied workspaces, skipping the space. |
-| `lock [MINUTES\|forever] [PURPOSE...]` | Lock. No arguments opens the duration menu, then the purpose input. Leaves the space first when you are on it. |
+| `lock [MINUTES\|forever] [PURPOSE...]` | Lock. No arguments opens the minutes input, then the purpose input. Leaves the space first when you are on it. |
 | `unlock [REASON...]` | Unlock early with a reason of at least `lock.reason_min_chars` characters. |
 | `release [MINUTES]` | Exempt the focused window from containment for `MINUTES`, default `containment.release_minutes`, or until it closes. Exit 1 with a notice when nothing is focused or no listener runs, 2 on a non-positive duration or one over a week. |
 | `list` / `list add` / `list remove` / `list expand` | Read and edit the list; `expand` prints the resolved classes, hosts, senders, audio identity, and desktop id as JSON. |

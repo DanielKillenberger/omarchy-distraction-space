@@ -100,23 +100,18 @@ def prompt_lock(cfg):
     default = lock.get("default_minutes", 25)
     if type(default) is not int or default < 0:
         default = 25
-    labels = (f"{default} minutes", "50 minutes", "90 minutes", "Until I unlock", "Other…")
-    values = (default, 50, 90, None, "other")
-    i = select("Lock for", [_row("", x) for x in labels])
-    if i is None:
+    raw = input(f"Minutes (e.g. {default}; 0 = until unlock)")
+    if raw is None or not raw.strip():
         return None
-    mins = values[i]
-    if mins == "other":
-        raw = input("Minutes")
-        if raw is None:
-            return None
-        try:
-            mins = int(raw.strip())
-            if mins < 0:
-                raise ValueError
-        except (TypeError, ValueError):
-            notify("Invalid duration", "Enter a whole number of minutes ≥ 0.")
-            return None
+    try:
+        mins = int(raw.strip())
+        if mins < 0:
+            raise ValueError
+    except (TypeError, ValueError):
+        notify("Invalid duration", "Enter a whole number of minutes ≥ 0.")
+        return None
+    if mins == 0:
+        mins = None
     purpose = ""
     if lock.get("ask_purpose", True):
         got = input("Purpose")

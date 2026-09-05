@@ -206,32 +206,58 @@ class UiTests(unittest.TestCase):
         box.apply_env()
         ui.notify("Title", "Body")
 
-    def test_prompt_lock_choose_cancel_timeout_missing(self):
-        self._sq(["index", 0])
-        self._iq(["text", "deep work"])
-        self.assertEqual(ui.prompt_lock(CFG), (25, "deep work"))
-        self._sq(["index", 1])
-        self._iq(["text", "p"])
-        self.assertEqual(ui.prompt_lock(CFG), (50, "p"))
-        self._sq(["index", 2])
-        self._iq(["text", "p"])
-        self.assertEqual(ui.prompt_lock(CFG), (90, "p"))
-        self._sq(["index", 3])
-        self._iq(["text", "until"])
-        self.assertEqual(ui.prompt_lock(CFG), (None, "until"))
-        self._sq(["index", 4])
-        self._iq(["text", "12"], ["text", "other"])
-        self.assertEqual(ui.prompt_lock(CFG), (12, "other"))
-        self._sq(["cancel"])
-        self.assertIsNone(ui.prompt_lock(CFG))
-        cfg_off = {"lock": {"default_minutes": 25, "ask_purpose": False, "reason_min_chars": 50}}
-        self._sq(["index", 0])
-        self.assertEqual(ui.prompt_lock(cfg_off), (25, ""))
-        self._sq(["index", 0])
-        self._iq(["cancel"])
+    def test_prompt_lock_direct_minutes_and_native_argv(self):
+        for raw, minutes in (("37", 37), (" 12 ", 12), ("0", None)):
+            with self.subTest(raw=raw):
+                self._iq(["text", raw], ["text", "deep work"])
+                self.assertEqual(ui.prompt_lock(CFG), (minutes, "deep work"))
+                self.assertEqual(self._calls("input")[-2:], [
+                    ["input", "Minutes (e.g. 25; 0 = until unlock)"],
+                    ["input", "Purpose"],
+                ])
+                self.assertEqual(self._calls("select"), [])
+
+    def test_prompt_lock_default_example_and_purpose_opt_out(self):
+        for default, example in ((40, 40), (0, 0), (-1, 25), (True, 25),
+                                 ("40", 25), (None, 25), (2.5, 25)):
+            with self.subTest(default=default):
+                self._iq(["text", "37"])
+                cfg = {"lock": {"default_minutes": default, "ask_purpose": False}}
+                before = len(self._calls("input"))
+                self.assertEqual(ui.prompt_lock(cfg), (37, ""))
+                self.assertEqual(self._calls("input")[before:], [
+                    ["input", f"Minutes (e.g. {example}; 0 = until unlock)"],
+                ])
+        self._iq(["text", "25"], ["cancel"])
         self.assertEqual(ui.prompt_lock(CFG), (25, ""))
-        with patch("ds.ui.select", return_value=None):
+
+    def test_prompt_lock_invalid_or_cancelled_duration_cannot_lock(self):
+        from ds import lock
+        config.load()
+        for op, invalid in ((["cancel"], False), (["text", ""], False),
+                            (["text", "   "], False), (["text", "-1"], True),
+                            (["text", "2.5"], True), (["text", "nope"], True)):
+            with self.subTest(op=op):
+                self._iq(op, ["text", "purpose must not be asked"])
+                before = len(self._calls("input"))
+                with patch("ds.lock.lock") as start, patch("ds.ui.notify") as notice:
+                    self.assertIsNone(ui._lock_action(False))
+                start.assert_not_called()
+                self.assertFalse(lock.is_locked())
+                self.assertEqual(len(self._calls("input")) - before, 1)
+                self.assertEqual(self._qlen(self.input_q), 1)
+                if invalid:
+                    notice.assert_called_once_with(
+                        "Invalid duration", "Enter a whole number of minutes ≥ 0.")
+                else:
+                    notice.assert_not_called()
+
+    def test_prompt_lock_timeout_and_missing(self):
+        with patch("ds.ui._run", return_value=None):
             self.assertIsNone(ui.prompt_lock(CFG))
+        self._iq(["fail", 99])
+        with self.assertRaises(ui.Unavailable):
+            ui.prompt_lock(CFG)
         box = Sandbox(isolate_path=True)
         self.addCleanup(box.cleanup)
         box.apply_env()
