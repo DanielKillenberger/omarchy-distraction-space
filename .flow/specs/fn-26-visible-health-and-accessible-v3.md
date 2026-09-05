@@ -69,3 +69,12 @@ Existing config validation and command behavior remain the authority for menu ch
 | R3 | TBD via flow-next-plan |
 | R4 | TBD via flow-next-plan |
 | R5 | TBD via flow-next-plan |
+
+## Cross-spec integration contract
+
+- fn-25 owns launch resolution, foreign-window handling, and a standalone migration command. It uses a notification action, not edits to the main menu, and never automatically closes the original window.
+- fn-26 owns status projection, bar, and menu. fn-27 alone edits listener scheduling/state production.
+- Listener state adds `observed_at`, a dictionary with ISO timestamps for `site_block`, `notification_hold`, and `links`, updated only after that observation/check completes, including periodic re-observation. Existing top-level state fields remain compatible.
+- Listener adds bounded `ping` IPC returning `ok\n` without initiating work. Status probes it with a short finite timeout; cached subsystem observations are not a heartbeat. fn-26 derives user-facing health from saved subsystem values, configured intent, timestamps, and ping. Absent provenance is unknown; a timestamp older than 121 seconds is stale.
+- fn-26 does not probe the firewall from the bar. fn-27 reconciliation retains verification/retry and existing ownership locks. Shared docs and combined live evidence are finalized once after implementation integration.
+- Implementation review for this run is Fable through Claude CLI (`--model fable`), explicitly requested by the user. The CLI probe resolved to claude-fable-5-1. This overrides the repository reviewer preference for this run only.

@@ -1,0 +1,16 @@
+{
+  "assignee": null,
+  "claim_note": "",
+  "claimed_at": null,
+  "created_at": "2026-09-05T19:31:02.264923Z",
+  "depends_on": [
+    "fn-26-visible-health-and-accessible-v3.1"
+  ],
+  "id": "fn-26-visible-health-and-accessible-v3.2",
+  "priority": null,
+  "spec": "fn-26-visible-health-and-accessible-v3",
+  "spec_path": ".flow/tasks/fn-26-visible-health-and-accessible-v3.2.md",
+  "status": "todo",
+  "title": "Validate integrated behavior and document v3 improvements",
+  "updated_at": "2026-09-05T19:31:02.264923Z"
+}
