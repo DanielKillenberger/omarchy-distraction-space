@@ -155,6 +155,8 @@ class ProfileTests(unittest.TestCase):
             ("previous_handler", {}, launch.HANDLER_ID, "chromium.desktop", home / "chromium" / "Default"),
             ("config_argv", {"browser": ["/usr/bin/microsoft-edge-stable"]}, "firefox.desktop", None, home / "microsoft-edge" / "Default"),
             ("vivaldi", {}, "vivaldi-stable.desktop", None, home / "vivaldi" / "Default"),
+            ("opera_profile_is_its_root", {}, "opera.desktop", None, home / "opera"),
+            ("helium", {}, "helium.desktop", None, home / "net.imput.helium" / "Default"),
         ]
         for name, cfg, default, previous, want in cases:
             with self.subTest(name):
@@ -166,6 +168,12 @@ class ProfileTests(unittest.TestCase):
         with self.assertRaises(profile.Refused) as cm:
             profile.source_for({})
         self.assertIn("firefox.desktop", str(cm.exception))
+        # The user-data directory and the process names follow the layout.
+        (home / "opera").mkdir()
+        self.assertEqual(profile.user_data_dir_of((home / "opera").resolve()), ((home / "opera").resolve(), "opera"))
+        self.assertEqual(profile.user_data_dir_of(self.src.resolve()), (self.user_data.resolve(), "google-chrome"))
+        elsewhere = self.box.home / "other" / "Default"
+        self.assertEqual(profile.user_data_dir_of(elsewhere), (elsewhere.parent, None))
 
     def test_source_that_is_or_contains_the_destination_is_refused(self):
         make_profile(self.dst)
@@ -210,6 +218,25 @@ class ProfileTests(unittest.TestCase):
         (self.proc / "4244").rmdir()
         rc, _out, err = self.run_import()
         self.assertEqual(rc, 0, err)
+
+    def test_relative_or_symlinked_source_reaches_the_same_running_check(self):
+        make_profile(self.src)
+        link = self.box.home / "chrome-link"
+        os.symlink(self.user_data, link)
+        cwd = os.getcwd()
+        os.chdir(self.box.home)
+        self.addCleanup(os.chdir, cwd)
+        self.add_proc(4242, ["/opt/google/chrome/chrome", f"--user-data-dir={link}/"])
+        for name, source in (
+            ("relative", os.path.relpath(self.src, self.box.home)),
+            ("symlinked", str(link / profile.MAIN_PROFILE)),
+        ):
+            with self.subTest(name):
+                rc, _out, err = self.run_import(source=source)
+                self.assertEqual(rc, 1)
+                self.assertIn("source browser", err)
+                self.assertIn(str(self.user_data.resolve()), err)
+                self.assert_untouched()
 
     def test_singleton_lock_counts_only_when_its_pid_is_alive_here(self):
         make_profile(self.src)
@@ -288,6 +315,36 @@ class ProfileTests(unittest.TestCase):
         self.assertIn(str(self.tmp), err)
         self.assertIn(str(backups[0]), err)
         self.assertIn("No space left", err)
+
+    def test_failed_moves_are_refused_on_one_line_with_the_profile_untouched(self):
+        make_profile(self.src)
+        self.dst.mkdir(parents=True)
+        (self.dst / "Preferences").write_bytes(b"old")
+        with self.subTest("backup_rename_fails"):
+            with mock.patch.object(profile.os, "rename", side_effect=PermissionError(13, "Permission denied")):
+                rc, _out, err = self.run_import(replace=True)
+            self.assertEqual(rc, 1)
+            self.assertIn(f"could not move {self.dst} aside", err)
+            self.assertIn("Permission denied", err)
+            self.assertNotIn("Traceback", err)
+            self.assertFalse(self.tmp.exists(), "the empty sibling was left behind")
+        with self.subTest("sibling_cannot_be_made"):
+            self.dst.parent.chmod(0o500)
+            self.addCleanup(self.dst.parent.chmod, 0o700)
+            rc, _out, err = self.run_import(replace=True)
+            self.assertEqual(rc, 1)
+            self.assertIn(str(self.tmp), err)
+            self.assertNotIn("Traceback", err)
+        self.assertEqual((self.dst / "Preferences").read_bytes(), b"old")
+        self.assertFalse(list(self.dst.parent.glob("Distraction.bak-*")), "a backup was made for a copy that never started")
+
+    def test_progress_reports_every_threshold_a_file_crosses(self):
+        make_profile(self.src)
+        (self.src / "Cookies").write_bytes(b"x" * 13)
+        with mock.patch.object(profile, "PROGRESS_STEP", 4):
+            rc, _out, err = self.run_import()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(err.count("MB copied"), (13 + 300 - len(b"Cookies" * 3)) // 4)
 
     def test_backup_names_carry_a_counter_on_collision(self):
         base = self.box.home / "Distraction.bak-20260905-120000"

@@ -21,16 +21,19 @@ from pathlib import Path
 from ds import launch, state
 
 USAGE = "usage: distractions profile import [--from <profile-dir>] [--replace]"
-# Desktop-id prefix -> (config directory under ~/.config, process names of the
-# binary when it runs without --user-data-dir).
-BROWSERS = {
-    "google-chrome": ("google-chrome", ("chrome", "google-chrome", "google-chrome-stable", "google-chrome-beta", "google-chrome-unstable")),
-    "chromium": ("chromium", ("chromium", "chromium-browser")),
-    "brave": ("BraveSoftware/Brave-Browser", ("brave", "brave-browser", "brave-bin")),
-    "microsoft-edge": ("microsoft-edge", ("msedge", "microsoft-edge", "microsoft-edge-stable")),
-    "vivaldi": ("vivaldi", ("vivaldi", "vivaldi-bin", "vivaldi-stable")),
-}
 MAIN_PROFILE = "Default"
+# Desktop-id prefix -> (user-data directory under ~/.config, main profile inside
+# it or "" when the user-data directory is the profile, process names of the
+# binary when it runs without --user-data-dir). The same family `launch` accepts.
+BROWSERS = {
+    "google-chrome": ("google-chrome", MAIN_PROFILE, ("chrome", "google-chrome", "google-chrome-stable", "google-chrome-beta", "google-chrome-unstable")),
+    "chromium": ("chromium", MAIN_PROFILE, ("chromium", "chromium-browser")),
+    "brave": ("BraveSoftware/Brave-Browser", MAIN_PROFILE, ("brave", "brave-browser", "brave-bin")),
+    "microsoft-edge": ("microsoft-edge", MAIN_PROFILE, ("msedge", "microsoft-edge", "microsoft-edge-stable")),
+    "opera": ("opera", "", ("opera",)),
+    "vivaldi": ("vivaldi", MAIN_PROFILE, ("vivaldi", "vivaldi-bin", "vivaldi-stable")),
+    "helium": ("net.imput.helium", MAIN_PROFILE, ("helium",)),
+}
 # Relative paths inside the profile that Chromium regenerates, plus the singleton
 # files a running instance leaves; none of them is carried across.
 SKIPPED = frozenset({
@@ -95,15 +98,24 @@ def source_for(cfg):
             f"{bid or 'the default browser'} is not a Chromium-family browser with a known profile; "
             "only Chromium-family profiles import. Name one with --from <profile-dir>."
         )
-    return config_home() / BROWSERS[key][0] / MAIN_PROFILE
+    subdir, profile, _names = BROWSERS[key]
+    return config_home() / subdir / profile
 
 
-def _key_for_user_data_dir(user_data_dir):
-    """The browser whose config directory `user_data_dir` is, or None when it is elsewhere."""
-    for key, (subdir, _names) in BROWSERS.items():
-        if Path(user_data_dir) == config_home() / subdir:
-            return key
-    return None
+def user_data_dir_of(src):
+    """(user-data directory, browser key) for the canonical profile directory `src`.
+
+    A known browser's user-data directory is matched by its resolved path: the
+    profile itself when the browser keeps it at the root (Opera), else its
+    parent. Elsewhere the parent is the user-data directory and the browser is
+    unknown, so only the `--user-data-dir` and `SingletonLock` checks apply.
+    """
+    src = Path(src)
+    for key, (subdir, profile, _names) in BROWSERS.items():
+        udd = (config_home() / subdir).resolve()
+        if src == (udd / profile if profile else udd):
+            return udd, key
+    return src.parent, None
 
 
 # --- running checks ----------------------------------------------------------
@@ -130,7 +142,7 @@ def is_running(user_data_dir, proc=None, names=()):
     with no `--user-data-dir` at all, or a `SingletonLock` in the directory whose
     target names a live pid on this host.
     """
-    user_data_dir = Path(user_data_dir)
+    user_data_dir = Path(user_data_dir).resolve()
     root = _proc_root(proc)
     uid = os.getuid()
     try:
@@ -150,7 +162,7 @@ def is_running(user_data_dir, proc=None, names=()):
             continue
         udd = _user_data_dir_arg(argv)
         if udd is not None:
-            if Path(udd) == user_data_dir:
+            if Path(udd).expanduser().resolve() == user_data_dir:
                 return f"pid {pid_dir.name} runs with --user-data-dir={user_data_dir}"
             continue
         if names and Path(argv[0]).name in names:
@@ -215,11 +227,11 @@ def copy_profile(src, tmp):
     def copy(s, d):
         nonlocal copied, reported
         copied += _copy_file(s, d)
-        if copied - reported >= PROGRESS_STEP:
-            reported = copied - copied % PROGRESS_STEP
+        while copied - reported >= PROGRESS_STEP:
+            reported += PROGRESS_STEP
             _err(f"profile import: {reported // (1024 * 1024)} MB copied")
 
-    shutil.copytree(src, tmp, symlinks=True, ignore=ignore, copy_function=copy)
+    shutil.copytree(src, tmp, symlinks=True, ignore=ignore, copy_function=copy, dirs_exist_ok=True)
     return copied
 
 
@@ -229,15 +241,16 @@ def import_profile(src, dst, replace=False, proc=None):
     Raises `Refused` before any byte moves when a precondition fails, and after
     the copy failed with the temporary sibling (and the backup) named.
     """
-    src, dst = Path(src), Path(dst)
+    # Every path is canonical from here on: a relative or symlinked `--from`
+    # must reach the same user-data directory, browser, and lock as the real one.
+    src, dst = Path(src).expanduser().resolve(), Path(dst).resolve()
     if not (src / "Preferences").is_file():
         raise Refused(f"{src} is not a Chromium profile: it has no Preferences file.")
-    rsrc, rdst = src.resolve(), dst.resolve()
-    if _contains(rsrc, rdst) or _contains(rdst, rsrc):
+    if _contains(src, dst) or _contains(dst, src):
         raise Refused(f"{src} is or contains {dst}; the source and the destination must be separate directories.")
-    key = _key_for_user_data_dir(src.parent)
-    names = BROWSERS[key][1] if key else ()
-    why = is_running(src.parent, proc, names)
+    user_data, key = user_data_dir_of(src)
+    names = BROWSERS[key][2] if key else ()
+    why = is_running(user_data, proc, names)
     if why is not None:
         raise Refused(f"the source browser is running ({why}); close it and run the import again.")
     why = is_running(dst.parent, proc)
@@ -246,16 +259,28 @@ def import_profile(src, dst, replace=False, proc=None):
     if (dst.exists() or dst.is_symlink()) and not replace:
         raise Refused(f"{dst} exists; --replace moves it aside to a dated backup first.")
 
+    # The sibling exists before the destination moves, so a failed copy always
+    # has a directory to name and a backup is never made for a copy that could
+    # not even start.
     tmp = dst.with_name(f"{dst.name}.import-{os.getpid()}")
-    if tmp.exists() or tmp.is_symlink():
-        stale = _free_name(tmp.with_name(tmp.name + ".stale"))
-        os.rename(tmp, stale)
-        _err(f"profile import: an earlier interrupted copy at {tmp} was moved to {stale}")
+    try:
+        if tmp.exists() or tmp.is_symlink():
+            stale = _free_name(tmp.with_name(tmp.name + ".stale"))
+            os.rename(tmp, stale)
+            _err(f"profile import: an earlier interrupted copy at {tmp} was moved to {stale}")
+        tmp.parent.mkdir(parents=True, exist_ok=True)
+        os.mkdir(tmp)
+    except OSError as e:
+        raise Refused(f"could not prepare the temporary copy at {tmp} ({e}); fix that directory and run the import again.") from e
     backup = None
     if dst.exists() or dst.is_symlink():
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         backup = _free_name(dst.with_name(f"{dst.name}.bak-{stamp}"))
-        os.rename(dst, backup)
+        try:
+            os.rename(dst, backup)
+        except OSError as e:
+            os.rmdir(tmp)  # still empty: nothing was copied yet
+            raise Refused(f"could not move {dst} aside to {backup} ({e}); the existing profile is untouched.") from e
         _err(f"profile import: the existing profile was moved to {backup}")
 
     started = time.monotonic()
@@ -263,10 +288,10 @@ def import_profile(src, dst, replace=False, proc=None):
         copied = copy_profile(src, tmp)
         os.rename(tmp, dst)
     except (OSError, shutil.Error) as e:
-        kept = f"the partial copy stays at {tmp}"
+        kept = [f"the partial copy stays at {tmp}"] if tmp.exists() else []
         if backup is not None:
-            kept += f" and the previous profile at {backup}"
-        raise Refused(f"the copy failed ({e}); {kept}; nothing was written to {dst}.") from e
+            kept.append(f"the previous profile stays at {backup}")
+        raise Refused(f"the copy failed ({e}); {'; '.join(kept) or 'nothing was left behind'}; nothing was written to {dst}.") from e
     elapsed = time.monotonic() - started
     _err(f"profile import: {copied} bytes in {elapsed:.1f} s")
     return copied, elapsed
