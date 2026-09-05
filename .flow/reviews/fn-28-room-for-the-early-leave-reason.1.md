@@ -1,35 +1,45 @@
-I have everything needed; nothing further depends on unresolved results.
+Nothing further needed; all the context required is in hand.
 
-## Review: fn-28-room-for-the-early-leave-reason.1
+## Re-review: fn-28-room-for-the-early-leave-reason.1 (`e3ebaee..f75e837`)
 
-**Scope reviewed:** `e3ebaee..7d9272b` — `ds/ui.py`, `tests/test_ui.py`, `README.md`.
+### Prior findings
 
-### Correctness against the native contract
+1. Test name `test_prompt_reason_width_preserves_utf8_ordinary_input_unchanged` (cosmetic) — **not-fixed**, remains nonblocking; no behavior impact.
+2. Literal `900` in `ds/ui.py:128` could be a constant (cosmetic) — **not-fixed**, remains nonblocking; single caller.
 
-- `ds/ui.py:73-78` builds `["omarchy-menu-input", prompt, "--width", "900"]`. The installed `/usr/bin/omarchy-menu-input:11-30` takes `$1` as the prompt and scans the remainder for `--width <value>`, so positional-then-flag ordering is exactly what the command expects. The value is passed as `int()` into the payload (`:44`), and `str(900)` satisfies that.
-- `width` is keyword-only with `None` default; when omitted, argv is byte-identical to the pre-change form. `_run`, `rstrip("\r\n")`, timeout and `Unavailable` paths are untouched (`ds/ui.py:40-51`).
-- Both reason entry points route through `prompt_reason`: menu `ds/ui.py:316` and CLI `ds/lock.py:237`. Every other `input(...)` caller (`Minutes` :110, `Purpose` :122, `Site or app` :182, integer settings :288) omits width. R1's "other prompts remain unchanged" holds.
-- `_cli_unlock` (`ds/lock.py:228-244`) still hands the prompted text to `unlock()`, which owns min-length validation; `tests/test_lock.py:217-230` covers refusal keeping the lock and hooks unfired. No lock-engine or persisted-data change.
+Both were explicitly optional and do not gate the verdict.
+
+### What changed since 7d9272b
+
+- `tests/test_status.py:427-430`: the `StubContractTests` signature contract now expects `["prompt", "timeout", "width"]`, asserts `width` is `KEYWORD_ONLY` with `None` default. `_params` (`:418-419`) lists every parameter including keyword-only, so the expected list is correct and the contract would have failed at the previous head without this update — the follow-up is a required fix, not drift.
+- Task file now names `tests/test_status.py` and widens the Quick command to include `tests.test_status.StubContractTests`.
+- `.flow/evidence/*.json|png`, `.flow/reviews/*`, spec JSON: conductor-owned receipts, authorized per the handoff. Nothing in them alters runtime.
+
+### Correctness recheck
+
+- `ds/ui.py:73-78`: `["omarchy-menu-input", prompt, "--width", "900"]` matches the installed script (`/usr/bin/omarchy-menu-input:11-30`): `$1` is the prompt, remainder scanned for `--width <value>`, value passed through `int()` at `:44`. With `width=None` argv is byte-identical to before. `_run` (`:40-51`) untouched: timeout → `None`, `OSError` → `Unavailable`, rc 1 → `None`, other rc → `Unavailable`. `rstrip("\r\n")` retained.
+- Only `prompt_reason` (`:128`) passes width; `Minutes` (`:110`), `Purpose` (`:122`), `Site or app` (`:182`), settings (`:288`) do not. Both reason entry points — menu (`ds/ui.py:316`) and CLI (`ds/lock.py:237`) — route through `prompt_reason`, so R1 holds for both.
+- `lock.py:228-244` unchanged; `unlock()` still owns min-length. `tests/test_lock.py:217-230` covers refusal keeping lock, no hook, no log entry.
+- Mock compatibility: the only patch of `ds.ui.input` (`tests/test_ui.py:246`) is a `MagicMock(return_value=None)`, which accepts the new `width=` kwarg. `prompt_reason` patches (`test_ui.py:496`, `test_lock.py:235,321`) are unaffected since its signature is unchanged (`test_status.py:441` still asserts `["min_chars"]`).
 
 ### Tests
 
-- `tests/test_ui.py:180-197`: text/cancel/timeout/missing exercised for both `width=None` and `width=900`.
-- `tests/test_ui.py:254-266`: UTF-8 (CJK, em dash, emoji, 40× Greek) reason round-trips for `min_chars=0` and `50`; exact argv asserted via the stub's `sys.argv[1:]` log (`["input", prompt, "--width", "900"]`); a plain `ui.input("Name")` immediately after asserts `["input", "Name"]` with no width leak.
-- Quick command covers `tests.test_lock`, so the refusal test is in the gate.
+- `tests/test_ui.py:180-197`: text/cancel/timeout/unavailable for `width` in `(None, 900)`.
+- `tests/test_ui.py:254-266`: the INPUT stub (`:51-77`) logs `sys.argv[1:]` verbatim and echoes the queued text, so the exact-argv assertion `["input", prompt, "--width", "900"]` and the UTF-8 round-trip (CJK, em dash, emoji, 40× Greek) are genuine end-to-end checks through a real subprocess with `encoding="utf-8"`. Trailing `ui.input("Name")` confirms `["input", "Name"]` — no width leak.
+- Contract test updated as above. The conductor-reported red-then-green for the width test and the 43/25-test gate logs are consistent with what the diff would produce; I did not re-run anything.
 
-### Documentation and boundaries
+### Documentation / boundaries
 
-- `README.md:10` states the prompt is wider, clamps to the screen, remains single-line and elides long text — matches the spec's edge-case wording.
-- No version bump, no Omarchy file edits, no new dependency. Conductor evidence: native width 300 and 900 both `returncode 0` with text preserved, `lock_unchanged: true`, branch helper reports exact reason round-trip and Escape → `None`.
+`README.md:78` adds one sentence pair: wider prompt, fits within screen edges, single-line, long text elided. No version bump, no Omarchy file edits, no new dependency.
 
 ### Findings
 
 **Blocking:** none.
 
-**Nonblocking (cosmetic):**
-1. `tests/test_ui.py:254` — test name `..._preserves_utf8_ordinary_input_unchanged` reads as one clause; it actually verifies two properties. Optional rename or docstring; no behavior impact.
-2. `ds/ui.py:128` — the literal `900` could be a module constant so the value is named once, but with a single caller this is preference, not a defect.
+**Nonblocking:**
+- Prior items 1 and 2 stand as cosmetic.
+- Observation, not a defect: on an Omarchy build whose `omarchy-menu-input` predates `--width`, unrecognized args would be ignored by a permissive parser or could fail. The spec's Decision Context pins the installed native command as the base and accepts this; out of scope here.
 
-Nothing in the task's acceptance criteria (R1–R3) is unmet by this change; visual smoke, Fable review and Flow completion are explicitly conductor-owned and are evidenced above rather than assumed.
+R1–R3 are met within the task boundary; native visual smoke is evidenced in `.flow/evidence/fn-28-room-for-the-early-leave-reason.json` (width 300/900 rc 0, `lock_unchanged: true`) rather than assumed.
 
 <verdict>SHIP</verdict>

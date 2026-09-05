@@ -17,5 +17,15 @@
   "minimum_reason_characters": 50,
   "branch_helper": "PASS: native width900, exact reason roundtrip, Escape returns None",
   "screenshot": "fn-28-room-for-the-early-leave-reason.png",
-  "limits": "Native single-line input still elides very long text. Viewport clamp verified in native Menu.qml; no live DPI or narrow-monitor changes tested."
+  "limits": "Native single-line input still elides very long text. Viewport clamp verified in native Menu.qml; no live DPI or narrow-monitor changes tested.",
+  "local_install": {
+    "path": "/home/daniel/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space",
+    "commit": "f75e8374d8705bf06ff81cf73f87870f24242b98",
+    "ui_sha256": "a88836e1c7cf22a632d8db9308585fee468b01c0dde1a3afea57a3f729fc9dea",
+    "matches_reviewed_source": true,
+    "health": "healthy",
+    "listener": "responsive",
+    "listener_restarted": false
+  },
+  "full_suite": "448 tests, OK, 1 intentional skip; Python 3.14.7; 183.270 seconds"
 }
