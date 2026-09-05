@@ -1,0 +1,17 @@
+{
+  "model": [
+    "claude-haiku-4-5-20251001",
+    "claude-fable-5-1"
+  ],
+  "requested_model": "fable",
+  "effort": "high",
+  "head": "59d70e81e132ecbd8116ddc53fc8d1e0d14cde1e",
+  "base": "f0cc79ad28dd3ad827be7e4ebe2e2c77355de66b",
+  "exit_code": 0,
+  "is_error": false,
+  "output_sha256": "0538240fbf92b8189b742e0f77d58f213b1146457c969af51f8fd506106709cc",
+  "response_sha256": "5eb6a7c8e18ad68e3f19fc90f8fdead48ab17ffc681da21fbeec934064fc0304",
+  "timestamp": "2026-09-05T21:18:31.500000+00:00",
+  "session_id": "4f36c76c-80bb-4467-9e1a-a676bce8b121",
+  "worktree_clean": true
+}

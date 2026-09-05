@@ -1,0 +1,16 @@
+{
+  "axis": "standards",
+  "model": "claude-fable-5-1",
+  "models": [
+    "claude-haiku-4-5-20251001",
+    "claude-fable-5-1"
+  ],
+  "head": "59d70e81e132ecbd8116ddc53fc8d1e0d14cde1e",
+  "base": "f0cc79ad28dd3ad827be7e4ebe2e2c77355de66b",
+  "output_sha256": "9e8f11974f41a5f5c893d22c7b51447dcf74d62cfa23ca3190966fd1c1da68de",
+  "exit_code": 0,
+  "is_error": false,
+  "session_id": "6fd2a7b8-16ec-4b4b-9ebc-885fc7d7dd30",
+  "report": "/tmp/v3-audit-standards.md",
+  "timestamp": "2026-09-05T21:16:22.911161+00:00"
+}

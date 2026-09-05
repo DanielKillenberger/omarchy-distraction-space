@@ -80,6 +80,8 @@ A refresh can reuse enforcement only when normalized desired policy matches the 
 
 ## Banners
 
+While notification hold is active, the listener reasserts the configured sender keys every 60 seconds. Manually unsilencing one of those senders in the shell can therefore last only until that check; changing the plugin's hold policy is the persistent choice.
+
 Two kinds, one path. `feedback.opened(entry_name)` is called by `hypr.contain` after a confirmed landing on the space and by the boot scan; the title is `<Product> opened in the distraction space`, the body names the key that enters, or reads `Locked until HH:MM.` while a lock is active, and the action is `distractions enter`. `feedback.blocked(host)` is called by the 28443 router for a listed SNI; the title is `Blocked here`, the body names the product and the key, and the action is `distractions open https://<host>/`, the site root since the SNI never carries a path. The block page is its own feedback on 80, so only the 28443 path raises a banner. An unlisted SNI raises nothing.
 
 Both go through `_fire`: one debounce table keyed by list entry name, 60 seconds per entry shared by the two kinds, and a `hypr.on_space()` check that skips on the space and skips with a log line when Hyprland cannot answer. Every decision writes `banner: host=<h> entry=<name> decision=shown|debounced` to the log synchronously, and `distractions banners` prints any `banner:` line, version 2 ones included. `nudges.app_banner` gates Opened, `nudges.block_page` gates Blocked and the page. There is no attribution: a blocked connection is from outside the slice by construction.
@@ -141,6 +143,8 @@ Under `~/.local/state/omarchy/distraction-space/`, honoring `$XDG_STATE_HOME`:
 `health` contains overall `state`, `listener`, `reasons`, and `services`. Services distinguish healthy, disabled by choice, unknown, stale, unavailable, pending application, and displaced routing. A fresh site-block `off` observation is healthy idle when a valid expansion contains no blocked hosts; missing or malformed expansion is unknown, while an actual failure stays unavailable. Notification holding may be healthy idle under the saved policy, but an unknown workspace cannot establish an off-space hold expectation. This is observation-based reporting, not a live firewall or audio guarantee. The bar uses the same assessment as the menu, refreshing on file changes and every 30 seconds to detect listener failure without a new write.
 
 Runtime files live in `$XDG_RUNTIME_DIR`: `distraction-space.lock` (single listener), `distraction-space.config.lock` (config mutation flock), `distraction-space.entries.lock` (one launcher-entry transaction at a time across setup, remove, and the listener), and `distraction-space.sock` (ping, reload, refresh, release). The browser profile lives under data, not state: `~/.local/share/omarchy/distraction-space/browser`, honoring `$XDG_DATA_HOME`, and `setup --remove` leaves it in place.
+
+`launcher_refresh` is `off` before an attempted sync, `ok` after success, `unavailable` after failure, or `deferred` when the setup/remove lock prevents the attempt.
 
 Lock expiry is lazy. `is_locked()` treats an `until` in the past as unlocked, and the listener's one-second tick is what turns that into a `state.json` write, a notice, and the `unlock` hook. `lock` leaves the space first when the person is on it, through the same cycle `leave` uses, and stays put when no other workspace is occupied.
 

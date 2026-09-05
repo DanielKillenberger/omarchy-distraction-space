@@ -10,6 +10,7 @@
   "id": "fn-26-visible-health-and-accessible-v3",
   "impl_review_rounds": {
     "fn-26-visible-health-and-accessible-v3.1": 0,
+    "fn-26-visible-health-and-accessible-v3.2": 0,
     "fn-26-visible-health-and-accessible-v3.3": 0
   },
   "next_task": 1,
@@ -68,16 +69,44 @@
       "task": "fn-26-visible-health-and-accessible-v3.3",
       "timestamp": "2026-09-05T21:06:04.899466Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "612454e6d4da8e10cd3285647013f06cb27462da8fe2aa9e9fb0a436f05bbc60",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "308e1d53e35219f9b97f127583d5415f0062a296",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 5735,
+      "output_sha256": "0a7fe74bccf7bf166c342974cdd3faef6d6ac964a8a441ff08797e3e7d697257",
+      "reservation_id": "b93b75e86ef54df5b5be8d16fc3295d6",
+      "round_consumed": true,
+      "scope": "impl:fn-26-visible-health-and-accessible-v3.2",
+      "superseded_by": null,
+      "task": "fn-26-visible-health-and-accessible-v3.2",
+      "timestamp": "2026-09-05T21:17:42.034514Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-26-visible-health-and-accessible-v3.1": 1,
+    "impl:fn-26-visible-health-and-accessible-v3.2": 1,
     "impl:fn-26-visible-health-and-accessible-v3.3": 1
   },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
     "impl:fn-26-visible-health-and-accessible-v3.1": 0,
+    "impl:fn-26-visible-health-and-accessible-v3.2": 0,
     "impl:fn-26-visible-health-and-accessible-v3.3": 0
   },
   "spec_path": ".flow/specs/fn-26-visible-health-and-accessible-v3.md",
@@ -94,5 +123,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T21:06:05.273780Z"
+  "updated_at": "2026-09-05T21:17:42.462396Z"
 }
