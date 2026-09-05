@@ -100,7 +100,7 @@ def prompt_lock(cfg):
     default = lock.get("default_minutes", 25)
     if type(default) is not int or default < 0:
         default = 25
-    raw = input(f"Minutes (e.g. {default}; 0 = until unlock)")
+    raw = input(f"Minutes (e.g. {default}; 0 = until unlock)", width=500)
     if raw is None or not raw.strip():
         return None
     try:

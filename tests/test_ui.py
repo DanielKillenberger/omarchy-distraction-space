@@ -212,7 +212,7 @@ class UiTests(unittest.TestCase):
                 self._iq(["text", raw], ["text", "deep work"])
                 self.assertEqual(ui.prompt_lock(CFG), (minutes, "deep work"))
                 self.assertEqual(self._calls("input")[-2:], [
-                    ["input", "Minutes (e.g. 25; 0 = until unlock)"],
+                    ["input", "Minutes (e.g. 25; 0 = until unlock)", "--width", "500"],
                     ["input", "Purpose"],
                 ])
                 self.assertEqual(self._calls("select"), [])
@@ -226,7 +226,7 @@ class UiTests(unittest.TestCase):
                 before = len(self._calls("input"))
                 self.assertEqual(ui.prompt_lock(cfg), (37, ""))
                 self.assertEqual(self._calls("input")[before:], [
-                    ["input", f"Minutes (e.g. {example}; 0 = until unlock)"],
+                    ["input", f"Minutes (e.g. {example}; 0 = until unlock)", "--width", "500"],
                 ])
         self._iq(["text", "25"], ["cancel"])
         self.assertEqual(ui.prompt_lock(CFG), (25, ""))
