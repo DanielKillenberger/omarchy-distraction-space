@@ -13,6 +13,7 @@ from pathlib import Path
 
 SLICE = "app-distraction.slice"
 SLICE_LEVEL = 5
+SYSTEMCTL_TIMEOUT = 30.0
 
 
 def slice_path(uid: int) -> str:
@@ -74,14 +75,15 @@ def ancestor_in_slice(pid, hops=8, proc=None) -> bool:
 
 def systemctl_user(*args: str) -> tuple[int, str]:
     """`systemctl --user <args>` as the person, never through sudo: (rc, stderr)."""
+    from ds.net import run_command
     try:
-        proc = subprocess.run(
+        proc = run_command(
             ["systemctl", "--user", *args],
             stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             check=False,
-            timeout=30,
+            timeout=SYSTEMCTL_TIMEOUT,
         )
     except (OSError, subprocess.TimeoutExpired) as e:
         return 1, str(e)

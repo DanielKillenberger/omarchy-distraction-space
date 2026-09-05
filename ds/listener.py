@@ -17,7 +17,7 @@ CLIENT_CAP = 256
 
 
 def _reload_wait():
-    return 2 * net.BATCH_DEADLINE + 5
+    return 2 * (net.BATCH_DEADLINE + cgroup.SYSTEMCTL_TIMEOUT + net.COMMAND_TIMEOUT + setup.UDD_TIMEOUT + 15) + 5
 
 
 def cmd_listen(args): return run()
@@ -87,16 +87,11 @@ def _empty():
     return {"list": [], "keep_reachable": [], "nudges": {"app_banner": False, "block_page": False},
             "site_block": {"enabled": True}}
 
-def _apply(addrs):
-    """`replace` renders the slice's cgroup rule, so the slice is started before it.
-
-    The wrapper is the check: it refuses when the cgroup is missing and `net.apply`
-    reports that as `unavailable`, so a failed start is not a reason to skip the
-    call. `flush` only destroys the table and needs no slice at all.
-    """
-    if addrs:
-        cgroup.ensure_slice()
-    return net.apply(addrs)
+def _apply(addrs, current=lambda: True):
+    """Start the slice before replace; only the current generation may apply."""
+    if addrs and not cgroup.ensure_slice():
+        return "unavailable"
+    return net.apply(addrs, publish=False) if current() else None
 
 def _close(*objs):
     for obj in objs:
@@ -177,7 +172,10 @@ def _listen():
         signal.signal(signal.SIGTERM, prev[0])
         signal.signal(signal.SIGINT, prev[1])
         feedback.stop()
+        ctx.stopping.set()
         net.shutdown()
+        if ctx.worker is not None:
+            ctx.worker.join(timeout=3)
         ctx.capture.stop()
         ctx.release_hold()
         ctx.mute.release()
@@ -210,6 +208,10 @@ class _Ctx:
         self.last_period = time.monotonic()
         self.pending, self.lock, self.wake_w = None, threading.Lock(), None
         self.clients = []
+        self.worker, self.stopping = None, threading.Event()
+        self.observed_at = {}
+        self.disabled_flushed = False
+        self.browser_dirty, self.launcher_refresh = True, "off"
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
         self.hold_failed_at = 0.0
         self.links, self.browser = "off", None
@@ -250,9 +252,10 @@ class _Ctx:
         if hypr.snap_back:
             for address in gone:
                 hypr.contain_address(address)
-    def check_links(self):
+    def check_links(self, result, observed):
         """Whether listed links still route here; a displaced handler is noticed once per lifetime."""
-        self.links = _links_state(self.cfg)
+        self.links = result
+        self.observed_at["links"] = observed
         if self.links == "displaced" and not self.links_noted:
             ui.notify("Links no longer open in the space", "Another browser is the default. Run: distractions setup")
             self.links_noted = True
@@ -273,6 +276,7 @@ class _Ctx:
         if not force and not retry and want == self.hold_on and keys == self.pushed:
             return
         self.hold_ipc = hold.push(keys, want, retire=[k for k in self.pushed if k not in keys])
+        self.observed_at["notification_hold"] = state.now_iso()
         self.hold_on, self.pushed = want, keys
         if self.hold_ipc == "unavailable":
             self.hold_failed_at = now
@@ -301,7 +305,7 @@ class _Ctx:
             state.write_expansion(self.exp)
         self.enforce(reason)
     def enforce(self, reason):
-        self.browser = _browser_name(self.cfg)
+        self.browser_dirty = True
         hypr.snap_back = (self.cfg or config.DEFAULTS)["containment"]["snap_back"]
         hypr.apply_rules(self.exp)
         # The scan's Opened banners read the nudge and the lock through feedback, so it starts first.
@@ -314,13 +318,15 @@ class _Ctx:
             if here is not None and self.prev is None:
                 self.prev = here
         self.sync_hold(force=True)
-        self.check_links()
-        if not self.block_enabled():
-            return self.flush(reason)
         self.request(reason)
         self.write_state(True)
         return self.latest
     def request(self, reason):
+        if reason == "periodic" and self.busy:
+            self.rerun = True
+            return
+        if self.block_enabled():
+            self.disabled_flushed = False
         self.gen += 1
         self.latest, self.reason = self.gen, reason
         self._adopt_waiters(self.latest)
@@ -330,85 +336,102 @@ class _Ctx:
         self._launch(self.gen, reason)
     def _launch(self, gen, reason):
         self.busy = True
-        now = time.monotonic()
-        window = net.BATCH_DEADLINE + 5
-        for c in self.clients:
-            if c.gen == gen:
-                c.deadline = now + window
-        hosts, keep, wake = _hosts(self.exp), self.exp.get("keep_reachable") or [], self.wake_w
+        exp, cfg, wake = self.exp, self.cfg, self.wake_w
+        enabled, flushed = self.block_enabled(), self.disabled_flushed
+        browser_dirty = self.browser_dirty
+        def current():
+            return not self.stopping.is_set() and gen == self.latest
         def work():
-            failed = False
+            net.command_context.cancel = self.stopping
+            batch = {"generation": gen, "reason": reason, "started": time.monotonic()}
+            item = {"batch": batch, "result": None, "links": None, "browser": None,
+                    "entries_ok": True, "links_ok": True, "failed": False,
+                    "observed": {}, "browser_dirty": browser_dirty}
             try:
-                addrs, batch = net.resolve_batch(hosts, gen, reason, keep_reachable=keep)
+                if enabled:
+                    addrs, batch = net.resolve_batch(_hosts(exp), gen, reason,
+                                                   keep_reachable=exp.get("keep_reachable") or [])
+                    item["batch"] = batch
+                else:
+                    addrs = []
+                if current():
+                    item["result"] = ("off" if not enabled and flushed and reason != "reload"
+                                      else _apply(addrs, current))
+                    if item["result"] is not None:
+                        item["observed"]["site_block"] = state.now_iso()
             except Exception:
-                failed = True
-                addrs, batch = [], {"generation": gen, "reason": reason, "hosts": 0,
-                                    "resolved": 0, "failed": 0, "marker": "failed",
-                                    "started": time.monotonic()}
+                item["result"], item["failed"] = "unavailable", True
+                item["observed"]["site_block"] = state.now_iso()
+            if current():
+                try:
+                    if reason != "start":
+                        item["entries_ok"] = setup.refresh_entries(exp, cfg, strict=True) == 0
+                except Exception:
+                    item["entries_ok"] = False
+                try:
+                    item["links"], item["links_ok"] = _observe_links(cfg)
+                except Exception:
+                    item["links"], item["links_ok"] = "displaced", False
+                item["observed"]["links"] = state.now_iso()
+                if browser_dirty:
+                    item["browser"] = _browser_name(cfg)
             with self.lock:
-                self.pending = (addrs, batch, failed)
-            if wake is not None:
+                self.pending = item
+            if wake is not None and not self.stopping.is_set():
                 try:
                     os.write(wake, b"n")
                 except OSError:
                     pass
 
-        threading.Thread(target=work, daemon=True).start()
+        self.worker = threading.Thread(target=work, daemon=True, name="ds-reconcile")
+        self.worker.start()
     def take_result(self):
         with self.lock:
             item, self.pending = self.pending, None
         if item is None:
             return
-        addrs, batch, failed = item
+        batch, result = item["batch"], item["result"]
         self.busy = False
         gen = batch.get("generation")
-        if failed:
-            net.finish_batch(batch, "failed")
-            self._note_resolve()
-            self._reply_waiters(gen, False)
-            self.write_state()
-            return self._follow()
         if gen != self.latest:
             net.finish_batch(batch, "stale")
-            self._reply_waiters(gen, False)
             return self._follow()
-        result = _apply(addrs)
+        net.site_block = result or "unavailable"
+        self.disabled_flushed = not self.block_enabled() and result == "off"
+        self.observed_at.update(item["observed"])
+        if item["links"] is not None:
+            self.check_links(item["links"], item["observed"]["links"])
+        if item["browser_dirty"]:
+            self.browser, self.browser_dirty = item["browser"], False
+        if item["failed"]:
+            self._note_resolve()
         net.finish_batch(batch, _APPLY.get(result, result))
-        # A wrapper refusal is an enforcement failure: whoever asked for this
-        # generation hears `error`, not `ok`, and the state carries `unavailable`.
-        self._reply_waiters(gen, result in ("on", "off"))
+        if not item["entries_ok"]:
+            ui.notify("Launcher refresh failed", "The listener will retry on the next refresh.")
+        self.launcher_refresh = "ok" if item["entries_ok"] else "unavailable"
         self.write_state()
-        self._follow()
-    def _follow(self):
+        self._reply_waiters(gen, result in ("on", "off") and item["entries_ok"] and item["links_ok"])
+        self._follow(periodic=True)
+    def _follow(self, periodic=False):
         if self.rerun:
             self.rerun = False
-            self._launch(self.latest, self.reason)
+            if periodic:
+                self.request("periodic")
+            else:
+                self._launch(self.latest, self.reason)
     def _adopt_waiters(self, gen):
         now = time.monotonic()
-        deadline = now + net.BATCH_DEADLINE + 5
+        deadline = now + _reload_wait()
         for c in self.clients:
             if isinstance(c.gen, int):
                 c.gen = gen
-                c.deadline = deadline
+                c.deadline = min(c.deadline, deadline)
     def _reply_waiters(self, gen, ok):
         msg = b"ok\n" if ok else b"error\n"
         for c in self.clients:
             if c.gen == gen:
                 _send_reply(c.sock, msg)
                 c.gen = "done"
-    def _drop_waiters(self):
-        for c in self.clients:
-            if isinstance(c.gen, int):
-                _send_reply(c.sock, b"error\n")
-                c.gen = "done"
-    def flush(self, _reason=None):
-        """Destroy the table; True when the wrapper accepted it, False when it refused."""
-        self.gen += 1
-        self.latest, self.rerun = self.gen, False
-        result = _apply([])
-        self._drop_waiters()
-        self.write_state(True)
-        return result == "off"
     def event(self, line):
         if hypr.is_config_reload(line):
             hypr.apply_rules(self.exp)
@@ -433,11 +456,8 @@ class _Ctx:
         self.write_state()
         if time.monotonic() - self.last_period >= PERIOD:
             self.last_period = time.monotonic()
-            setup.refresh_entries(self.exp, self.cfg)
-            self.check_links()
-            self.write_state()
-            if self.block_enabled():
-                self.request("periodic")
+            self.sync_hold(force=True)
+            self.request("periodic")
     def space(self, name=None):
         here = (name == hypr.SPACE) if name is not None else hypr.on_space()
         if here is None:
@@ -463,11 +483,6 @@ class _Ctx:
         state.write_expansion(self.exp)
         return self.enforce("reload")
     def refresh(self):
-        setup.refresh_entries(self.exp, self.cfg)
-        if not self.block_enabled():
-            # Nothing to resolve. The switch is honored already unless the last
-            # flush was refused, in which case this is the retry.
-            return net.site_block == "off" or self.flush("refresh")
         self.request("refresh")
         return self.latest
     def write_state(self, force=False):
@@ -479,11 +494,13 @@ class _Ctx:
             "hold": self.hold_on is True, "held": hold.held_counts(), "notification_hold": self.hold_ipc,
             "pass_through": feedback.pass_through_state(),
             "links": self.links, "browser": self.browser, "released": hypr.released(),
+            "launcher_refresh": self.launcher_refresh,
+            "observed_at": dict(self.observed_at),
             "updated": state.now_iso(),
         }
         key = (obj["locked"], obj["until"], obj["purpose"], obj["on_space"], obj["site_block"],
                obj["hold"], obj["notification_hold"], obj["pass_through"], tuple(sorted(obj["held"].items())),
-               obj["links"], obj["browser"], tuple(sorted(obj["released"].items())))
+               obj["links"], obj["browser"], tuple(sorted(obj["released"].items())), tuple(sorted(self.observed_at.items())), self.launcher_refresh)
         if not force and key == self.last_state:
             return
         self.last_state = key
@@ -506,20 +523,20 @@ def _browser_name(cfg):
         return None
     return Path(argv[0]).name if argv else None
 
-def _links_state(cfg):
+def _observe_links(cfg):
     """`on` while setup's handler is still the default browser, `displaced` when another took it.
 
     `off` when the switch is off or setup never registered the handler (the
     manifest names it); `xdg-settings` is only asked once there is something to hold.
     """
     if not (cfg or config.DEFAULTS)["open_links_in_space"]:
-        return "off"
+        return "off", True
     if not any(Path(item["path"]).name == setup.HANDLER_ID for item in state.read_entries()["files"]):
-        return "off"
+        return "off", True
     answered, handler = setup.default_handler()
     # An unanswered query is not proof of displacement, but it is not proof the
     # handler still holds either; the notice tells the person to run setup.
-    return "on" if answered and handler == setup.HANDLER_ID else "displaced"
+    return ("on" if answered and handler == setup.HANDLER_ID else "displaced"), answered
 
 def _read_cfg():
     if not config.config_path().exists():
@@ -650,11 +667,16 @@ def _accept_reload(rs, ctx):
         except OSError:
             _close(conn)
             continue
-        ctx.clients.append(_Client(conn))
+        if len(ctx.clients) >= CLIENT_CAP:
+            _close(conn)
+        else:
+            ctx.clients.append(_Client(conn))
 
 def _dispatch_client(c, ctx, verb):
     words = verb.split()
-    if words[:1] == ["release"] and len(words) == 3:
+    if verb == "ping":
+        result = True
+    elif words[:1] == ["release"] and len(words) == 3:
         result = ctx.release(words[1], words[2])
     else:
         result = ctx.reload() if verb == "reload" else ctx.refresh() if verb == "refresh" else False

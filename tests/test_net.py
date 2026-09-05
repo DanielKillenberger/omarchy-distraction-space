@@ -143,6 +143,25 @@ class NetTests(unittest.TestCase):
         self.assertIn("203.0.113.1", addrs)
         self.assertIn("203.0.113.20", addrs)
 
+    def test_command_deadline_kills_and_reaps_child(self):
+        import subprocess
+        pidfile = self.box.runtime / "command.pid"
+        script = f"import os,time; open({str(pidfile)!r}, 'w').write(str(os.getpid())); time.sleep(3600)"
+        with self.assertRaises(subprocess.TimeoutExpired):
+            net.run_command([sys.executable, "-c", script], capture_output=True, timeout=0.2)
+        self.assertFalse(Path(f"/proc/{pidfile.read_text()}").exists())
+        self.assertEqual(net._children, {})
+
+    def test_apply_launch_errors_and_timeout_are_unavailable_without_publication(self):
+        import subprocess
+        for error in (PermissionError("denied"), FileNotFoundError("missing"),
+                      subprocess.TimeoutExpired("sudo", 1)):
+            with self.subTest(error=error), mock.patch.object(net, "run_command", side_effect=error), \
+                 mock.patch.object(net, "_notice_unavailable"):
+                net.site_block = "off"
+                self.assertEqual(net.apply(["203.0.113.10"], publish=False), "unavailable")
+                self.assertEqual(net.site_block, "off")
+
     def test_empty_final_set_sends_flush_not_empty_replace(self):
         self._map({})
         addrs, _ = self._resolve(["missing.example"], 3, "reload")

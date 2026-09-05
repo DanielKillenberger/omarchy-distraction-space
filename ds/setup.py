@@ -708,13 +708,13 @@ def _xdg_env() -> dict[str, str]:
 def _xdg_settings(*args: str) -> tuple[int, str]:
     """`xdg-settings` as the person, never through sudo. A missing tool answers like its own exit 3.
 
-    `get` runs on the listener's loop and gets 5 s so a hung tool cannot hold
-    it; `set` runs from setup, rewrites mimeapps and the desktop cache, and on
+    `get` runs in the listener's reconciliation worker with a 5 s deadline; `set` runs from setup, rewrites mimeapps and the desktop cache, and on
     this machine takes several seconds, so it gets 60 s.
     """
+    from ds.net import run_command
     budget = 60 if args[:1] == ("set",) else 5
     try:
-        proc = subprocess.run(
+        proc = run_command(
             ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=budget, env=_xdg_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -988,18 +988,26 @@ def _write_text(path: Path, text: str) -> None:
 
 
 UDD_TIMEOUT = 60.0
+_cache_pending = set()
 
 
-def _update_desktop_database(apps: Path) -> None:
+def _update_desktop_database(apps: Path) -> bool:
     """Best effort: the entries are already in place and the record written; a slow
     or missing cache refresh changes nothing about what setup owns."""
+    _cache_pending.add(apps)
     tool = shutil.which("update-desktop-database")
     if not tool:
-        return
+        return False
+    from ds.net import run_command
     try:
-        subprocess.run([tool, str(apps)], capture_output=True, check=False, timeout=UDD_TIMEOUT)
+        result = run_command([tool, str(apps)], capture_output=True, check=False, timeout=UDD_TIMEOUT)
+        if result.returncode == 0:
+            _cache_pending.discard(apps)
+            return True
+        return False
     except (OSError, subprocess.TimeoutExpired) as e:
         print(f"update-desktop-database did not finish: {e}; the menu refreshes on its own later", file=sys.stderr)
+        return False
 
 
 def _rollback(journal: list[tuple]) -> None:
@@ -1063,7 +1071,7 @@ def _unchanged(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, s
     return old == {"files": files, "previous_handler": previous}
 
 
-def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, str | None]], previous: str | None) -> int:
+def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, str | None]], previous: str | None, *, strict_cache=False) -> int:
     """The plan written under the applications directory and recorded, finished or rolled back as one.
 
     A file at a planned path that is not this plugin's launcher is Omarchy's (or
@@ -1078,6 +1086,8 @@ def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, 
     after every file it names. Nothing to change is nothing written.
     """
     if _unchanged(old, owned, plan, previous):
+        if strict_cache and applications_dir() in _cache_pending:
+            return int(not _update_desktop_database(applications_dir()))
         return 0
     wanted = {str(path) for path, _text in plan}
     apps, backups, journal, files, staged = applications_dir(), _backup_dir(), [], [], []
@@ -1136,8 +1146,8 @@ def _sync_files(old: dict, owned: dict[str, str | None], plan: list[tuple[Path, 
         return 1
     for dest in staged:
         _unlink(dest)
-    _update_desktop_database(apps)
-    return 0
+    cached = _update_desktop_database(apps)
+    return int(strict_cache and not cached)
 
 
 # How long setup and remove wait for the listener's sync to finish; the sync is a
@@ -1183,7 +1193,7 @@ def _busy() -> int:
     return 1
 
 
-def refresh_entries(exp: dict, cfg: dict | None) -> int:
+def refresh_entries(exp: dict, cfg: dict | None, *, strict=False) -> int:
     """The listener's half of the entry sync: what setup wrote, kept written.
 
     Runs on `refresh` and once a period, so an entry Omarchy regenerates (a web
@@ -1197,10 +1207,10 @@ def refresh_entries(exp: dict, cfg: dict | None) -> int:
     same lock so nothing is recreated from an empty record.
     """
     with _entries_lock(0) as held:
-        return _refresh_entries(exp, cfg) if held else 0
+        return _refresh_entries(exp, cfg, strict=strict) if held else int(strict)
 
 
-def _refresh_entries(exp: dict, cfg: dict | None) -> int:
+def _refresh_entries(exp: dict, cfg: dict | None, *, strict=False) -> int:
     if not state.entries_path().exists():
         return 0
     old = state.read_entries()
@@ -1210,7 +1220,7 @@ def _refresh_entries(exp: dict, cfg: dict | None) -> int:
     owned = {item["path"]: item["backup"] for item in owned_files}
     holds = any(Path(p).name == HANDLER_ID for p in owned)
     previous = old["previous_handler"]
-    return _sync_files(old, owned, _plan(exp, cfg, previous, holds, owned), previous)
+    return _sync_files(old, owned, _plan(exp, cfg, previous, holds, owned), previous, strict_cache=strict)
 
 
 def sync_entries(exp: dict, cfg: dict) -> int:

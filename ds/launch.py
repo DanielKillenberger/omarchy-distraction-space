@@ -394,10 +394,11 @@ def exec_argv(desktop_id, url=None, skip_own=False):
 # --- browser -----------------------------------------------------------------
 
 def _default_browser_id():
+    from ds.net import run_command
     try:
         env = dict(os.environ)
         env.pop("BROWSER", None)  # xdg-settings refuses to answer while BROWSER is set; Omarchy exports it
-        r = subprocess.run(
+        r = run_command(
             ["xdg-settings", "get", "default-web-browser"],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, check=False, env=env,
         )

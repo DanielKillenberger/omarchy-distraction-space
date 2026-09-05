@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -15,6 +16,8 @@ from ds import config, setup, state
 BATCH_DEADLINE = 10.0
 RESOLVE_TIMEOUT = 2.0
 POOL_SIZE = 8
+COMMAND_TIMEOUT = 10.0
+command_context = threading.local()
 
 site_block = "off"
 
@@ -23,6 +26,60 @@ _pool_lock = threading.Lock()
 _child_lock = threading.Lock()
 _children: dict[int, subprocess.Popen] = {}
 _noticed = False
+
+
+def run_command(args, *, timeout, input=None, capture_output=False, check=False, **kwargs):
+    """Run a bounded child group; the reconciliation worker can cancel its waits."""
+    cancel = getattr(command_context, "cancel", None)
+    if cancel is not None and cancel.is_set():
+        raise OSError("reconciliation stopped")
+    if input is not None:
+        kwargs["stdin"] = subprocess.PIPE
+    if capture_output:
+        kwargs.update(stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    proc = subprocess.Popen(args, start_new_session=True, **kwargs)
+    _track(proc)
+    deadline = time.monotonic() + timeout
+    try:
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0 or (cancel is not None and cancel.is_set()):
+                raise subprocess.TimeoutExpired(args, timeout)
+            try:
+                out, err = proc.communicate(input=input, timeout=min(remaining, 0.1))
+                break
+            except subprocess.TimeoutExpired:
+                input = None
+        result = subprocess.CompletedProcess(args, proc.returncode, out, err)
+        if check:
+            result.check_returncode()
+        return result
+    finally:
+        try:
+            if proc.poll() is None:
+                # Give sudo's monitor a chance to forward termination to its child.
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                except OSError:
+                    pass
+                try:
+                    proc.wait(timeout=0.2)
+                except subprocess.TimeoutExpired:
+                    pass
+            try:
+                os.killpg(proc.pid, signal.SIGKILL)
+            except OSError:
+                pass
+            try:
+                proc.communicate(timeout=1)
+            except subprocess.TimeoutExpired:
+                for stream in (proc.stdin, proc.stdout, proc.stderr):
+                    if stream is not None:
+                        stream.close()
+                proc.kill()
+                proc.wait(timeout=1)
+        finally:
+            _untrack(proc)
 
 
 def _log_path() -> Path:
@@ -69,7 +126,7 @@ def _kill_children() -> None:
         procs = list(_children.values())
     for proc in procs:
         try:
-            proc.kill()
+            proc.terminate()
         except OSError:
             pass
 
@@ -140,14 +197,14 @@ def _notice_unavailable() -> None:
         return
     _noticed = True
     try:
-        subprocess.run(
+        run_command(
             ["omarchy-notification-send", "Site block unavailable",
              "Wrapper missing or sudo -n distractions-nft refused."],
             timeout=2,
             check=False,
             capture_output=True,
         )
-    except OSError:
+    except (OSError, subprocess.TimeoutExpired):
         pass
 
 
@@ -237,34 +294,25 @@ def finish_batch(batch, outcome):
     )
 
 
-def apply(addresses):
+def apply(addresses, *, publish=True):
     global site_block
     addrs = [a for a in (addresses or []) if a]
     wrapper = str(setup.wrapper_dest())
     try:
-        if not addrs:
-            proc = subprocess.run(
-                ["sudo", "-n", wrapper, "flush", "ds"],
-                stdin=subprocess.DEVNULL,  # the wrapper reads stdin to EOF; never hand it ours
-                capture_output=True,
-                text=True,
-            )
-            ok = proc.returncode == 0
-            site_block = "off" if ok else "unavailable"
-        else:
-            proc = subprocess.run(
-                ["sudo", "-n", wrapper, "replace", "ds"],
-                input="\n".join(addrs) + "\n",
-                capture_output=True,
-                text=True,
-            )
-            ok = proc.returncode == 0
-            site_block = "on" if ok else "unavailable"
-    except OSError:
-        site_block = "unavailable"
-    if site_block == "unavailable":
+        proc = run_command(
+            ["sudo", "-n", wrapper, "replace" if addrs else "flush", "ds"],
+            input="\n".join(addrs) + "\n" if addrs else None,
+            **({} if addrs else {"stdin": subprocess.DEVNULL}),
+            capture_output=True, text=True, timeout=COMMAND_TIMEOUT,
+        )
+        result = ("on" if addrs else "off") if proc.returncode == 0 else "unavailable"
+    except (OSError, subprocess.TimeoutExpired):
+        result = "unavailable"
+    if publish:
+        site_block = result
+    if result == "unavailable":
         _notice_unavailable()
-    return site_block
+    return result
 
 
 def shutdown():

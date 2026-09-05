@@ -449,6 +449,7 @@ class ListenerTests(unittest.TestCase):
 
     def _assert_links_never_asks(self):
         """The browser pick reads the default once per start; the link check must add nothing per tick."""
+        self.assertTrue(_wait(lambda: "links" in (self._state() or {}).get("observed_at", {})))
         n = len(self._xdg_lines())
         time.sleep(2.2)
         self.assertEqual(len(self._xdg_lines()), n)
@@ -522,6 +523,158 @@ class ListenerTests(unittest.TestCase):
 
     def _wait_nft(self, needle, timeout=6.0):
         self.assertTrue(_wait(lambda: needle in self._nft(), timeout), f"missing {needle!r} in {self._nft()!r}")
+
+    def _assert_reconciliation_stall(self, tool, body):
+        self._cfg(list=["x.com", "Telegram"])
+        self._register_handler()
+        self._start()
+        self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: len((self._state() or {}).get("observed_at", {})) == 3))
+        started = self.box.runtime / "side-effect.started"
+        gate = self.box.runtime / "side-effect.gate"
+        self.box.fake_bin(tool, f"""
+import os, time
+from pathlib import Path
+with Path({str(started)!r}).open("a") as log:
+    print(os.getpid(), file=log)
+while not Path({str(gate)!r}).exists():
+    time.sleep(0.02)
+""" + body)
+        # A changed owned entry ensures refresh reaches the desktop cache.
+        (self.apps / "Telegram.desktop").write_text("[Desktop Entry]\nName=drift\n")
+        self._fire("refresh")
+        self.assertTrue(_wait(started.exists), "worker command did not start")
+        self._fire("refresh")
+        self._fire("refresh")
+        write_json(self.box.state_dir / "lock.json", {
+            "locked": True, "since": _iso(-120), "until": _iso(-1), "purpose": "deadline",
+        })
+        client = {"address": "0xabc", "class": "org.telegram.desktop", "pid": 999999,
+                  "workspace": {"id": 1, "name": "1"}}
+        self._workspace("distraction", 5, clients=[client])
+        self._send("workspacev2>>5,distraction")
+        self._send("openwindow>>abc,1,org.telegram.desktop,Telegram")
+        try:
+            self.assertEqual(self._reload("ping", timeout=1), b"ok")
+            self.assertTrue(_wait(lambda: any("0xabc" in d for d in self._dispatches()), 2))
+            self.assertTrue(_wait(lambda: self._hooks().count("unlock") == 1, 2))
+            self.assertFalse(self._state()["hold"])
+            self.assertFalse(self._state()["locked"])
+            self.assertEqual(len(started.read_text().splitlines()), 1)
+            self.fired[-1].settimeout(0.1)
+            with self.assertRaises(TimeoutError):
+                self.fired[-1].recv(64)
+        finally:
+            gate.touch()
+        for sock in self.fired:
+            sock.settimeout(8)
+            self.assertEqual(sock.recv(64), b"ok\n")
+        self.assertLessEqual(len(started.read_text().splitlines()), 2)
+        self.assertEqual(set(self._state()["observed_at"]),
+                         {"site_block", "notification_hold", "links"})
+
+    def test_stalled_firewall_keeps_events_hold_and_deadline_live(self):
+        self._assert_reconciliation_stall("sudo", SUDO)
+
+    def test_stalled_slice_keeps_events_hold_and_deadline_live(self):
+        self._assert_reconciliation_stall("systemctl", SYSTEMCTL)
+
+    def test_stalled_cache_keeps_events_hold_and_deadline_live(self):
+        self._assert_reconciliation_stall("update-desktop-database", UPDATE_DESKTOP_DATABASE)
+
+    def test_stalled_link_check_keeps_events_hold_and_deadline_live(self):
+        self._assert_reconciliation_stall("xdg-settings", XDG_SETTINGS)
+
+    def test_disable_during_apply_orders_flush_and_rejects_obsolete_success(self):
+        self._cfg()
+        self._start()
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
+        started, gate = self.box.runtime / "apply.started", self.box.runtime / "apply.gate"
+        self.box.fake_bin("sudo", f"""
+import sys, time
+from pathlib import Path
+if "replace" in sys.argv:
+    Path({str(started)!r}).touch()
+    while not Path({str(gate)!r}).exists():
+        time.sleep(0.02)
+""" + SUDO)
+        self._fire("refresh")
+        self.assertTrue(_wait(started.exists))
+        self._cfg(site_block={"enabled": False})
+        self._fire("reload")
+        self.assertEqual(self._reload("ping", timeout=1), b"ok")
+        for sock in self.fired:
+            sock.settimeout(0.1)
+            with self.assertRaises(TimeoutError):
+                sock.recv(64)
+        gate.touch()
+        for sock in self.fired:
+            sock.settimeout(8)
+            self.assertEqual(sock.recv(64), b"ok\n")
+        self.assertEqual(self._nft_cmds()[-2:], ["replace ds", "flush ds"])
+        self.assertEqual(self._state()["site_block"], "off")
+        self.assertEqual(self._getent_hosts().count("x.com"), 2)
+
+    def _assert_shutdown_stall(self, tool):
+        self._cfg()
+        started = self.box.runtime / "apply.pid"
+        self.box.fake_bin(tool, f"""
+import os, time
+from pathlib import Path
+Path({str(started)!r}).write_text(str(os.getpid()))
+time.sleep(3600)
+""")
+        self._start()
+        self.assertTrue(_wait(started.exists))
+        pid = int(started.read_text())
+        self.addCleanup(lambda: os.kill(pid, signal.SIGKILL) if Path(f"/proc/{pid}").exists() else None)
+        self.proc.send_signal(signal.SIGTERM)
+        self.assertEqual(self.proc.wait(timeout=4), 0)
+        self.assertFalse(Path(f"/proc/{pid}").exists())
+
+    def test_shutdown_cancels_and_reaps_stalled_side_effect(self):
+        self._assert_shutdown_stall("sudo")
+
+    def test_shutdown_cancels_and_reaps_browser_lookup(self):
+        self._assert_shutdown_stall("xdg-settings")
+
+    def test_worker_command_timeouts_report_failure_then_recover(self):
+        self._cfg()
+        self._register_handler()
+        env = self._period_env(60)
+        site = self.box.runtime / "pysite" / "sitecustomize.py"
+        with site.open("a") as out:
+            out.write("from ds import net, cgroup, setup\n"
+                      "net.COMMAND_TIMEOUT = cgroup.SYSTEMCTL_TIMEOUT = setup.UDD_TIMEOUT = 0.5\n")
+        self._start(extra_env=env)
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
+        for tool, body in (("sudo", SUDO), ("systemctl", SYSTEMCTL),
+                           ("update-desktop-database", UPDATE_DESKTOP_DATABASE)):
+            with self.subTest(tool=tool):
+                pidfile = self.box.runtime / (tool + ".pid")
+                self.box.fake_bin(tool, f"""
+import os, time
+from pathlib import Path
+Path({str(pidfile)!r}).write_text(str(os.getpid()))
+time.sleep(3600)
+""")
+                (self.apps / "x.com.desktop").write_text("[Desktop Entry]\nName=drift\n")
+                self.assertEqual(self._reload("refresh", timeout=5), b"error")
+                self.assertFalse(Path(f"/proc/{pidfile.read_text()}").exists())
+                field = "launcher_refresh" if tool == "update-desktop-database" else "site_block"
+                self.assertEqual(self._state()[field], "unavailable")
+                self.assertEqual(self._reload("ping", timeout=1), b"ok")
+                self.box.fake_bin(tool, body)
+                self.assertEqual(self._reload("refresh", timeout=5), b"ok")
+                self.assertEqual(self._state()["site_block"], "on")
+
+    def test_periodic_observations_advance_without_policy_changes(self):
+        self._cfg()
+        self._start(extra_env=self._period_env(1))
+        self.assertTrue(_wait(lambda: len((self._state() or {}).get("observed_at", {})) == 3))
+        before = self._state()["observed_at"]
+        self.assertTrue(_wait(lambda: all(self._state()["observed_at"].get(key, "") > value
+                                         for key, value in before.items()), 4))
 
     def test_links_displaced_on_a_later_tick_with_one_notice(self):
         self._cfg()
