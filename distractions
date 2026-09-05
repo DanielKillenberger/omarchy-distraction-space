@@ -29,7 +29,6 @@ COMMANDS = {
     "setup": setup.cmd_setup,
     "senders": hold.cmd_senders,
     "banners": state.cmd_banners,
-    "open": launch.cmd_open,
     "profile": profile.cmd_profile,
 }
 
@@ -78,11 +77,14 @@ def build_parser():
     sub.add_parser("senders")
     banners = sub.add_parser("banners")
     banners.add_argument("--count", type=positive_int, default=20, metavar="N")
+    # Help only: `main` hands `open`'s tail to `launch.open_target` unparsed, since
+    # every other -token is a browser flag argparse would read as its own.
     op = sub.add_parser(
-        "open", allow_abbrev=False,
+        "open",
         usage="%(prog)s [--app] [target] [browser flags...]",
         description="Open a listed site or app in the distraction space; forward anything else to the previous browser. "
-                    "Unknown -flags (--incognito, --private-window, ...) pass through to the forwarded browser unchanged.",
+                    "Other -flags (--incognito, --private-window, ...) pass through to the forwarded browser unchanged, "
+                    "in order; a flag that takes a value wants --flag=value.",
     )
     op.add_argument("--app", action="store_true", help="forward an unlisted URL as an app window (--app=<url>)")
     op.add_argument("target", nargs="?", help="an http(s) URL, a list entry, or a catalog name; none forwards the bare browser")
@@ -100,11 +102,11 @@ def main(argv=None):
         # alone, with nothing or a private-window flag: the bare binary is `open`.
         argv.insert(0, "open")
     parser = build_parser()
-    args, extras = parser.parse_known_args(argv)
-    if args.command == "open":
-        args.flags = extras
-    elif extras:
-        parser.error(f"unrecognized arguments: {' '.join(extras)}")
+    if argv[0] == "open":
+        if any(a in ("-h", "--help") for a in argv[1:]):
+            parser.parse_args(["open", "--help"])
+        sys.exit(launch.open_target(argv[1:]))
+    args = parser.parse_args(argv)
     try:
         rc = COMMANDS[args.command](args)
     except NotImplementedError:

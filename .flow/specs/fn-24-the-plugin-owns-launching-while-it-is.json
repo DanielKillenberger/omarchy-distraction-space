@@ -1,11 +1,80 @@
 {
   "branch_name": "fn-24-the-plugin-owns-launching-while-it-is",
+  "completion_review_status": "unknown",
+  "completion_reviewed_at": null,
   "created_at": "2026-09-05T17:44:35.660223Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-24-the-plugin-owns-launching-while-it-is",
+  "impl_review_rounds": {
+    "fn-24-the-plugin-owns-launching-while-it-is.1": 1
+  },
   "next_task": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "6d25c60c9140d6636fe3cabfe9712ce6395e2baa9e180bc3b42afa05e1a152dc",
+      "backend": "codex",
+      "base_sha": "2a2a900dddde1e579af53b036c12af82a6105e35",
+      "counter_kind": "impl",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-3eb877228a9cacbe0e033ad4968fc6a9",
+            "classification": "introduced",
+            "findingId": "finding-3eb877228a9cacbe0e033ad4968fc6a9",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-f800d2de5bb938af450a302de570a6ff",
+            "classification": "introduced",
+            "findingId": "finding-f800d2de5bb938af450a302de570a6ff",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "1d20b3243cb82402d95072b77d6f486ae52cb861",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 2723,
+      "output_sha256": "160c6647423d8382fb57e6995c96e6efd63ac4f14dc9374ef404f314914c799a",
+      "reservation_id": "2082f6d5a3df4a53b4011ad7c4b96a32",
+      "round_consumed": true,
+      "scope": "impl:fn-24-the-plugin-owns-launching-while-it-is.1",
+      "superseded_by": null,
+      "task": "fn-24-the-plugin-owns-launching-while-it-is.1",
+      "timestamp": "2026-09-05T18:07:04.097769Z",
+      "verdict": "NEEDS_WORK"
+    }
+  ],
+  "review_hash_epoch": {},
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-24-the-plugin-owns-launching-while-it-is.1": 0
+  },
   "spec_path": ".flow/specs/fn-24-the-plugin-owns-launching-while-it-is.md",
   "status": "open",
   "title": "The plugin owns launching while it is the default browser, and says so during setup",
@@ -20,5 +89,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T17:44:39.599777Z"
+  "updated_at": "2026-09-05T18:07:04.100083Z"
 }

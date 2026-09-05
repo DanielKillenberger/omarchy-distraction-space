@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -437,20 +438,32 @@ def ensure_profile():
     Chrome asks per profile and rewrites `Preferences` on exit, so the key is
     written only when the profile directory does not exist yet, before the
     first launch; an existing directory is the person's and is never touched.
-    A directory that cannot be made is left to the browser, which creates it.
+    The directory is built as a sibling and renamed into place, so a second
+    launch racing this one either sees no profile or a complete one, never a
+    directory still waiting for its `Preferences`; the rename refuses to
+    replace a directory with content. A profile that cannot be made is left to
+    the browser, which creates it.
     """
     profile = profile_dir() / PROFILE
-    try:
-        profile.mkdir(parents=True)
-    except FileExistsError:
+    if profile.exists() or profile.is_symlink():
         return
+    try:
+        profile.parent.mkdir(parents=True, exist_ok=True)
+        tmp = Path(tempfile.mkdtemp(prefix=f".{PROFILE}.new-", dir=profile.parent))
     except OSError as e:
         _log(f"{profile}: {e}")
         return
     try:
-        state.write_json(profile / "Preferences", NEW_PROFILE_PREFERENCES)
+        state.write_json(tmp / "Preferences", NEW_PROFILE_PREFERENCES)
+        os.rename(tmp, profile)
     except OSError as e:
-        _log(f"{profile / 'Preferences'}: {e}")
+        # Another launch published the profile first (ENOTEMPTY), or the write failed.
+        _log(f"{profile}: {e}")
+        for leftover in (tmp / "Preferences", tmp):
+            try:
+                leftover.unlink() if leftover.is_file() else leftover.rmdir()
+            except OSError:
+                pass
 
 
 # --- launching ---------------------------------------------------------------
@@ -623,14 +636,34 @@ def _expansion(cfg):
     return {"list": catalog.expand(cfg)}
 
 
-def open_target(arg=None, app=False, flags=()):
+def split_args(argv):
+    """(target, app, flags) from the argv after `open`.
+
+    `--app` anywhere is the flag; the target is the first token carrying a URL
+    scheme, else the first that does not start with `-`; every other token is
+    a browser flag, kept in order. Browser flags are opaque here: `-headless`
+    is not `-h`, and a flag's separate value cannot be told from a name, so a
+    flag that takes one wants `--flag=value`.
+    """
+    rest = [a for a in argv if a != "--app"]
+    app = len(rest) != len(argv)
+    target = next((a for a in rest if _SCHEME.match(a)), None)
+    if target is None:
+        target = next((a for a in rest if not a.startswith("-")), None)
+    if target is not None:
+        rest.remove(target)
+    return target, app, rest
+
+
+def open_target(argv):
     """0 when something was launched or forwarded, 1 when nothing could be, 2 for a malformed target.
 
     No target forwards bare; an unlisted URL forwards, as an app window with
-    `app`; a listed or catalog target opens in the space, where `app` changes
-    nothing (the space always opens app windows) and `flags` are not applied.
+    `--app`; a listed or catalog target opens in the space, where `--app`
+    changes nothing (the space always opens app windows) and the browser
+    flags are not applied.
     """
-    flags = list(flags)
+    arg, app, flags = split_args(argv)
     if arg is None:
         return forward(None, flags)
     cfg = _read_cfg()
@@ -648,6 +681,3 @@ def open_target(arg=None, app=False, flags=()):
         return _open_native(target)
     return _open_web(target, cfg)
 
-
-def cmd_open(args):
-    return open_target(args.target, app=args.app, flags=getattr(args, "flags", ()))

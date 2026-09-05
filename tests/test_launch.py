@@ -14,6 +14,7 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
@@ -223,6 +224,11 @@ class LaunchTests(unittest.TestCase):
             ("flags only", ["open", "--private-window", "-x"], ["firefox-fake", "--private-window", "-x"]),
             ("flag before url", ["open", "--incognito", "https://example.com/"], ["firefox-fake", "https://example.com/", "--incognito"]),
             ("flag after url", ["open", "https://example.com/", "--incognito"], ["firefox-fake", "https://example.com/", "--incognito"]),
+            # Browser flags are opaque: `-headless` is not `-h`, and a flag's separate
+            # value before the URL stays with its flag.
+            ("short flag", ["open", "-headless"], ["firefox-fake", "-headless"]),
+            ("valued flag before url", ["open", "--class", "Example", "https://example.com/"],
+             ["firefox-fake", "https://example.com/", "--class", "Example"]),
         )
         for n, (label, argv, want) in enumerate(cases, start=1):
             with self.subTest(label):
@@ -234,6 +240,12 @@ class LaunchTests(unittest.TestCase):
         r = self.box.run("open", "--incognito", "https://www.youtube.com/")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self._launches()[0], SLICE_PREFIX + ["google-chrome-stable", *self._profile_flags("https://www.youtube.com/")])
+        self.assertEqual(len(self._lines(self.forward_log)), len(cases))
+        for argv in (["open", "-h"], ["open", "--app", "https://example.com/", "--help"]):
+            with self.subTest(argv=argv):
+                r = self.box.run(*argv)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertIn("--app", r.stdout)
         self.assertEqual(len(self._lines(self.forward_log)), len(cases))
 
     def test_app_forwards_an_unlisted_url_as_an_app_window(self):
@@ -271,6 +283,24 @@ class LaunchTests(unittest.TestCase):
         self._launches(2)
         self.assertEqual((profile / "Preferences").read_bytes(), b"chrome's own")
         self.assertEqual(sorted(p.name for p in profile.iterdir()), ["Cookies", "Preferences"])
+
+    def test_profile_creation_that_loses_the_race_leaves_the_winner_alone(self):
+        # Two first launches at once: the profile is published by rename, so the
+        # loser finds a complete directory, keeps its hands off it, and cleans up.
+        profile = launch.profile_dir() / launch.PROFILE
+        real = launch.state.write_json
+
+        def other_launch_wins(path, obj):
+            real(path, obj)
+            profile.mkdir(parents=True)
+            (profile / "Preferences").write_bytes(b"the winner's")
+            (profile / "Cookies").write_bytes(b"in use")
+
+        with mock.patch.object(launch.state, "write_json", other_launch_wins):
+            launch.ensure_profile()
+        self.assertEqual((profile / "Preferences").read_bytes(), b"the winner's")
+        self.assertEqual(sorted(p.name for p in profile.iterdir()), ["Cookies", "Preferences"])
+        self.assertEqual([p.name for p in profile.parent.iterdir()], [launch.PROFILE])
 
     def test_existing_profile_window_is_focused_instead_of_relaunched(self):
         window = {"address": "0xabc", "class": "chrome-www.youtube.com__-Distraction",
