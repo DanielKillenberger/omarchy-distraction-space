@@ -9,7 +9,8 @@
   "depends_on_epics": [],
   "id": "fn-27-responsive-listener-and-efficient",
   "impl_review_rounds": {
-    "fn-27-responsive-listener-and-efficient.1": 1
+    "fn-27-responsive-listener-and-efficient.1": 0,
+    "fn-27-responsive-listener-and-efficient.3": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -41,13 +42,95 @@
       "task": "fn-27-responsive-listener-and-efficient.1",
       "timestamp": "2026-09-05T20:32:27.778837Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "b30a676da122809076f3be47cda85f7a8729c8bc38384921fd75ce20f9efacb7",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "396ba9bc1fe30aa43d01bc8da9366da086d5fd15",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 4761,
+      "output_sha256": "1d918a1e2cee38ae8f12ca84611039d60003e2d340dddf39b72183217c74e360",
+      "reservation_id": "70b8b927842c4e10ba6e9498160c6e0b",
+      "round_consumed": true,
+      "scope": "impl:fn-27-responsive-listener-and-efficient.1",
+      "superseded_by": null,
+      "task": "fn-27-responsive-listener-and-efficient.1",
+      "timestamp": "2026-09-05T21:00:29.191998Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "b02cead58a6cff47b1adb1c95efa4c657c464bf102035cc9839e44d118bb0012",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "396ba9bc1fe30aa43d01bc8da9366da086d5fd15",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 5802,
+      "output_sha256": "bff8c7b7e6ef8ff09aa8c2d0b2ac18d38f8ea2561fb9f7b401f622db01488ae9",
+      "reservation_id": "f6a08e9775c8436982103b47716faeb2",
+      "round_consumed": true,
+      "scope": "impl:fn-27-responsive-listener-and-efficient.3",
+      "superseded_by": null,
+      "task": "fn-27-responsive-listener-and-efficient.3",
+      "timestamp": "2026-09-05T21:00:30.894259Z",
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "881ec9d477f09bb62fb92de3a48f4f8e0f3a34927665f501de15776403eff706",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "396ba9bc1fe30aa43d01bc8da9366da086d5fd15",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 4582,
+      "output_sha256": "95a7c855cc9527e54ea05a5ed21f958178f13d3d249f54523bc17dbedaabcb4b",
+      "reservation_id": "c59665efb39347de9478e98abfa1ecac",
+      "round_consumed": true,
+      "scope": "impl:fn-27-responsive-listener-and-efficient.3",
+      "superseded_by": null,
+      "task": "fn-27-responsive-listener-and-efficient.3",
+      "timestamp": "2026-09-05T21:01:01.668709Z",
+      "verdict": "SHIP"
     }
   ],
-  "review_hash_epoch": {},
+  "review_hash_epoch": {
+    "impl:fn-27-responsive-listener-and-efficient.1": 1,
+    "impl:fn-27-responsive-listener-and-efficient.3": 1
+  },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
-    "impl:fn-27-responsive-listener-and-efficient.1": 0
+    "impl:fn-27-responsive-listener-and-efficient.1": 0,
+    "impl:fn-27-responsive-listener-and-efficient.3": 0
   },
   "spec_path": ".flow/specs/fn-27-responsive-listener-and-efficient.md",
   "status": "open",
@@ -63,5 +146,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T20:35:07.169624Z"
+  "updated_at": "2026-09-05T21:01:02.082827Z"
 }

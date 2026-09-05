@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-25-reliable-links-and-deliberate-window",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-05T21:01:03.808619Z",
   "created_at": "2026-09-05T19:23:02.333848Z",
   "default_impl": null,
   "default_review": null,
@@ -9,7 +9,8 @@
   "depends_on_epics": [],
   "id": "fn-25-reliable-links-and-deliberate-window",
   "impl_review_rounds": {
-    "fn-25-reliable-links-and-deliberate-window.1": 0
+    "fn-25-reliable-links-and-deliberate-window.1": 0,
+    "fn-25-reliable-links-and-deliberate-window.2": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -41,15 +42,71 @@
       "task": "fn-25-reliable-links-and-deliberate-window.1",
       "timestamp": "2026-09-05T19:40:42.656304Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "84f1b09410adee40ce68a276e3a0cf02d8465b1761e4385593da689680591a95",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "396ba9bc1fe30aa43d01bc8da9366da086d5fd15",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 5964,
+      "output_sha256": "d3d8e183dad579b9adb5ce799b8cb7bbe23a6a0cfb7fd7939431b35243f94127",
+      "reservation_id": "bd7c9ce5202540bfbeed2c4581a70c97",
+      "round_consumed": true,
+      "scope": "impl:fn-25-reliable-links-and-deliberate-window.2",
+      "superseded_by": null,
+      "task": "fn-25-reliable-links-and-deliberate-window.2",
+      "timestamp": "2026-09-05T21:00:27.456771Z",
+      "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "b28fcdab99ca5c494fd5b2011e0c0fbef59639c7231a3cbff2069a9b2145c757",
+      "backend": "claude-cli",
+      "counter_kind": "plan",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "396ba9bc1fe30aa43d01bc8da9366da086d5fd15",
+      "head_sha_observed": false,
+      "kind": "completion",
+      "outcome": "verdict",
+      "output_bytes": 8185,
+      "output_sha256": "af23b42f1cd7b16cfc2558058ae186a692e90f9fe1d60e2349f6b9ac2a8fa488",
+      "reservation_id": "70af470c76f74635be285a9ae0489015",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-05T21:01:03.384560Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
-    "impl:fn-25-reliable-links-and-deliberate-window.1": 1
+    "impl:fn-25-reliable-links-and-deliberate-window.1": 1,
+    "impl:fn-25-reliable-links-and-deliberate-window.2": 1,
+    "plan#completion": 1
   },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
-    "impl:fn-25-reliable-links-and-deliberate-window.1": 0
+    "completion": 0,
+    "impl:fn-25-reliable-links-and-deliberate-window.1": 0,
+    "impl:fn-25-reliable-links-and-deliberate-window.2": 0
   },
   "spec_path": ".flow/specs/fn-25-reliable-links-and-deliberate-window.md",
   "status": "open",
@@ -65,5 +122,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T20:35:06.092576Z"
+  "updated_at": "2026-09-05T21:01:03.809224Z"
 }
