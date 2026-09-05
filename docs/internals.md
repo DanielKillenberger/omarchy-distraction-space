@@ -1,16 +1,44 @@
 # Internals
 
-The [README](../README.md) covers installing and operating the plugin. This page is for reading or changing the code: the listener loop, the state file shapes, how the network generation counter works, and the lifecycle of the patched notification-service clone.
+The [README](../README.md) covers installing and operating the plugin. This page is for reading or changing the code: the listener loop, the state file shapes, how the static network table is kept, what the URL handler and the launcher entries write, and the lifecycle of the patched notification-service clone.
 
 ## Layout
 
-`distractions` is the entry point and dispatches to the `ds` package. `ds/hypr.py` owns window containment, `ds/net.py` and `distractions-nft` own the site block, `ds/hold.py` owns notification capture and sound mute, `ds/summary.py` owns the "While you were away" notice, `ds/setup.py` owns the privileged install and the clone, and `ds/listener.py` runs the loop that drives them. The menu UI in `ds/ui.py` calls only `omarchy-menu-select` and `omarchy-menu-input`.
+`distractions` is the entry point and dispatches to the `ds` package. `ds/cgroup.py` answers whether a process is in `app-distraction.slice`, `ds/launch.py` owns `open` (target resolution, the browser profile, the transient scope, forwarding), `ds/hypr.py` owns window containment, `ds/net.py` and `distractions-nft` own the site block, `ds/feedback.py` owns the routers and the two banners, `ds/hold.py` owns notification capture and sound mute, `ds/summary.py` owns the "While you were away" notice, `ds/setup.py` owns the privileged install, the slice unit, the launcher entries, the URL handler, and the clone, and `ds/listener.py` runs the loop that drives them. The menu UI in `ds/ui.py` calls only `omarchy-menu-select` and `omarchy-menu-input`.
+
+## The slice
+
+The space is two things: the Hyprland workspace `name:distraction` and the systemd slice `app-distraction.slice` under the person's user manager. `systemd-run --user --scope --slice=app-distraction.slice` places a child at `/user.slice/user-<uid>.slice/user@<uid>.service/app.slice/app-distraction.slice/run-<n>.scope`, so `cgroup.in_slice(pid)` reads `/proc/<pid>/cgroup` and tests whether the fifth path component is the slice, the same test the wrapper's `socket cgroupv2 level 5` rule makes. `ancestor_in_slice(pid, hops=8)` walks `/proc/<pid>/stat` parents. An unreadable cgroup file reads as outside. `DS_PROC_ROOT` points the reads at a fake `/proc` in tests.
+
+The slice is a unit file, `install/app-distraction.slice`, not a transient one, because nftables resolves the cgroup path to a kernel id when the rule loads; a slice that systemd garbage-collected while empty would leave the rule pointing at a dead id. `setup` copies the unit to `~/.config/systemd/user/`, runs `daemon-reload`, and starts it; the listener runs `systemctl --user start app-distraction.slice` before every wrapper call, flush included; `setup --remove` stops it, deletes the file, and reloads. No step here touches root.
+
+## Browser profile
+
+`launch.pick_browser` takes config `browser` when it is an argv array. Otherwise it asks `xdg-settings get default-web-browser` and uses that desktop entry when its id starts with `google-chrome`, `brave`, `microsoft-edge`, `opera`, `vivaldi`, or `helium`, the case list `omarchy-launch-webapp` uses, else `chromium.desktop`. The first token of the entry's `Exec` line is the binary. A web launch is that binary plus `--user-data-dir=$XDG_DATA_HOME/omarchy/distraction-space/browser --profile-directory=Distraction --app=<url>`, and the resulting window class is `<browser>-<host>__-Distraction`. The whole argv runs behind `systemd-run --user --scope --quiet --collect --slice=app-distraction.slice --`, detached in a new session with its standard streams closed, because `systemd-run --scope` blocks until its child exits.
+
+Before launching, `open` looks for a window of that class for the same host in `hyprctl -j clients`. One found off the space is moved there silently; one found while the person is on the space is focused. Either way nothing is launched twice. Chromium's single-instance handoff means a second launch of the profile for another host becomes a new window in the running process, which is already in the slice.
+
+`open` resolves its argument in a fixed order. An argument with a scheme is a URL and only `http` and `https` are accepted; a host that is listed, or a subdomain of a listed host (a port ignored), opens in the profile and any other URL is forwarded. Otherwise the argument is a list entry name, then a catalog name, which launches but is logged as not network-restricted. A native entry with a catalog `desktop` id runs that desktop entry's `Exec` line, read the way `omarchy-launch-webapp` reads a desktop file (key-file escapes, quoting, field codes), skipping the plugin's own launcher entry that setup puts in front of it. Exit 0 after a launch, focus, or forward, 1 when the browser or the forwarder cannot be started, 2 on usage or a malformed URL.
+
+## URL handler
+
+`setup` writes `~/.local/share/applications/io.github.danielkillenberger.distraction-space.desktop` with `MimeType=x-scheme-handler/http;x-scheme-handler/https` and `Exec=<plugin>/distractions open %u`, records what `xdg-settings get default-web-browser` printed as `previous_handler` in `entries.json`, and runs `xdg-settings set default-web-browser` on its own id. A forwarded URL runs the previous handler's `Exec` line with the URL substituted for its field code, appended when the line has none, outside the slice. A missing record, or one naming the plugin itself, forwards to `omarchy-launch-browser` instead. `open_links_in_space: false` hands the default back before the handler file goes, and keeps the file with `links: displaced` when that cannot be shown to have happened.
+
+The listener's `check_links` runs on start, on reload, and every 60 seconds. It answers `off` when the switch is off or the manifest names no handler, so `xdg-settings` is never asked on a machine where setup never registered one; otherwise `on` while the reported default is the plugin's id and `displaced` when it is another id or the query went unanswered. The displaced notice fires once per listener lifetime.
+
+## Launcher entries and `entries.json`
+
+Omarchy's own launcher runs the browser directly rather than through the URL handler, so app-menu clicks are routed by desktop entries, not by the handler. For every list entry `setup` writes one file under `~/.local/share/applications/` with `Exec=<plugin>/distractions open <name>`: `<desktop-id>.desktop` for a native product with a catalog `desktop` id, which shadows the system entry under `/usr/share/applications` through ordinary XDG precedence, and `<Name>.desktop` for a web product, the name Omarchy gives its own web-app entry in that same directory. A file already at that path that the manifest does not own is moved whole into `entries-backup/` under the state directory and recorded beside the entry; nothing the plugin did not write is ever edited or deleted. Entries the list no longer carries hand back what they shadowed on the next run.
+
+The manifest is `{"files": [{"path": ..., "backup": ... | null}], "previous_handler": "<id>.desktop" | null}`, written after every file it names, and refused whole when a path is not a direct child of the applications directory or a backup is not its twin under the backup directory. A write failure rolls the run back from a journal, including the exact bytes of owned files it was replacing. `remove_entries` restores the previous default while the plugin still holds it, deletes exactly the manifest's paths, moves each backup home, drops the manifest, and prints the kept profile path; an unanswered `xdg-settings` query or a failed restore keeps everything for a retry. `update-desktop-database` runs afterwards when present, best effort.
 
 ## Window containment
 
-`hyprctl keyword` refuses on Omarchy 4's Lua config parser, exiting 0 with the refusal on stdout, so rules go through `hyprctl eval` with `hl.window_rule`. Each expanded class gets one named rule, `omarchy-ds-<slug>-<digest>-<n>`, where `<digest>` is the first 8 hex characters of the SHA-1 of the entry name, and the names go into `rules.json`. The eval snippet keeps the rule handles in a Lua global table, so a later disable or re-apply can reach the exact handle. It disables the old handle under a name before creating the new one, because whether Hyprland replaces or duplicates a rule by name is unverified.
+`hyprctl keyword` refuses on Omarchy 4's Lua config parser, exiting 0 with the refusal on stdout, so rules go through `hyprctl eval` with `hl.window_rule`. One named rule, `omarchy_ds_profile`, matches every window of the distraction profile, class `^[a-z-]+-.+__-Distraction$`. Each native class of an expanded entry gets one rule, `omarchy-ds-<slug>-<digest>-<n>`, where `<digest>` is the first 8 hex characters of the SHA-1 of the entry name; a listed product's version 2 web-app pattern `^chrome-<host>__.*$` is left out of the rules on purpose, because a web-app window of the distraction profile is the profile rule's and one from any other profile is adoption's. The names go into `rules.json` and the name-to-class pairs into `rule-specs.json`. The eval snippet keeps the rule handles in a Lua global table, so a later disable or re-apply can reach the exact handle. It disables the old handle under a name before creating the new one, because whether Hyprland replaces or duplicates a rule by name is unverified. Hyprland drops every eval-created rule on a config reload; the listener watches socket2 for `configreloaded` and re-applies the whole set.
 
-Hyprland drops every eval-created rule on a config reload. The listener watches socket2 for `configreloaded` and re-applies the whole set from `rules.json` and the cached expansion. The socket2 `openwindow` and `movewindow` events are the safety net. A listed client found off the space is moved with `hl.dsp.window.move` and `follow = false`, so focus stays where you put it.
+`hypr.classify(klass, pid)` is the one decision, three layers, first match wins. `class`: the profile pattern or a native class. `slice`: the window's pid, or an ancestor within eight hops, is in the slice, which covers popups and helper windows with a plain browser class. `adopt`: the class is a listed product's web app in a browser profile other than `Distraction`, so the window belongs to a browser outside the slice and can never reach its host. `hypr.contain(client)` runs it on every socket2 `openwindow`, `movewindow`, and `movewindowv2` event and once per client on the boot scan. A move goes through `hl.dsp.window.move` with `follow = false`, so focus stays where the person put it. Adoption remembers the window address first, runs `distractions open <name>` synchronously with a 30 second cap, closes the window only on exit 0, and on a failed `open` moves the window by class with one `adopt:` log line. A close Hyprland refused is retried on the window's next event without launching again. The handled set is capped at 256 addresses and pruned on `closewindow`.
+
+Two things sit in front of the layers. The released set `{address: until}` in `hypr._released` is checked before `classify`, so a released window is skipped by every layer; `release <address> <until>` on the listener socket adds one, `closewindow` forgets it, and each tick `expire_released` drops past deadlines and, with `containment.snap_back` on, contains each expired window once. `hypr.snap_back`, set by the listener from the config on every enforce, makes `_handle_event` return early for move events when it is `false`, so only a fresh `openwindow` is placed.
 
 The workspace itself is declared with `hl.workspace_rule({ workspace = "name:distraction", persistent = true })` in `hypr/windows.lua`. Super+1 through Super+0 and the bar's workspace list never reach a named workspace, which is what keeps the space out of ordinary navigation.
 
@@ -18,15 +46,21 @@ The workspace itself is declared with `hl.workspace_rule({ workspace = "name:dis
 
 Hyprland autostart starts one listener per session from the line in `hypr/autostart.lua`. A second `distractions listen` takes a non-blocking flock on `$XDG_RUNTIME_DIR/distraction-space.lock`, finds it held, and exits 0 with no output. There is no forking. Production connects to `$XDG_RUNTIME_DIR/hypr/$HYPRLAND_INSTANCE_SIGNATURE/.socket2.sock`; tests point `DS_SOCKET2` at their own Unix socket.
 
-The loop ticks once a second and reacts to socket2 events. It notices a lazy lock expiry, rewrites `state.json`, notifies "Lock ended", and runs the `unlock` hook. `$XDG_RUNTIME_DIR/distraction-space.sock` accepts two verbs, `reload` and `refresh`, and answers `ok` or `error`. An invalid config on reload answers `error` and leaves both the window rules and the site block as they were. SIGTERM calls `net.shutdown()` so an in-flight `getent` cannot hold exit past about 3 seconds.
+The loop ticks once a second and reacts to socket2 events. It notices a lazy lock expiry, rewrites `state.json`, notifies "Lock ended", and runs the `unlock` hook; it expires released windows; and every 60 seconds it re-checks the URL handler and, with the block enabled, requests a resolution. A workspace change runs the `enter` and `leave` hooks and re-syncs the hold, nothing else. `$XDG_RUNTIME_DIR/distraction-space.sock` accepts three verbs, `reload`, `refresh`, and `release <address> <until-iso>`, and answers `ok` or `error`. `reload` re-reads the config; an invalid one answers `error` and leaves the window rules and the site block as they were. `refresh` re-resolves without re-reading the config, and with the block disabled retries a refused flush. `release` refuses a past or unreadable deadline and a window `hyprctl clients` no longer lists. SIGTERM calls `net.shutdown()` so an in-flight `getent` cannot hold exit past about 3 seconds.
 
-## Network generations
+## Network
 
-The listener re-resolves listed hosts on start, on every workspace change off the space, on reload, and every 30 seconds while off the space. `resolve_batch` in `ds/net.py` takes a monotonically increasing generation number and a reason string, calls `getent ahosts` with a 2 second budget per host and a 10 second deadline for the whole batch, subtracts every address that also serves a `keep_reachable` host, and writes the result to `addrs.json` as the last good resolution per host. The batch is logged as `net gen=<n> reason=<why>`, which is how you tell a scheduled refresh from one caused by a config reload when reading the log.
+The wrapper renders one static table. Its first rule in both chains accepts traffic whose socket is in the slice's cgroup, `socket cgroupv2 level 5 "user.slice/user-<uid>.slice/user@<uid>.service/app.slice/app-distraction.slice" accept`, with the path derived from `SUDO_UID` alone; a missing or non-numeric value is refused with exit 2, and a slice whose cgroup directory is missing under `/sys/fs/cgroup` is refused with exit 1 and `refused: slice cgroup missing`, which the listener reports as `site_block: unavailable`. After it, in order: the splice source-port range 61000 to 61999 is accepted, set members are rejected (TCP reset for TCP, ICMP unreachable otherwise), and TCP 80 and 443 to set members are redirected to 28080 and 28443. The wrapper owns table `inet omarchy_ds` with sets `omarchy_ds_v4` and `omarchy_ds_v6`, takes `replace ds` with one address per line on stdin or `flush ds` with none, and its argv and stdin grammar, byte and address caps, and table confinement are unchanged from version 2, so the sudoers grant is too. The empty table after `flush` carries the cgroup rule as well.
 
-The addresses go to `sudo -n /usr/local/libexec/omarchy-distraction-space/distractions-nft replace ds`, one per line on stdin. That path is the one the sudoers grant names, so the wrapper is the only privileged surface. Entering the space sends `flush ds` instead. The wrapper owns table `inet omarchy_ds` with sets `omarchy_ds_v4` and `omarchy_ds_v6`, a filter output chain that rejects set members (TCP reset for TCP, ICMP unreachable otherwise), and a nat output chain that redirects TCP 80 to 28080 and TCP 443 to 28443.
+The listener resolves listed hosts on start, on `reload`, on `refresh`, and every 60 seconds, regardless of workspace. `resolve_batch` in `ds/net.py` takes a monotonically increasing generation number and a reason string, calls `getent ahosts` with a 2 second budget per host and a 10 second deadline for the whole batch, subtracts every address that also serves a `keep_reachable` host, and writes the result to `addrs.json` as the last good resolution per host. The batch is logged as `net gen=<n> reason=<why>`. A stale generation is dropped, a failed batch keeps the last good set with one notice, and a refused wrapper call answers `error` to whoever asked for that generation. The addresses go to `sudo -n /usr/local/libexec/omarchy-distraction-space/distractions-nft replace ds`, the one path the grant names, after `systemctl --user start app-distraction.slice`. Entering or leaving the space sends nothing. `site_block.enabled: false` flushes once on start and reload, never resolves, and reports `site_block: off`.
 
-Port 28080 serves the block page, naming the site from the Host header and adding the lock note while a lock is active. Port 28443 reads the ClientHello, takes the SNI, and closes without writing anything. Only the 28443 path raises the "Blocked on this workspace" banner, because the block page is its own feedback on 80. `_maybe_banner` in `ds/feedback.py` debounces it to once per catalog entry per 30 seconds and drops it when the fetching window is on the space, which it decides from the connection's peer port.
+Port 28080 serves the block page, naming the site from the Host header and adding the lock note while a lock is active. Port 28443 reads the ClientHello, takes the SNI, and closes without writing anything.
+
+## Banners
+
+Two kinds, one path. `feedback.opened(entry_name)` is called by `hypr.contain` after a confirmed landing on the space and by the boot scan; the title is `<Product> opened in the distraction space`, the body names the key that enters, or reads `Locked until HH:MM.` while a lock is active, and the action is `distractions enter`. `feedback.blocked(host)` is called by the 28443 router for a listed SNI; the title is `Blocked here`, the body names the product and the key, and the action is `distractions open https://<host>/`, the site root since the SNI never carries a path. The block page is its own feedback on 80, so only the 28443 path raises a banner. An unlisted SNI raises nothing.
+
+Both go through `_fire`: one debounce table keyed by list entry name, 60 seconds per entry shared by the two kinds, and a `hypr.on_space()` check that skips on the space and skips with a log line when Hyprland cannot answer. Every decision writes `banner: host=<h> entry=<name> decision=shown|debounced` to the log synchronously, and `distractions banners` prints any `banner:` line, version 2 ones included. `nudges.app_banner` gates Opened, `nudges.block_page` gates Blocked and the page. There is no attribution: a blocked connection is from outside the slice by construction.
 
 ## Notification-service clone lifecycle
 
@@ -50,7 +84,7 @@ The listener keeps `busctl --user monitor` on the session bus for its whole life
 
 Keys the listener pushed are recorded in `silenced-owned.json` and only those are removed when the hold ends or the listener exits cleanly, so a key you silenced by hand in the shell survives in both directions. The shell persists its own list, so a hold survives a shell restart.
 
-Sound mute reads `pactl -f json list sink-inputs` and a `pactl subscribe` feed, matching the catalog's `audio.name` and `audio.binary` against `application.name` and `application.process.binary`. For a Chromium web app it also looks for `--app=<url>` or `--app-id=<host>` in the command line of the stream's process or up to eight ancestors. A bare browser stream is never treated as a listed app. `muted.json` maps sink-input index to `pid:starttime`, and only a recorded index whose identity still matches is unmuted, so a reused index is left alone. A stream that could not be unmuted is retried every 16 seconds until it is.
+Sound mute reads `pactl -f json list sink-inputs` and a `pactl subscribe` feed. A sink input whose `application.process.id` is in the slice is a member first, whatever its window class, so an unlisted page open in a distraction-profile window is muted with everything else; an unreadable or missing cgroup file falls through. Outside the slice it matches the catalog's `audio.name` and `audio.binary` against `application.name` and `application.process.binary`, and for a Chromium web app it also looks for `--app=<url>` or `--app-id=<host>` in the command line of the stream's process or up to eight ancestors; a bare browser stream outside the slice is never treated as a listed app. `muted.json` maps sink-input index to `pid:starttime`, and only a recorded index whose identity still matches is unmuted, so a reused index is left alone. A stream that could not be unmuted is retried every 16 seconds until it is.
 
 ## Summary
 
@@ -65,21 +99,24 @@ Under `~/.local/state/omarchy/distraction-space/`, honoring `$XDG_STATE_HOME`:
 | File | Writer | Shape |
 |---|---|---|
 | `lock.json` | `lock` and `unlock` only | `{"locked": true, "since": "<iso>", "until": "<iso>\|null", "purpose": "<text>"}` |
-| `state.json` | Listener, on every change; the bar watches this | `{"locked": false, "until": null, "purpose": "", "on_space": false, "site_block": "on", "listener_pid": 1234, "hold": true, "held": {"Telegram": 3}, "notification_hold": "on", "updated": "<iso>"}` |
-| `expansion.json` | Listener after every successful config load or reload | The last validated expansion (`name`, `classes`, `hosts`, `senders`, `audio` per entry, plus `keep_reachable` and `nudges`) |
+| `state.json` | Listener, on every change; the bar watches this | `{"locked": false, "until": null, "purpose": "", "on_space": false, "site_block": "on", "listener_pid": 1234, "hold": true, "held": {"Telegram": 3}, "notification_hold": "on", "pass_through": "on", "links": "on", "browser": null, "released": {"0x55d1c0a2b3c0": "<iso>"}, "updated": "<iso>"}` |
+| `expansion.json` | Listener after every successful config load or reload | The last validated expansion (`name`, `classes`, `hosts`, `senders`, `audio`, `desktop` per entry, plus `keep_reachable`, `nudges`, and `site_block.enabled`); a version 2 file reads with `desktop: null` and the block enabled |
+| `entries.json` | `setup` | `{"files": [{"path": "<applications-dir>/<file>.desktop", "backup": "<state-dir>/entries-backup/<file>.desktop\|null"}], "previous_handler": "<id>.desktop\|null"}` |
+| `entries-backup/` | `setup` | The files that were at a launcher entry's path before setup wrote there, moved whole |
 | `held.jsonl` | Listener while the hold is in effect | One line per held notification: `{"at": "<iso>", "app": "Telegram", "title": "<summary>", "body": "<body>"}`, fields clipped at 4096 bytes, newest kept under 64 KiB |
 | `muted.json` | Listener while the hold is in effect | Sink-input index to `pid:starttime` for every stream this plugin muted |
 | `silenced-owned.json` | Listener | The sender keys this plugin pushed into the shell's silenced list |
 | `clone.json` | `setup` | Plugin id, paths, and SHA-256 of each first-party file and of the patch; its presence marks the clone as this plugin's |
 | `addrs.json` | Network resolver | Last good resolution per host |
 | `rules.json` | Window containment | JSON array of the Hyprland rule names this plugin set |
-| `log` | Lock reasons, hook output, network batches | Text, path overridable with config `log` |
+| `rule-specs.json` | Window containment | Rule name to class pattern, so a rollback can restore the previous set |
+| `log` | Lock reasons, hook output, network batches, banner decisions | Text, path overridable with config `log` |
 
-`state.json.site_block` is `on`, `off` (on the space, or an empty list), or `unavailable` (no privileged wrapper). `notification_hold` is `on`, `off`, or `unavailable` (the shell has no silenced list). Without a listener running, `state.json` goes stale and `distractions status --json` still answers from `lock.json` and hyprctl.
+`state.json.site_block` is `on`, `off` (`site_block.enabled: false`, or an empty address set), or `unavailable` (no privileged wrapper, `sudo -n` refused, `nft` rejected the table, or the slice cgroup was missing). `links` is `on`, `off` (the switch is off or no handler is registered), or `displaced` (another default browser, or `xdg-settings` did not answer). `browser` is the distraction browser's basename or `null`; the listener writes `null` in this release. `released` maps each exempt window address to its deadline. `notification_hold` is `on`, `off`, or `unavailable` (the shell has no silenced list). Without a listener running, `state.json` goes stale and `distractions status --json` still answers from `lock.json` and hyprctl.
 
-Runtime files live in `$XDG_RUNTIME_DIR`: `distraction-space.lock` (single listener), `distraction-space.config.lock` (config mutation flock), and `distraction-space.sock` (reload and refresh).
+Runtime files live in `$XDG_RUNTIME_DIR`: `distraction-space.lock` (single listener), `distraction-space.config.lock` (config mutation flock), and `distraction-space.sock` (reload, refresh, release). The browser profile lives under data, not state: `~/.local/share/omarchy/distraction-space/browser`, honoring `$XDG_DATA_HOME`, and `setup --remove` leaves it in place.
 
-Lock expiry is lazy. `is_locked()` treats an `until` in the past as unlocked, and the listener's one-second tick is what turns that into a `state.json` write, a notice, and the `unlock` hook.
+Lock expiry is lazy. `is_locked()` treats an `until` in the past as unlocked, and the listener's one-second tick is what turns that into a `state.json` write, a notice, and the `unlock` hook. `lock` leaves the space first when the person is on it, through the same cycle `leave` uses, and stays put when no other workspace is occupied.
 
 ## Hooks
 
@@ -89,13 +126,14 @@ The `lock` and `unlock` commands run their own hooks because they write `lock.js
 
 ## Catalog shapes
 
-`catalog.json` maps a product name to its identity in one of three shapes. Expansion produces `classes`: the native `class` when present, plus, for every host-bearing entry, the automatic web-app class `^chrome-<host>__.*$` built from its first host (the `pwa` host when given).
+`catalog.json` maps a product name to its identity in one of three shapes. Expansion produces `classes`: the native `class` when present, plus, for every host-bearing entry, the web-app class `^chrome-<host>__.*$` built from its first host (the `pwa` host when given). Containment does not set a rule for that web-app class any more, but `hold.py`, `launch.py`, and the adoption layer still read the host out of it. A native product may carry `desktop`, the id of its system desktop entry without the suffix; `open` runs that entry and `setup` shadows it.
 
-Native, with the `pwa` host, empty `hosts` so a messaging app is never blocked, `senders` for the hold, and `audio` for the mute:
+Native, with the `pwa` host, empty `hosts` so a messaging app is never blocked, `senders` for the hold, `audio` for the mute, and `desktop` for the launch:
 
 ```json
 "Telegram": {
   "class": "org.telegram.desktop",
+  "desktop": "org.telegram.desktop",
   "pwa": "web.telegram.org",
   "hosts": [],
   "senders": ["Telegram Desktop", "org.telegram.desktop"],
@@ -109,24 +147,24 @@ Web app only, moved and never blocked:
 "Discord": {"pwa": "discord.com", "hosts": []}
 ```
 
-Hosts only, moved as an installed web app and blocked:
+Hosts only, moved as a web app of the distraction profile and blocked outside it:
 
 ```json
 "YouTube": {"hosts": ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"]}
 ```
 
-Telegram therefore expands to `classes: ["org.telegram.desktop", "^chrome-web\\.telegram\\.org__.*$"]`. A `class=<regex>` list entry expands to one class and no hosts.
+Telegram therefore expands to `classes: ["org.telegram.desktop", "^chrome-web\\.telegram\\.org__.*$"]` and `desktop: "org.telegram.desktop"`; Discord and YouTube expand with `desktop: null`. A `class=<regex>` list entry expands to one class and no hosts.
 
 ## Config writes and migration
 
-Every write takes a blocking flock on `$XDG_RUNTIME_DIR/distraction-space.config.lock` with a 5 second timeout. On timeout the command exits 1 with "config busy" and leaves the file unchanged. `config set`, `list add`, `list remove`, and every menu save go through it; reads take no lock. A successful mutation asks the running listener to reload.
+Every write takes a blocking flock on `$XDG_RUNTIME_DIR/distraction-space.config.lock` with a 5 second timeout. On timeout the command exits 1 with "config busy" and leaves the file unchanged. `config set`, `list add`, `list remove`, and every menu save go through it; reads take no lock. A successful mutation asks the running listener to reload. `config set` validates before the write: `site_block.enabled`, `open_links_in_space`, and `containment.snap_back` must be booleans, `browser` must be `"auto"` or a non-empty argv of non-empty strings, and `containment.release_minutes` an integer from 1 to 10080.
 
-On the first load with no `distraction-space.json`, `list` is seeded from the union of the names in `~/.config/omarchy/app-list.json` and the `destinations` in `~/.config/omarchy/focus.json`, falling back to the fifteen defaults. `log` is taken from the old `focus.json` when it is present. The old files stay untouched, old state files under `~/.local/state/omarchy/` are ignored, and unreadable old files fall back to the defaults.
+On the first load with no `distraction-space.json`, `list` is seeded from the union of the names in `~/.config/omarchy/app-list.json` and the `destinations` in `~/.config/omarchy/focus.json`, falling back to the fifteen defaults. `log` is taken from the old `focus.json` when it is present. The old files stay untouched, old state files under `~/.local/state/omarchy/` are ignored, and unreadable old files fall back to the defaults. A version 2 config file loads with every version 3 key at its default.
 
 ## Tests
 
 ```bash
-python3 -m unittest discover -s tests
+PATH=/usr/bin:$PATH python3 -m unittest discover -s tests
 ```
 
-239 tests as of this commit, all offline. `tests/harness.py` builds a temporary XDG root per test, and the socket2 feed, `hyprctl`, `getent`, `busctl`, `pactl`, and the nft wrapper are all replaced with fakes, so nothing in the suite touches your real session, your real config, or the firewall.
+345 tests as of this commit, all offline. `tests/harness.py` builds a temporary XDG root per test, and the socket2 feed, `hyprctl`, `getent`, `busctl`, `pactl`, `systemctl`, `systemd-run`, `xdg-settings`, `update-desktop-database`, the nft wrapper, and the `/proc` cgroup reads (`DS_PROC_ROOT`) are all replaced with fakes, so nothing in the suite touches your real session, your user manager, your real config, or the firewall.

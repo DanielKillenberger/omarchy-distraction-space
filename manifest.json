@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.danielkillenberger.distraction-space",
   "name": "Distraction space",
-  "version": "2.1.0",
+  "version": "3.0.0",
   "author": "Daniel Killenberger",
   "license": "MIT",
-  "description": "One named Hyprland workspace for the apps and sites that take your attention. Listed windows open only there, listed sites do not load anywhere else, and their notifications wait until you come back.",
+  "description": "One named Hyprland workspace and one process group for the apps and sites that take your attention. Listed windows open only there, listed sites load only from there, listed links land there, and their notifications wait until you come back.",
   "homepage": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "repository": "https://github.com/DanielKillenberger/omarchy-distraction-space",
   "kinds": [
