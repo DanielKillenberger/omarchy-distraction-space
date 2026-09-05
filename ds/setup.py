@@ -1189,15 +1189,17 @@ def refresh_entries(exp: dict, cfg: dict | None) -> int:
     stays exactly as recorded, the recorded previous handler stands, and
     `xdg-settings` is not asked, so a default the person moved elsewhere is the
     link check's notice and never fought over here. A setup or remove under
-    way owns the files; this sync steps aside until the next period.
+    way owns the files; this sync steps aside until the next period, and a
+    remove that finished first leaves no manifest to keep, decided under the
+    same lock so nothing is recreated from an empty record.
     """
-    if not state.entries_path().exists():
-        return 0
     with _entries_lock(0) as held:
         return _refresh_entries(exp, cfg) if held else 0
 
 
 def _refresh_entries(exp: dict, cfg: dict | None) -> int:
+    if not state.entries_path().exists():
+        return 0
     old = state.read_entries()
     owned_files = _owned_files(old)
     if owned_files is None:

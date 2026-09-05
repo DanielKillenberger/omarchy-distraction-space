@@ -537,6 +537,27 @@ class SetupTests(unittest.TestCase):
         self.assertIn(f"Exec={ROOT / 'distractions'} open --app ", basecamp.read_text(encoding="utf-8"))
         self.assertIn("Icon=basecamp-new\n", basecamp.read_text(encoding="utf-8"))
 
+    def test_the_listener_sync_keeps_nothing_a_remove_finished_before_it_took_the_lock(self):
+        basecamp = self.apps / "Basecamp.desktop"
+        basecamp.write_text(OMARCHY_BASECAMP, encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        cfg = json.loads(self.box.config_file.read_text(encoding="utf-8"))
+        exp = {"list": setup.catalog.expand(cfg)}
+        real_lock = setup._entries_lock
+
+        @contextlib.contextmanager
+        def lock_after_remove(wait):
+            # A remove held the lock, finished, and released it before this sync gets in.
+            self.assertEqual(setup._remove_entries(), 0)
+            with real_lock(wait) as held:
+                yield held
+
+        with patch.object(setup, "_entries_lock", lock_after_remove):
+            self.assertEqual(setup.refresh_entries(exp, cfg), 0)
+        self.assertIsNone(self._entries())
+        self.assertEqual(basecamp.read_text(encoding="utf-8"), OMARCHY_BASECAMP)
+        self.assertFalse((self.apps / "YouTube.desktop").exists())
+
     def test_a_regenerated_web_app_is_rewritten_from_the_new_file_and_a_removed_one_is_not_resurrected(self):
         basecamp = self.apps / "Basecamp.desktop"
         basecamp.write_text(OMARCHY_BASECAMP, encoding="utf-8")
