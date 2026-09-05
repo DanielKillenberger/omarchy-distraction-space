@@ -298,92 +298,92 @@ class HyprTests(unittest.TestCase):
         self.assertEqual(hypr.classify(NATIVE, 200), ("class", TELEGRAM))
         self.assertIsNone(hypr.classify("google-chrome", None))
 
-    def test_foreign_webapp_closed_once_and_opened_once_per_address(self):
-        hypr.apply_rules([TELEGRAM, WHATSAPP])
+    def test_foreign_discovery_moves_and_offers_once_without_opening_or_closing(self):
+        hypr.apply_rules([WHATSAPP])
         self.proc.add(300, 1, SESSION_PATH)
-        self.proc.add(100, 1, f"{SLICE_PATH}/run-1.scope")
-        self._state(
-            clients=[
-                self._client("0xdead", FOREIGN_WA, "1", pid=300),
-                self._client("0xbeef", "brave-web.whatsapp.com__-Profile_2", "2", pid=300),
-                self._client("0xcafe", "google-chrome", "1", pid=300),
-            ]
-        )
-        self.hypr_log.write_text("", encoding="utf-8")
-        hypr.handle_event(f"openwindow>>0xdead,1,{FOREIGN_WA},WhatsApp")
-        hypr.handle_event("movewindow>>0xdead,1")
-        hypr.handle_event(f"openwindow>>0xdead,1,{FOREIGN_WA},WhatsApp")
-        hypr.handle_event("openwindow>>0xbeef,2,brave-web.whatsapp.com__-Profile_2,WhatsApp")
-        hypr.handle_event("openwindow>>0xcafe,1,google-chrome,Chrome")
-        self.assertEqual(self._open_calls(), [["open", "WhatsApp"], ["open", "WhatsApp"]])
-        self.assertEqual(self._dispatches(), [hypr.close_window_lua("0xdead"), hypr.close_window_lua("0xbeef")])
-        self.assertEqual(hypr.close_window_lua("0xdead"), 'hl.dsp.window.close({ window = "address:0xdead" })')
-        self.assertEqual(self._opened_titles(), [f"WhatsApp {OPENED}"])
-        self.assertEqual(self._log_lines("adopt:"), [])
-        # `closewindow` forgets the address, so a reused one is adopted again.
+        client = self._client("0xdead", FOREIGN_WA, "1", pid=300)
+        self._state(clients=[client])
+        for event in (f"openwindow>>0xdead,1,{FOREIGN_WA},Draft", "movewindow>>0xdead,1"):
+            hypr.handle_event(event)
+        hypr.apply_rules([WHATSAPP])
+        hypr.contain(client)
+        self.assertEqual(self._open_calls(), [])
+        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xdead")] * 3)
+        offers = [n for n in self._notifies() if "--exec" in n and "migrate" in n]
+        self.assertEqual(len(offers), 1)
+        self.assertIn("0xdead", offers[0])
         hypr.handle_event("closewindow>>0xdead")
-        hypr.handle_event(f"openwindow>>0xdead,1,{FOREIGN_WA},WhatsApp")
-        self.assertEqual(len(self._open_calls()), 3)
-        # The layers in order: the slice claims a foreign-profile window before adoption does.
-        self.assertEqual(hypr.classify(FOREIGN_WA, 100), ("slice", None))
+        hypr.contain(client)
+        self.assertEqual(len([n for n in self._notifies() if "migrate" in n]), 2)
         self.assertEqual(hypr.classify(FOREIGN_WA, 300), ("adopt", WHATSAPP))
-        self.assertEqual(hypr.classify("chrome-m.web.whatsapp.com__-Default", None), ("adopt", WHATSAPP))
         self.assertEqual(hypr.classify(PROFILE_WA, 300), ("class", WHATSAPP))
-        self.assertIsNone(hypr.classify("chrome-web.example.org__-Default", 300))
         self.assertIsNone(hypr.classify("chrome-notweb.whatsapp.com__-Default", 300))
 
-    def test_failed_open_leaves_the_window_moved_by_class_with_one_log_line(self):
+    def test_foreign_failed_move_reports_and_retries_without_launch(self):
         hypr.apply_rules([WHATSAPP])
-        self._state(clients=[self._client("0xdead", FOREIGN_WA, "1"), self._client("0xf00d", FOREIGN_WA, "2")])
-        os.environ["DS_OPEN_FAIL"] = "1"
-        self.hypr_log.write_text("", encoding="utf-8")
-        hypr.handle_event(f"openwindow>>0xdead,1,{FOREIGN_WA},WhatsApp")
-        hypr.handle_event("movewindow>>0xdead,1")
-        self.assertEqual(self._open_calls(), [["open", "WhatsApp"]])
-        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xdead")])
-        lines = self._log_lines("adopt:")
-        self.assertEqual(len(lines), 1, lines)
-        self.assertIn("open WhatsApp failed (exit 1: No distraction browser: none found); window 0xdead moved by class", lines[0])
-        self.assertEqual(self._opened_titles(), [f"WhatsApp {OPENED}"])
-        # A CLI that cannot be started at all is the same outcome.
-        with mock.patch.object(hypr, "CLI", str(self.box.runtime / "missing" / "distractions")):
-            hypr.handle_event(f"openwindow>>0xf00d,2,{FOREIGN_WA},WhatsApp")
-        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xdead"), hypr.move_window_lua("0xf00d")])
-        self.assertEqual(len(self._log_lines("adopt:")), 2)
-        self.assertEqual(len(self._open_calls()), 1)
-        # A failed open whose fallback move is refused too: nothing landed, no banner.
-        self._state(clients=[self._client("0xbad", FOREIGN_WA, "3")])
+        self.proc.add(300, 1, SESSION_PATH)
+        client = self._client("0xdead", FOREIGN_WA, "1", pid=300)
+        self._state(clients=[client])
         os.environ["DS_HYPR_FAIL"] = "hl.dsp.window.move"
-        before = len(self._opened_titles())
-        hypr.handle_event(f"openwindow>>0xbad,3,{FOREIGN_WA},WhatsApp")
-        self.assertEqual(len(self._open_calls()), 2)
-        self.assertEqual(len(self._log_lines("adopt:")), 3)
-        self.assertEqual(len(self._opened_titles()), before)
-
-    def test_refused_close_is_retried_without_a_second_open(self):
-        hypr.apply_rules([WHATSAPP])
-        self._state(clients=[self._client("0xdead", FOREIGN_WA, "1")])
-        os.environ["DS_HYPR_FAIL"] = "hl.dsp.window.close"
-        self.hypr_log.write_text("", encoding="utf-8")
-        close = hypr.close_window_lua("0xdead")
-        hypr.handle_event(f"openwindow>>0xdead,1,{FOREIGN_WA},WhatsApp")
-        self.assertEqual(self._open_calls(), [["open", "WhatsApp"]])
-        # The fake logs every dispatch it refuses, so attempts are countable.
-        self.assertEqual(self._dispatches(), [close])
-        self.assertEqual(len(self._log_lines("adopt: close of 0xdead refused")), 1)
-        # The product did open in the space, so the banner is right even though
-        # the foreign window is still up.
-        self.assertEqual(self._opened_titles(), [f"WhatsApp {OPENED}"])
-        hypr.handle_event("movewindow>>0xdead,1")
-        self.assertEqual(len(self._open_calls()), 1)
-        self.assertEqual(self._dispatches(), [close, close])
+        hypr.contain(client)
+        self.assertEqual(self._opened_titles(), [])
+        self.assertTrue(any("could not be moved" in str(n) for n in self._notifies()))
         os.environ.pop("DS_HYPR_FAIL")
-        hypr.handle_event("movewindow>>0xdead,1")
-        self.assertEqual(len(self._open_calls()), 1)
-        self.assertEqual(self._dispatches(), [close, close, close])
-        # Closed for good: nothing more is owed for this address.
-        hypr.handle_event("movewindow>>0xdead,1")
-        self.assertEqual(self._dispatches(), [close, close, close])
+        hypr.contain(client)
+        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xdead")] * 2)
+        self.assertEqual(self._open_calls(), [])
+        self.assertEqual(self._opened_titles(), [f"WhatsApp {OPENED}"])
+
+    def test_migration_cancel_failure_and_success_preserve_original(self):
+        from ds import ui
+        hypr.apply_rules([WHATSAPP])
+        self.proc.add(300, 1, SESSION_PATH)
+        client = self._client("0xdead", FOREIGN_WA, hypr.SPACE, pid=300)
+        self._state(clients=[client])
+        hypr.contain(client)
+        action = next(n[n.index("--exec") + 1:] for n in self._notifies() if "migrate" in n)
+        args = type("Args", (), {"address": action[2], "identity": action[3]})()
+        for choice, failure, expected in ((None, False, 0), (0, True, 1), (0, False, 0)):
+            with self.subTest(choice=choice, failure=failure):
+                self.open_log.write_text("")
+                if failure:
+                    os.environ["DS_OPEN_FAIL"] = "1"
+                else:
+                    os.environ.pop("DS_OPEN_FAIL", None)
+                with mock.patch.object(ui, "select", return_value=choice) as select:
+                    self.assertEqual(hypr.cmd_migrate(args), expected)
+                prompt = str(select.call_args)
+                self.assertIn("separate", prompt)
+                self.assertIn("unsaved", prompt)
+                self.assertEqual(self._open_calls(), [] if choice is None else [["open", "WhatsApp"]])
+                self.assertEqual(self._dispatches(), [])
+        with mock.patch.object(ui, "select", side_effect=ui.Unavailable("missing")):
+            self.assertEqual(hypr.cmd_migrate(args), 1)
+        with mock.patch.object(ui, "select", return_value=0), mock.patch.object(hypr, "CLI", "/missing/distractions"):
+            self.assertEqual(hypr.cmd_migrate(args), 1)
+        self.assertEqual(self._dispatches(), [])
+
+    def test_migration_refuses_vanished_reused_or_changed_window_before_and_after_prompt(self):
+        from ds import ui
+        hypr.apply_rules([WHATSAPP])
+        self.proc.add(300, 1, SESSION_PATH)
+        original = self._client("0xdead", FOREIGN_WA, hypr.SPACE, pid=300)
+        self._state(clients=[original])
+        hypr.contain(original)
+        action = next(n[n.index("--exec") + 1:] for n in self._notifies() if "migrate" in n)
+        args = type("Args", (), {"address": action[2], "identity": action[3]})()
+        replacements = ([], [dict(original, pid=301)], [dict(original, **{"class": PROFILE_WA})])
+        for clients in replacements:
+            for during_prompt in (False, True):
+                with self.subTest(clients=clients, during_prompt=during_prompt):
+                    self._state(clients=[original] if during_prompt else clients)
+                    def choose(*a, **kw):
+                        self._state(clients=clients)
+                        return 0
+                    with mock.patch.object(ui, "select", side_effect=choose):
+                        self.assertEqual(hypr.cmd_migrate(args), 1)
+        self.assertEqual(self._open_calls(), [])
+        self.assertEqual(self._dispatches(), [])
 
     def test_released_window_skips_every_layer_and_snap_back_off_ignores_moves(self):
         hypr.apply_rules([TELEGRAM, WHATSAPP])
@@ -677,9 +677,8 @@ class HyprTests(unittest.TestCase):
             hypr.move_window_lua("0xaaa"),
             'hl.dsp.window.move({ window = "address:0xaaa", workspace = "name:distraction", follow = false })',
         )
-        self.assertEqual(hypr.close_window_lua("0xaaa"), 'hl.dsp.window.close({ window = "address:0xaaa" })')
         self.assertEqual(hypr.focus_workspace_lua("2"), 'hl.dsp.focus({ workspace = "name:2" })')
-        for frag in (hypr.move_window_lua("0xaaa"), hypr.close_window_lua("0xaaa"), hypr.focus_workspace_lua("distraction")):
+        for frag in (hypr.move_window_lua("0xaaa"), hypr.focus_workspace_lua("distraction")):
             self.assertFalse(frag.startswith("-"))
         self._state(clients=[self._client("0xaaa", NATIVE, "1")])
         hypr.apply_rules([TELEGRAM])

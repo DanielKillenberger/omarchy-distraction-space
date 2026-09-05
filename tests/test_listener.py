@@ -1349,9 +1349,9 @@ class ScanTests(unittest.TestCase):
         self.hypr_log.write_text("", encoding="utf-8")
         listener._scan()
         self.assertEqual(self._dispatches(), [
-            hypr.move_window_lua("0xa"), hypr.move_window_lua("0xb"), hypr.close_window_lua("0xc"),
+            hypr.move_window_lua("0xa"), hypr.move_window_lua("0xb"), hypr.move_window_lua("0xc"),
         ])
-        self.assertEqual(self.open_log.read_text(encoding="utf-8").splitlines(), [json.dumps(["open", "WhatsApp"])])
+        self.assertFalse(self.open_log.exists(), "discovery never launches a replacement")
         notices = self.notify_log.read_text(encoding="utf-8")
         self.assertIn("Telegram opened in the distraction space", notices)
         self.assertIn("WhatsApp opened in the distraction space", notices)

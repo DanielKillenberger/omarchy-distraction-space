@@ -26,6 +26,7 @@ COMMANDS = {
     "reload": listener.cmd_reload,
     "refresh": listener.cmd_refresh,
     "release": listener.cmd_release,
+    "migrate": hypr.cmd_migrate,
     "setup": setup.cmd_setup,
     "senders": hold.cmd_senders,
     "banners": state.cmd_banners,
@@ -73,6 +74,9 @@ def build_parser():
     for name in ("enter", "leave", "toggle", "next", "prev", "menu", "listen", "reload", "refresh"):
         sub.add_parser(name)
     sub.add_parser("release").add_argument("minutes", nargs="?", type=release_minutes)
+    mg = sub.add_parser("migrate", help="confirm opening a foreign web app in the distraction profile")
+    mg.add_argument("address")
+    mg.add_argument("identity", help="window identity from the migration notification")
     st = sub.add_parser("setup")
     st.add_argument("--remove", action="store_true")
     st.add_argument("--yes", action="store_true", help="never prompt: the link question takes the config value (true by default) and sudo runs with -n")

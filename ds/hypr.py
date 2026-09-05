@@ -2,8 +2,8 @@
 
 A window belongs on the space by class (the distraction profile's rule or a native
 class), by process (its pid or an ancestor in the slice), or by adoption (a listed
-product's web app running in another browser profile, which is closed and reopened
-through `distractions open`). First match wins, every move is silent, and a window
+product's web app running in another browser profile, which is moved intact and
+offered deliberate migration). First match wins, every move is silent, and a window
 that lands while the person is elsewhere raises the Opened banner. A released
 window (`distractions release`) is skipped by every layer until its deadline or
 until it closes.
@@ -11,6 +11,7 @@ until it closes.
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import threading
@@ -34,7 +35,7 @@ ADOPTED_CAP = 256
 _entries = None
 _clients_cache = None
 _clients_lock = threading.Lock()
-# Addresses adoption has handled, oldest first; `closewindow` forgets one, the cap bounds the rest.
+# Offered window identities, oldest first; close events forget an address.
 _adopted = OrderedDict()
 # Exempt window addresses -> ISO deadline, as `release` recorded them (R17).
 _released = {}
@@ -256,11 +257,6 @@ def move_window_lua(address, workspace=f"name:{SPACE}"):
         f"hl.dsp.window.move({{ window = {lua_string(f'address:{address}')}, "
         f"workspace = {lua_string(workspace)}, follow = false }})"
     )
-
-
-def close_window_lua(address):
-    """`hyprctl dispatch` argument on the Lua parser: close one window by address."""
-    return f"hl.dsp.window.close({{ window = {lua_string(f'address:{address}')} }})"
 
 
 def is_config_reload(line):
@@ -587,35 +583,91 @@ def move_to_space(address):
     return _run("dispatch", move_window_lua(address)) is not None
 
 
-def _adopt(client, name):
-    """Layer 3, once per window address: reopen the product through `open`, then close the window.
+def _migration_identity(client, name):
+    """Bind the action to the compositor, process lifetime, and original web app."""
+    pid = client.get("pid")
+    if type(pid) is not int or pid < 1:
+        return None
+    try:
+        stat = (cgroup._proc_root(None) / str(pid) / "stat").read_text()
+        started = stat.rpartition(")")[2].split()[19]
+    except (OSError, IndexError):
+        return None
+    fields = [os.environ.get("HYPRLAND_INSTANCE_SIGNATURE"), _norm_addr(client.get("address")),
+              pid, started, client.get("class"), client.get("initialClass"),
+              client.get("initialTitle"), name]
+    return hashlib.sha256(json.dumps(fields).encode()).hexdigest()
 
-    `open` runs first, so a failed launch leaves the window in place, moved to the
-    space by class, with one log line. Returns False for an address already handled.
-    """
+
+def _adopt(client, name):
+    """Move the original intact and offer migration once per bounded window identity."""
+    from ds import ui
     address = client.get("address")
     key = _norm_addr(address)
     if not key:
         return False
-    if key in _adopted:
-        # `open` already ran for this address. Only a close that Hyprland refused
-        # is still owed, and it is retried here without launching anything.
-        if _adopted[key] == "close-pending" and _run("dispatch", close_window_lua(address)) is not None:
-            _adopted[key] = "done"
-        return False
-    _adopted[key] = "done"
-    while len(_adopted) > ADOPTED_CAP:
-        _adopted.popitem(last=False)
+    landed = not _on_space(client) and move_to_space(address)
+    failed = not _on_space(client) and not landed
+    identity = _migration_identity(client, name)
+    record = (identity, failed)
+    if _adopted.get(key) != record:
+        _adopted[key] = record
+        _adopted.move_to_end(key)
+        while len(_adopted) > ADOPTED_CAP:
+            _adopted.popitem(last=False)
+        if failed:
+            ui.notify("Window could not be moved", f"{name} is still open. Placement will retry on its next event.")
+        else:
+            ui.notify(
+                f"Keep your {name} window",
+                "Your original stays open. Open the product in a separate distraction profile? "
+                "Unsaved state cannot transfer; outside-profile network blocking still applies.",
+                glyph=GLYPH,
+                action=[CLI, "migrate", address, identity] if identity else None,
+            )
+    return landed
+
+
+def _migration_target(address, identity):
+    client = _client_by_address(address)
+    if client is None:
+        return None
+    decision = classify(client.get("class") or client.get("initialClass"), client.get("pid"))
+    if decision is None or decision[0] != "adopt":
+        return None
+    name = _entry_name(decision[1])
+    if not identity or _migration_identity(client, name) != identity:
+        return None
+    return name
+
+
+def cmd_migrate(args):
+    """Confirm a fresh product open without transferring or closing the original."""
+    from ds import ui
+    name = _migration_target(args.address, args.identity)
+    if name is None:
+        ui.notify("Migration unavailable", "The original window disappeared or changed. No replacement was opened.")
+        return 1
+    try:
+        choice = ui.select(
+            f"Open {name} in a separate distraction profile? Authentication and unsaved state "
+            "cannot transfer. Keep the original open until you have saved your work.",
+            ["Open in distraction profile", "Cancel"],
+        )
+    except ui.Unavailable:
+        ui.notify("Migration unavailable", "The confirmation menu could not be opened. Your original stays open.")
+        return 1
+    if choice != 0:
+        return 0
+    if _migration_target(args.address, args.identity) != name:
+        ui.notify("Migration unavailable", "The original window disappeared or changed. No replacement was opened.")
+        return 1
     why = _open(name)
-    if why is None:
-        if _run("dispatch", close_window_lua(address)) is None:
-            _adopted[key] = "close-pending"
-            _log(f"adopt: close of {address} refused; retried on its next event")
-        return True
-    _log(f"adopt: open {name} failed ({why}); window {address} moved by class")
-    # Nothing new opened in the space: the window has landed only when the
-    # fallback move actually happened.
-    return not _on_space(client) and move_to_space(address)
+    if why is not None:
+        ui.notify("Migration could not start", f"{why}. Your original window stays open.")
+        return 1
+    ui.notify("Distraction profile opened", "Your original window stays open. Save your work before closing it yourself.")
+    return 0
 
 
 def _open(name):
