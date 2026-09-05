@@ -59,12 +59,13 @@ def _notice(title, body):
 # --- hosts -------------------------------------------------------------------
 
 def _norm_host(host):
+    """Lower-cased, without a trailing dot or a port. `www.` stays: the list names its aliases itself."""
     h = str(host or "").strip().lower().rstrip(".")
     if h.count(":") == 1:
         name, port = h.rsplit(":", 1)
         if port.isdigit():
             h = name
-    return h[4:] if h.startswith("www.") else h
+    return h
 
 
 def entry_hosts(entry):
@@ -107,6 +108,36 @@ def _entry_url(entry):
     return f"https://{hosts[0]}/" if hosts else None
 
 
+_HOST_LABEL = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
+
+
+def _url_host(url):
+    """The host of an http(s) URL whose authority is well formed, else None.
+
+    A bracketed IPv6 literal that does not close, a space in the authority, or
+    a port outside 1-65535 makes the whole argument unusable, so `open` can
+    exit 2 instead of forwarding something no handler could take.
+    """
+    try:
+        parts = urlsplit(url)
+        if parts.scheme.lower() not in ("http", "https"):
+            return None
+        host, port = parts.hostname, parts.port
+    except ValueError:
+        return None
+    if not host or port is not None and not 1 <= port <= 65535:
+        return None
+    if any(c.isspace() for c in parts.netloc):
+        return None
+    if host.startswith("[") or ":" in host:
+        # IPv6 literal, already validated by urlsplit's bracket handling.
+        return host
+    labels = host.rstrip(".").split(".")
+    if not all(_HOST_LABEL.match(label) for label in labels):
+        return None
+    return host
+
+
 # --- target resolution -------------------------------------------------------
 
 def _find_name(name, names):
@@ -138,10 +169,10 @@ def resolve_target(arg, exp, cat):
     if not arg:
         return None
     if _SCHEME.match(arg):
-        parts = urlsplit(arg)
-        if parts.scheme.lower() not in ("http", "https") or not parts.hostname:
+        host = _url_host(arg)
+        if host is None:
             return None
-        entry = classify_host(parts.hostname, exp)
+        entry = classify_host(host, exp)
         return Target("web" if entry is not None else "forward", url=arg, entry=entry)
     entries, _extra = hypr._normalize(exp)
     by_name = {e["name"]: e for e in entries if isinstance(e.get("name"), str)}
@@ -191,11 +222,24 @@ def desktop_file(desktop_id):
 
 
 def read_exec(path):
-    """The value of the first `Exec=` line of a desktop file, or None."""
+    """The `Exec=` value of the `[Desktop Entry]` group, or None.
+
+    Only the main group counts: an action group's `Exec` (`[Desktop Action new]`)
+    is a different command and must never stand in for the handler.
+    """
     data = state.read_bounded(path)
     if data is None:
         return None
+    in_main = False
     for line in data.decode("utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_main:
+                return None
+            in_main = stripped == "[Desktop Entry]"
+            continue
+        if not in_main:
+            continue
         m = _EXEC_LINE.match(line)
         if m:
             return m.group(1)
@@ -218,10 +262,12 @@ def _key_unescape(value):
 def parse_exec(value):
     """Argv from an `Exec` value per the Desktop Entry spec, or None when it is empty or unbalanced.
 
-    Key-file escapes (`\\s`, `\\n`, `\\t`, `\\r`, `\\\\`) are applied first; then
-    double-quoted arguments with backslash escapes for `"`, backtick, `$`, and
-    `\\`; everything else splits on whitespace. Field codes are left in place for
-    `expand_fields`.
+    Key-file escapes (`\\s`, `\\n`, `\\t`, `\\r`, `\\\\`) are applied first. Then
+    the argument grammar the spec shares with `g_shell_parse_argv`: double
+    quotes with backslash escapes for `"`, backtick, `$`, and `\\`; single
+    quotes taken literally; outside quotes a backslash escapes the next
+    character. An unterminated quote or a trailing backslash is unusable.
+    Field codes are left in place for `expand_fields`.
     """
     if not isinstance(value, str):
         return None
@@ -233,13 +279,30 @@ def parse_exec(value):
             cur = "" if cur is None else cur
             i += 1
             while i < n and text[i] != '"':
-                if text[i] == "\\" and i + 1 < n and text[i + 1] in '"`$\\':
-                    i += 1
+                if text[i] == "\\":
+                    if i + 1 >= n:
+                        return None
+                    if text[i + 1] in '"`$\\':
+                        i += 1
                 cur += text[i]
                 i += 1
             if i >= n:
                 return None
             i += 1
+        elif c == "'":
+            cur = "" if cur is None else cur
+            i += 1
+            while i < n and text[i] != "'":
+                cur += text[i]
+                i += 1
+            if i >= n:
+                return None
+            i += 1
+        elif c == "\\":
+            if i + 1 >= n:
+                return None
+            cur = (cur or "") + text[i + 1]
+            i += 2
         elif c.isspace():
             if cur is not None:
                 argv.append(cur)

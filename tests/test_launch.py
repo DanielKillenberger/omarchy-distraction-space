@@ -226,7 +226,9 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertEqual(len(self._lines(self.notify_log)), 1)
         self.assertEqual(len(self._lines(self.run_log)), 1)
-        for argv in (["open", "ftp://x"], ["open", "mailto:a@b"], ["open"], ["open", "no-such-thing"]):
+        for argv in (["open", "ftp://x"], ["open", "mailto:a@b"], ["open"], ["open", "no-such-thing"],
+                     ["open", "https://[::1"], ["open", "https://a b.com/"], ["open", "https://x.com:99999/"],
+                     ["open", "https://-bad-.example/"], ["open", "https://x.com:0/"]):
             with self.subTest(argv=argv):
                 self.assertEqual(self.box.run(*argv).returncode, 2)
 
@@ -241,6 +243,11 @@ class ExecParsingTests(unittest.TestCase):
             ("env\\sFOO=1 app", ["env", "FOO=1", "app"]),
             ("  spaced   out  ", ["spaced", "out"]),
             ('"unbalanced', None),
+            ("foo\\ bar baz", ["foo bar", "baz"]),
+            ("'single quoted' x", ["single quoted", "x"]),
+            (r"a\\\\b", ["a\\b"]),  # four in the file, two after the key-file pass, one argument char
+            ("'unterminated", None),
+            ("trailing\\", None),
             ("", None),
             (None, None),
         )
@@ -263,6 +270,19 @@ class ExecParsingTests(unittest.TestCase):
         self.assertEqual(launch.expand_fields(["Telegram", "--", "%U"], None), ["Telegram", "--"])
 
 
+class ReadExecTests(unittest.TestCase):
+    def test_exec_comes_from_the_main_group_only(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "a.desktop"
+            path.write_text("[Desktop Entry]\nName=A\nActions=new;\n\n[Desktop Action new]\nExec=a --new %u\n", encoding="utf-8")
+            self.assertIsNone(launch.read_exec(path))
+            path.write_text("[Desktop Action new]\nExec=a --new %u\n\n[Desktop Entry]\nExec=a %u\n", encoding="utf-8")
+            self.assertEqual(launch.read_exec(path), "a %u")
+            path.write_text("Exec=stray\n[Desktop Entry]\nName=A\n", encoding="utf-8")
+            self.assertIsNone(launch.read_exec(path))
+
+
 class ClassifyTests(unittest.TestCase):
     def test_classify_host_table(self):
         exp = {"list": [catalog.expand_entry("YouTube"), catalog.expand_entry("Discord"), catalog.expand_entry("class=^foo$")]}
@@ -281,6 +301,12 @@ class ClassifyTests(unittest.TestCase):
                 got = launch.classify_host(host, exp)
                 self.assertEqual(got["name"] if got else None, want)
         self.assertEqual(launch.classify_host("youtube.com", [catalog.expand_entry("YouTube")])["name"], "YouTube")
+        # `www.` is an alias the list names explicitly, never one the classifier invents.
+        www_only = [{"name": "W", "classes": [], "hosts": ["www.example.com"]}]
+        self.assertIsNotNone(launch.classify_host("www.example.com", www_only))
+        self.assertIsNotNone(launch.classify_host("a.www.example.com", www_only))
+        self.assertIsNone(launch.classify_host("example.com", www_only))
+        self.assertIsNone(launch.classify_host("api.example.com", www_only))
 
 
 if __name__ == "__main__":
