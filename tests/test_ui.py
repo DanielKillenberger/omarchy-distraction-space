@@ -178,17 +178,23 @@ class UiTests(unittest.TestCase):
             ui.select("Pick", rows)
 
     def test_input_choose_cancel_timeout_and_missing(self):
-        self._iq(["text", "hello"])
-        self.assertEqual(ui.input("Name"), "hello")
-        self._iq(["cancel"])
-        self.assertIsNone(ui.input("Name"))
-        self._iq(["sleep", 2])
-        self.assertIsNone(ui.input("Name", timeout=0.2))
+        for width in (None, 900):
+            with self.subTest(width=width):
+                extra = {} if width is None else {"width": width}
+                self._iq(["text", "hello"])
+                self.assertEqual(ui.input("Name", **extra), "hello")
+                self._iq(["cancel"])
+                self.assertIsNone(ui.input("Name", **extra))
+                self._iq(["sleep", 2])
+                self.assertIsNone(ui.input("Name", timeout=0.2, **extra))
         box = Sandbox(isolate_path=True)
         self.addCleanup(box.cleanup)
         box.apply_env()
-        with self.assertRaises(ui.Unavailable):
-            ui.input("Name")
+        for width in (None, 900):
+            with self.subTest(unavailable_width=width):
+                extra = {} if width is None else {"width": width}
+                with self.assertRaises(ui.Unavailable):
+                    ui.input("Name", **extra)
 
     def test_notify_never_raises(self):
         ui.notify("Title", "Body", glyph="x", action="distractions enter", urgent=True)
@@ -244,6 +250,20 @@ class UiTests(unittest.TestCase):
         box.apply_env()
         with self.assertRaises(ui.Unavailable):
             ui.prompt_reason(5)
+
+    def test_prompt_reason_width_preserves_utf8_ordinary_input_unchanged(self):
+        reason = "早退 — because the meeting ended 理由 🎯 " + ("α" * 40)
+        for min_chars, prompt in ((0, "Reason"), (50, "Reason (50+ characters)")):
+            with self.subTest(min_chars=min_chars):
+                self._iq(["text", reason])
+                self.assertEqual(ui.prompt_reason(min_chars), reason)
+                self.assertEqual(
+                    self._calls("input")[-1],
+                    ["input", prompt, "--width", "900"],
+                )
+        self._iq(["text", "hello"])
+        self.assertEqual(ui.input("Name"), "hello")
+        self.assertEqual(self._calls("input")[-1], ["input", "Name"])
 
     def test_cli_menu_cancel_writes_nothing(self):
         self.box.fake_bin("omarchy-menu-select", "import sys\nsys.exit(1)\n")

@@ -70,8 +70,11 @@ def select(prompt, rows, timeout=None):
     return None if out is None else _idx(rows, out)
 
 
-def input(prompt, timeout=None):
-    out = _run(["omarchy-menu-input", prompt], timeout=timeout)
+def input(prompt, timeout=None, *, width=None):
+    argv = ["omarchy-menu-input", prompt]
+    if width is not None:
+        argv += ["--width", str(width)]
+    out = _run(argv, timeout=timeout)
     return None if out is None else out.rstrip("\r\n")
 
 
@@ -122,7 +125,7 @@ def prompt_lock(cfg):
 
 
 def prompt_reason(min_chars):
-    return input(f"Reason ({min_chars}+ characters)" if min_chars else "Reason")
+    return input(f"Reason ({min_chars}+ characters)" if min_chars else "Reason", width=900)
 
 
 def _locked():
