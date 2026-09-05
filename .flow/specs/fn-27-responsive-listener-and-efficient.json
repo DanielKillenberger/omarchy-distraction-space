@@ -10,6 +10,7 @@
   "id": "fn-27-responsive-listener-and-efficient",
   "impl_review_rounds": {
     "fn-27-responsive-listener-and-efficient.1": 0,
+    "fn-27-responsive-listener-and-efficient.2": 1,
     "fn-27-responsive-listener-and-efficient.3": 0
   },
   "next_task": 1,
@@ -126,8 +127,19 @@
     "impl:fn-27-responsive-listener-and-efficient.1": 1,
     "impl:fn-27-responsive-listener-and-efficient.3": 1
   },
-  "review_pending_rounds": {},
-  "review_reservations": {},
+  "review_pending_rounds": {
+    "impl:fn-27-responsive-listener-and-efficient.2": 1
+  },
+  "review_reservations": {
+    "884f865b22a84c76952e69242385b079": {
+      "artifact_sha256": "0d4f039fe45a0b7fb9d8dad860228b182c7f63250e46e3dd495ea08f95129985",
+      "counter_scope": "impl:fn-27-responsive-listener-and-efficient.2",
+      "epoch": 0,
+      "exclusive": true,
+      "forced": false,
+      "review_type": "impl"
+    }
+  },
   "review_transport_failures": {
     "impl:fn-27-responsive-listener-and-efficient.1": 0,
     "impl:fn-27-responsive-listener-and-efficient.3": 0
@@ -146,5 +158,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T21:01:02.082827Z"
+  "updated_at": "2026-09-05T21:22:30.092851Z"
 }

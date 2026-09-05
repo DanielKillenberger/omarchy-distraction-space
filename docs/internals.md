@@ -225,6 +225,8 @@ The final audio probe called the actual `_launch_browser_in_slice` helper throug
 
 This is direct helper, attribution, real-listener mute, and isolated owned-stream release evidence. The listener's global hold remained active: no global leave/unlock transition or immunity to subsequent policy reconciliation was demonstrated. Pre-muted streams intentionally remain outside mute ownership, including audio-server mute restored after an interrupted session; automatic recovery of those streams is not claimed. Other browsers/channels, unknown or forking wrappers, and arbitrary sites/protocols remain unverified.
 
+The [integrated reconciliation probe](../.flow/evidence/v3-live-reconcile.json) also exercised the actual listener-side helper against real nftables in an isolated network namespace. Three equal-policy cycles performed one replacement and three checks. Added-rule and deleted-table drift each produced `check`, `replace`, `check`; two empty-policy cycles both flushed. The probe invoked the branch wrapper directly as mapped namespace root, so it did not test sudo authorization. Its [script](../.flow/evidence/v3-live-reconcile.py) records that transport boundary.
+
 To repeat the wrapper's kernel policy checks separately from the ordinary offline suite:
 
 ```bash
