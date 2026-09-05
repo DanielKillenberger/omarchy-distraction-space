@@ -26,7 +26,7 @@ from ds import catalog, launch, state
 _ENV_KEYS = (
     "DS_SYSTEMD_RUN_LOG", "DS_BROWSER_LOG", "DS_FORWARD_LOG", "DS_NOTIFY_LOG", "DS_HYPR_LOG",
     "DS_HYPR_STATE", "DS_XDG_BROWSER", "XDG_DATA_HOME", "XDG_DATA_DIRS", "DS_LAUNCH_SETTLE",
-    "DS_FAKE_RC",
+    "DS_FAKE_RC", "CHROME_VERSION_EXTRA", "PULSE_PROP", "PULSE_SINK",
 )
 
 LOGGER = r"""
@@ -58,7 +58,11 @@ from pathlib import Path
 p = Path(os.environ["DS_BROWSER_LOG"])
 p.parent.mkdir(parents=True, exist_ok=True)
 with p.open("a", encoding="utf-8") as f:
-    f.write(json.dumps({"pid": os.getpid(), "argv": [os.path.basename(sys.argv[0])] + sys.argv[1:]}) + "\n")
+    f.write(json.dumps({
+        "pid": os.getpid(),
+        "argv": [os.path.basename(sys.argv[0])] + sys.argv[1:],
+        "env": {k: os.environ.get(k) for k in ("PULSE_PROP", "PULSE_SINK")},
+    }) + "\n")
 sys.exit(int(os.environ.get("DS_FAKE_RC", "0")))
 """
 
@@ -82,6 +86,33 @@ _BROWSER_APP_ID_CASES = (
     ("google-chrome-beta-extra", None),
     ("omarchy-open-chrome-safe", None),
     ("microsoft-edge", None),
+)
+
+_HOSTILE_CHANNEL = "beta;rm -rf /tmp/fn26-pwn"
+_PULSE_APP_ID_ASSIGNMENT = "application.id=io.github.danielkillenberger.distraction-space"
+_CHROME_CHANNEL_CASES = (
+    ("chrome", None, "com.google.Chrome"),
+    ("chrome", "stable", "com.google.Chrome"),
+    ("chrome", "extended", "com.google.Chrome"),
+    ("chrome", "dev", "com.google.Chrome"),
+    ("chrome", "beta", "com.google.Chrome.beta"),
+    ("chrome", "unstable", "com.google.Chrome.unstable"),
+    ("chrome", "canary", "com.google.Chrome.canary"),
+    ("chrome", _HOSTILE_CHANNEL, "com.google.Chrome"),
+    ("chromium", None, "org.chromium.Chromium"),
+    ("chromium", "stable", "org.chromium.Chromium"),
+    ("chromium", "extended", "org.chromium.Chromium"),
+    ("chromium", "dev", "org.chromium.Chromium"),
+    ("chromium", "beta", "org.chromium.Chromium.beta"),
+    ("chromium", "unstable", "org.chromium.Chromium.unstable"),
+    ("chromium", "canary", "org.chromium.Chromium.canary"),
+    ("chromium", _HOSTILE_CHANNEL, "org.chromium.Chromium"),
+)
+_STATIC_WRAPPER_BETA_CASES = (
+    ("google-chrome", "com.google.Chrome"),
+    ("google-chrome-stable", "com.google.Chrome"),
+    ("omarchy-open-chrome", "com.google.Chrome"),
+    ("google-chrome-beta", "com.google.Chrome.beta"),
 )
 
 # `omarchy-launch-browser` recurses into the plugin while `BROWSER` names it (Omarchy
@@ -149,6 +180,9 @@ class LaunchTests(unittest.TestCase):
             "XDG_DATA_DIRS": str(self.share),
         })
         os.environ.pop("DS_XDG_BROWSER", None)
+        os.environ.pop("CHROME_VERSION_EXTRA", None)
+        os.environ.pop("PULSE_PROP", None)
+        os.environ.pop("PULSE_SINK", None)
         self.box.fake_bin("systemd-run", LOGGER % "DS_SYSTEMD_RUN_LOG")
         # The browsers the desktop files and the config name: a launch checks the
         # binary is on PATH, and the real machine's browsers must not stand in.
@@ -534,7 +568,15 @@ class LaunchTests(unittest.TestCase):
             json.dumps({"browser": ["google-chrome-stable", *opaque]}), encoding="utf-8"
         )
         url = "https://www.youtube.com/"
-        r = self.box.run("open", url, extra_env={"DS_BROWSER_LOG": str(browser_log)})
+        pulse = 'media.name="foo bar" custom.x=1 application.id=old.id'
+        r = self.box.run(
+            "open", url,
+            extra_env={
+                "DS_BROWSER_LOG": str(browser_log),
+                "PULSE_PROP": pulse,
+                "PULSE_SINK": "null-sink",
+            },
+        )
         self.assertEqual(r.returncode, 0, r.stderr)
         run = self._wait_lines(self.run_log, 1)[0]
         browser = self._wait_lines(browser_log, 1)[0]
@@ -550,6 +592,8 @@ class LaunchTests(unittest.TestCase):
         delivered = ["google-chrome-stable", *opaque, *self._profile_flags(url)]
         self.assertEqual(argv[8:], delivered)
         self.assertEqual(browser["argv"], delivered)
+        self.assertEqual(browser["env"]["PULSE_PROP"], f"{pulse} {_PULSE_APP_ID_ASSIGNMENT}")
+        self.assertEqual(browser["env"]["PULSE_SINK"], "null-sink")
         self.assertFalse(pwn.exists())
 
     def test_unknown_wrapper_and_public_launch_in_slice_stay_generic(self):
@@ -585,10 +629,150 @@ class LaunchTests(unittest.TestCase):
 
 
 class BrowserAppIdTests(unittest.TestCase):
+    def setUp(self):
+        self._orig = os.environ.get("CHROME_VERSION_EXTRA")
+        os.environ.pop("CHROME_VERSION_EXTRA", None)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        if self._orig is None:
+            os.environ.pop("CHROME_VERSION_EXTRA", None)
+        else:
+            os.environ["CHROME_VERSION_EXTRA"] = self._orig
+
+    def _set_extra(self, extra):
+        if extra is None:
+            os.environ.pop("CHROME_VERSION_EXTRA", None)
+        else:
+            os.environ["CHROME_VERSION_EXTRA"] = extra
+
     def test_exact_basename_map(self):
         for binary, want in _BROWSER_APP_ID_CASES:
             with self.subTest(binary=binary):
                 self.assertEqual(launch._browser_app_id(binary), want)
+
+    def test_raw_chrome_chromium_channel_suffix(self):
+        for binary, extra, want in _CHROME_CHANNEL_CASES:
+            with self.subTest(binary=binary, extra=extra):
+                self._set_extra(extra)
+                self.assertEqual(launch._browser_app_id(binary), want)
+
+    def test_static_wrappers_ignore_inherited_beta(self):
+        os.environ["CHROME_VERSION_EXTRA"] = "beta"
+        for binary, want in _STATIC_WRAPPER_BETA_CASES:
+            with self.subTest(binary=binary):
+                self.assertEqual(launch._browser_app_id(binary), want)
+
+    def test_hostile_channel_never_enters_scope(self):
+        os.environ["CHROME_VERSION_EXTRA"] = _HOSTILE_CHANNEL
+        captured = []
+
+        def fake_detached(argv, program=None, env=None):
+            captured.append(list(argv))
+            return True
+
+        with mock.patch.object(launch, "_detached", fake_detached):
+            self.assertTrue(launch._launch_browser_in_slice(["/usr/bin/chrome", "https://x/"]))
+        self.assertEqual(len(captured), 1)
+        blob = "\0".join(captured[0])
+        self.assertNotIn(_HOSTILE_CHANNEL, blob)
+        self.assertNotIn("fn26-pwn", blob)
+        self.assertEqual(captured[0][4], "com.google.Chrome")
+
+
+class BrowserPulseEnvTests(unittest.TestCase):
+    _KEYS = ("PULSE_PROP", "PULSE_SINK", "DS_PULSE_PROBE", "CHROME_VERSION_EXTRA")
+
+    def setUp(self):
+        self._orig = {k: os.environ.get(k) for k in self._KEYS}
+        for k in self._KEYS:
+            os.environ.pop(k, None)
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        for k, v in self._orig.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+    def _capture(self, fn):
+        captured = []
+
+        def fake_detached(argv, program=None, env=None):
+            captured.append({
+                "argv": list(argv),
+                "program": program,
+                "env": None if env is None else dict(env),
+            })
+            return True
+
+        with mock.patch.object(launch, "_detached", fake_detached):
+            self.assertTrue(fn())
+        return captured[0]
+
+    def test_browser_child_env_appends_application_id(self):
+        existing = 'media.name="foo bar" custom.x=1 application.id=old.id'
+        os.environ["PULSE_PROP"] = existing
+        os.environ["PULSE_SINK"] = "null-sink"
+        os.environ["DS_PULSE_PROBE"] = "keep"
+        os.environ["CHROME_VERSION_EXTRA"] = "stable"
+        parent = {k: os.environ.get(k) for k in self._KEYS}
+        want_prop = f"{existing} {_PULSE_APP_ID_ASSIGNMENT}"
+
+        for label, argv, known in (
+            ("known", ["google-chrome-stable", "--app=https://youtube.com/"], True),
+            ("unknown", ["mystery-wrapper", "--app=https://youtube.com/"], False),
+        ):
+            with self.subTest(label=label):
+                got = self._capture(lambda argv=argv: launch._launch_browser_in_slice(argv))
+                env = got["env"]
+                self.assertIsNotNone(env)
+                self.assertIsNot(env, os.environ)
+                self.assertEqual(env["PULSE_PROP"], want_prop)
+                self.assertEqual(env["PULSE_SINK"], "null-sink")
+                self.assertEqual(env["DS_PULSE_PROBE"], "keep")
+                self.assertEqual(env.get("CHROME_VERSION_EXTRA"), "stable")
+                self.assertEqual(got["program"], argv[0])
+                if known:
+                    self.assertEqual(got["argv"][4], "com.google.Chrome")
+                    self.assertEqual(got["argv"][6:], argv)
+                else:
+                    self.assertEqual(got["argv"], launch.SCOPE_ARGV + argv)
+                self.assertEqual({k: os.environ.get(k) for k in self._KEYS}, parent)
+
+        for label, value in (("absent", None), ("empty", "")):
+            with self.subTest(pulse=label):
+                if value is None:
+                    os.environ.pop("PULSE_PROP", None)
+                else:
+                    os.environ["PULSE_PROP"] = value
+                got = self._capture(lambda: launch._launch_browser_in_slice(["chromium", "https://x/"]))
+                self.assertEqual(got["env"]["PULSE_PROP"], _PULSE_APP_ID_ASSIGNMENT)
+                self.assertEqual(os.environ.get("PULSE_PROP"), value)
+
+    def test_native_and_forward_leave_env_alone(self):
+        os.environ["PULSE_PROP"] = "application.id=keep"
+        os.environ["PULSE_SINK"] = "null-sink"
+        native = self._capture(lambda: launch.launch_in_slice(["Telegram", "--"]))
+        self.assertIsNone(native["env"])
+        self.assertEqual(native["argv"], launch.SCOPE_ARGV + ["Telegram", "--"])
+        self.assertEqual(os.environ["PULSE_PROP"], "application.id=keep")
+
+        captured = []
+
+        def fake_detached(argv, program=None, env=None):
+            captured.append(env)
+            return True
+
+        with mock.patch.object(launch, "_detached", fake_detached):
+            with mock.patch.object(launch.state, "read_entries", return_value={"previous_handler": "firefox.desktop"}):
+                with mock.patch.object(launch, "exec_argv", return_value=["firefox-fake", "https://example.com/"]):
+                    self.assertEqual(launch.forward("https://example.com/"), 0)
+        self.assertEqual(len(captured), 1)
+        self.assertIsNone(captured[0])
+        self.assertEqual(os.environ["PULSE_PROP"], "application.id=keep")
+        self.assertEqual(os.environ["PULSE_SINK"], "null-sink")
 
 
 class ExecParsingTests(unittest.TestCase):

@@ -36,16 +36,27 @@ SCOPE_ARGV = ["systemd-run", "--user", "--scope", "--quiet", "--collect", f"--sl
 # (base/version_info/nix/version_extra_utils.cc) and the browser PID
 # (components/dbus/xdg/systemd.cc). Pre-create that unit inside the distraction
 # slice. A wrapper mapped here must exec the browser so the PID stays $$.
+# Raw chrome/chromium inherit CHROME_VERSION_EXTRA; wrappers stay static
+# because they set or exec a channel themselves.
 _BROWSER_APP_IDS = {
     "google-chrome": "com.google.Chrome",
     "google-chrome-stable": "com.google.Chrome",
-    "chrome": "com.google.Chrome",
     "omarchy-open-chrome": "com.google.Chrome",
     "google-chrome-beta": "com.google.Chrome.beta",
     "google-chrome-unstable": "com.google.Chrome.unstable",
     "google-chrome-canary": "com.google.Chrome.canary",
+}
+_RAW_BROWSER_APP_IDS = {
+    "chrome": "com.google.Chrome",
     "chromium": "org.chromium.Chromium",
 }
+_CHROME_CHANNEL_SUFFIX = {
+    "beta": ".beta",
+    "unstable": ".unstable",
+    "canary": ".canary",
+}
+_PULSE_APPLICATION_ID = "io.github.danielkillenberger.distraction-space"
+_PULSE_APPLICATION_ID_PROP = f"application.id={_PULSE_APPLICATION_ID}"
 _BROWSER_SCOPE_SCRIPT = """\
 app_id=$1 slice=$2
 shift 2
@@ -541,21 +552,41 @@ def launch_in_slice(argv):
 
 
 def _browser_app_id(binary):
-    """Chromium portal application id for an exact known basename, else None."""
-    return _BROWSER_APP_IDS.get(Path(binary).name)
+    """Chromium portal application id for an exact known basename, else None.
+
+    Raw `chrome`/`chromium` inherit GetAppName's CHROME_VERSION_EXTRA suffix
+    (`.beta`/`.unstable`/`.canary` only). Wrappers stay on the static map.
+    """
+    name = Path(binary).name
+    raw = _RAW_BROWSER_APP_IDS.get(name)
+    if raw is not None:
+        suffix = _CHROME_CHANNEL_SUFFIX.get(os.environ.get("CHROME_VERSION_EXTRA", ""), "")
+        return raw + suffix
+    return _BROWSER_APP_IDS.get(name)
+
+
+def _browser_child_env():
+    """Copy of os.environ with distraction application.id appended on PULSE_PROP."""
+    env = dict(os.environ)
+    existing = env.get("PULSE_PROP") or ""
+    env["PULSE_PROP"] = f"{existing} {_PULSE_APPLICATION_ID_PROP}" if existing else _PULSE_APPLICATION_ID_PROP
+    return env
 
 
 def _launch_browser_in_slice(argv):
     """Run a known browser as Chromium's own portal scope inside the slice.
 
-    Unknown wrappers keep the generic `launch_in_slice` path.
+    Unknown wrappers keep the generic scope argv, still with the distraction
+    Pulse application.id. Native and forward launches do not take this env.
     """
+    env = _browser_child_env()
     app_id = _browser_app_id(argv[0])
     if app_id is None:
-        return launch_in_slice(argv)
+        return _detached(SCOPE_ARGV + list(argv), program=argv[0], env=env)
     return _detached(
         ["/bin/bash", "-c", _BROWSER_SCOPE_SCRIPT, "distraction-browser", app_id, cgroup.SLICE, *argv],
         program=argv[0],
+        env=env,
     )
 
 
