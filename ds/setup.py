@@ -11,7 +11,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ds import state
+from ds import cgroup, state
 
 ROOT = Path(__file__).resolve().parent.parent
 WRAPPER_DEFAULT = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
@@ -610,6 +610,56 @@ def clone_drift() -> str | None:
     return None
 
 
+def _user_unit_dir() -> Path:
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(raw) if raw else Path.home() / ".config"
+    return base / "systemd" / "user"
+
+
+def sync_slice() -> int:
+    """Install the slice unit under the user manager and start it. No root, no prompt."""
+    source = ROOT / "install" / cgroup.SLICE
+    dest = _user_unit_dir() / cgroup.SLICE
+    try:
+        data = source.read_bytes()
+        current = dest.read_bytes() if dest.is_file() else None
+        if current != data:
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+            rc, err = cgroup.systemctl_user("daemon-reload")
+            if rc != 0:
+                print(err or "systemctl --user daemon-reload failed", file=sys.stderr)
+                return 1
+    except OSError as e:
+        print(f"cannot install {dest}: {e}", file=sys.stderr)
+        return 1
+    if not cgroup.ensure_slice():
+        print(f"systemctl --user start {cgroup.SLICE} failed", file=sys.stderr)
+        return 1
+    return 0
+
+
+def remove_slice() -> int:
+    """`setup --remove`: stop the slice and drop its unit file."""
+    rc, err = cgroup.systemctl_user("stop", cgroup.SLICE)
+    if rc != 0:
+        print(err or f"systemctl --user stop {cgroup.SLICE} failed", file=sys.stderr)
+        return 1
+    dest = _user_unit_dir() / cgroup.SLICE
+    try:
+        if not dest.exists():
+            return 0
+        dest.unlink()
+    except OSError as e:
+        print(f"cannot remove {dest}: {e}", file=sys.stderr)
+        return 1
+    rc, err = cgroup.systemctl_user("daemon-reload")
+    if rc != 0:
+        print(err or "systemctl --user daemon-reload failed", file=sys.stderr)
+        return 1
+    return 0
+
+
 def install():
     wrapper = wrapper_dest()
     sudoers = _sudoers_dest()
@@ -633,16 +683,22 @@ def install():
         if _root_transaction(source, grant_bytes, wrapper, sudoers) != 0:
             print("sudo setup transaction failed", file=sys.stderr)
             return 1
+    slice_rc = sync_slice()
     clone_rc = sync_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:
         _settle_service()
-    return 1 if rescan_rc != 0 or clone_rc != 0 else 0
+    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 else 0
 
 
 def remove():
     wrapper = wrapper_dest()
     sudoers = _sudoers_dest()
+    # The wrapper renders the slice's cgroup rule on every call and nft resolves
+    # that path at load time, so the slice has to be alive for this last flush too.
+    if not cgroup.ensure_slice():
+        print(f"systemctl --user start {cgroup.SLICE} failed; the wrapper cannot flush without it", file=sys.stderr)
+        return 1
     proc = subprocess.run(
         ["sudo", "-n", str(wrapper), "flush", "ds"],
         capture_output=True,
@@ -659,11 +715,12 @@ def remove():
     if proc.returncode != 0:
         print("sudo rm failed", file=sys.stderr)
         return 1
+    slice_rc = remove_slice()
     clone_rc = remove_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:
         _settle_service()
-    return 1 if rescan_rc != 0 or clone_rc != 0 else 0
+    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 else 0
 
 
 def cmd_setup(args):

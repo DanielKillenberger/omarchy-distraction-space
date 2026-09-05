@@ -403,6 +403,8 @@ class CloneTests(unittest.TestCase):
         )
         self.box.fake_bin("sudo", SUDO)
         self.box.fake_bin("visudo", VISUDO)
+        # setup now installs and starts the slice unit; keep the user manager out of the test.
+        self.box.fake_bin("systemctl", "import sys\nsys.exit(0)\n")
         real_access, resolved = os.access, prefix.resolve()
 
         def fake_access(path, mode, **kwargs):

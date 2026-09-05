@@ -11,6 +11,7 @@ network half.
 from __future__ import annotations
 
 import ipaddress
+import os
 import subprocess
 import sys
 
@@ -31,6 +32,12 @@ MAX_STDIN_BYTES = 256 * 1024
 # Same headroom on the set itself, so a granted account cannot make root render and
 # commit a ruleset proportional to whatever it feels like sending.
 MAX_ADDRESSES = 4096
+# The person's distraction slice under their user manager. Traffic from it is
+# accepted ahead of every reject and redirect; nft resolves the path to a cgroup
+# id when the rule loads, so the directory has to exist under the cgroup2 mount.
+SLICE = "app-distraction.slice"
+CGROUP_ROOT = "/sys/fs/cgroup"
+SLICE_LEVEL = 5
 
 
 def _fail(message: str, code: int = 2) -> None:
@@ -56,13 +63,33 @@ def _parse_address(token: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
         _fail(f"refused: not an address: {token}")
 
 
+def slice_path(uid: int) -> str:
+    """Cgroup path of uid's distraction slice; ds/cgroup.py renders the same one."""
+    return f"user.slice/user-{uid}.slice/user@{uid}.service/app.slice/{SLICE}"
+
+
+def _invoking_uid() -> int:
+    # sudo sets SUDO_UID itself, so under env_reset the caller cannot pick a slice.
+    raw = os.environ.get("SUDO_UID", "")
+    if not (raw.isascii() and raw.isdigit()):
+        _fail("refused: no invoking uid")
+    return int(raw)
+
+
+def _require_slice(cgroup: str) -> None:
+    root = os.environ.get("DS_CGROUP_ROOT") or CGROUP_ROOT
+    if not os.path.isdir(os.path.join(root, cgroup)):
+        _fail("refused: slice cgroup missing", 1)
+
+
 def _elements(addrs: list[str]) -> str:
     if not addrs:
         return ""
     return "    elements = { " + ", ".join(addrs) + " }\n"
 
 
-def render_table(v4: list[str], v6: list[str]) -> str:
+def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
+    slice_accept = f'socket cgroupv2 level {SLICE_LEVEL} "{cgroup}" accept'
     return (
         f"destroy table {FAMILY} {TABLE}\n"
         f"table {FAMILY} {TABLE} {{\n"
@@ -76,6 +103,7 @@ def render_table(v4: list[str], v6: list[str]) -> str:
         f"  }}\n"
         f"  chain output {{\n"
         f"    type filter hook output priority filter; policy accept;\n"
+        f"    {slice_accept}\n"
         f"    meta nfproto ipv4 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    meta nfproto ipv6 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    ip daddr @{SET4} meta l4proto tcp reject with tcp reset\n"
@@ -85,6 +113,7 @@ def render_table(v4: list[str], v6: list[str]) -> str:
         f"  }}\n"
         f"  chain output_nat {{\n"
         f"    type nat hook output priority dstnat; policy accept;\n"
+        f"    {slice_accept}\n"
         f"    meta nfproto ipv4 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    meta nfproto ipv6 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    ip daddr @{SET4} tcp dport 80 redirect to :{HTTP_PORT}\n"
@@ -136,6 +165,7 @@ def main(argv: list[str] | None = None) -> int:
         _fail("refused: only target ds is allowed")
     if command not in {"replace", "flush"}:
         _fail("usage: distractions-nft replace|flush ds")
+    cgroup = slice_path(_invoking_uid())
     text = _read_stdin()
     if command == "flush":
         if text.strip():
@@ -143,7 +173,8 @@ def main(argv: list[str] | None = None) -> int:
         v4, v6 = [], []
     else:
         v4, v6 = parse_replace_stdin(text)
-    return commit(render_table(v4, v6))
+    _require_slice(cgroup)
+    return commit(render_table(v4, v6, cgroup))
 
 
 if __name__ == "__main__":

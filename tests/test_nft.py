@@ -18,6 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT
 
 WRAPPER = ROOT / "distractions-nft"
+UID = 1000
+CGROUP = f"user.slice/user-{UID}.slice/user@{UID}.service/app.slice/app-distraction.slice"
+SLICE_ACCEPT = f'socket cgroupv2 level 5 "{CGROUP}" accept'
 
 FAKE_NFT = r"""
 import os, sys
@@ -51,6 +54,11 @@ class NftTests(unittest.TestCase):
         self.env = os.environ.copy()
         self.env["PATH"] = f"{self.bin}{os.pathsep}{self.env.get('PATH', '')}"
         self.env["NFT_FAKE"] = str(self.root)
+        # What sudo hands the wrapper, and the slice cgroup it looks for under the mount.
+        self.cgroup_root = self.root / "cgroup"
+        (self.cgroup_root / CGROUP).mkdir(parents=True)
+        self.env["SUDO_UID"] = str(UID)
+        self.env["DS_CGROUP_ROOT"] = str(self.cgroup_root)
         self.nft = load_nft()
 
     def run_wrapper(self, args, stdin=""):
@@ -80,7 +88,7 @@ class NftTests(unittest.TestCase):
         return payload
 
     def test_render_has_redirect_per_family_and_reject(self):
-        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"])
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
         self.assertIn("chain output_nat", script)
         self.assertIn("type nat hook output priority dstnat", script)
         self.assertIn("ip daddr @omarchy_ds_v4 tcp dport 80 redirect to :28080", script)
@@ -100,12 +108,13 @@ class NftTests(unittest.TestCase):
         self.assertIn("meta l4proto tcp reject with tcp reset", logged)
 
     def test_splice_source_port_accept_precedes_redirect_and_reject(self):
-        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"])
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
         filter_body = script[
             script.index("chain output {") : script.index("chain output_nat {")
         ]
         nat_body = script[script.index("chain output_nat {") :]
         first_rules = (
+            f"\n    {SLICE_ACCEPT}"
             "\n    meta nfproto ipv4 tcp sport 61000-61999 accept"
             "\n    meta nfproto ipv6 tcp sport 61000-61999 accept\n"
         )
@@ -156,8 +165,61 @@ class NftTests(unittest.TestCase):
                     nat_body.index(f"{daddr} tcp dport 443 redirect"),
                 )
 
+    def test_cgroup_accept_is_the_first_rule_and_names_the_invoking_uid(self):
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
+        self.assertEqual(self.nft.slice_path(UID), CGROUP)
+        self.assertEqual(script.count(SLICE_ACCEPT), 2)
+        for chain, type_line, later in (
+            ("output", "type filter hook output priority filter; policy accept;", " reject"),
+            ("output_nat", "type nat hook output priority dstnat; policy accept;", " redirect to"),
+        ):
+            with self.subTest(chain=chain):
+                body = script[script.index(f"chain {chain} {{") :]
+                after_type = body[body.index(type_line) + len(type_line) :]
+                self.assertTrue(after_type.startswith(f"\n    {SLICE_ACCEPT}\n"), after_type[:200])
+                self.assertLess(body.index(SLICE_ACCEPT), body.index("tcp sport 61000-61999 accept"))
+                self.assertLess(body.index(SLICE_ACCEPT), body.index(later))
+        # Another uid, another slice: the path is derived from SUDO_UID and nothing else.
+        other = 4242
+        (self.cgroup_root / self.nft.slice_path(other)).mkdir(parents=True)
+        self.env["SUDO_UID"] = str(other)
+        result = self.run_wrapper(["replace", "ds"], "203.0.113.5\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f'level 5 "{self.nft.slice_path(other)}" accept', self.stdin_log())
+        self.assertNotIn(CGROUP, self.stdin_log())
+
+    def test_refuses_without_an_invoking_uid_before_any_nft_call(self):
+        cases = [None, "", "abc", "1000x", "-1", " 1000", "1000\n", "\uff11\uff10\uff10\uff10"]
+        for raw in cases:
+            with self.subTest(sudo_uid=raw):
+                if raw is None:
+                    self.env.pop("SUDO_UID", None)
+                else:
+                    self.env["SUDO_UID"] = raw
+                for args in (["replace", "ds"], ["flush", "ds"]):
+                    result = self.run_wrapper(args, "203.0.113.1\n" if args[0] == "replace" else "")
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertEqual(result.stderr.strip(), "refused: no invoking uid")
+                self.assertFalse((self.root / "calls.log").exists())
+                self.assertFalse((self.root / "stdin.log").exists())
+
+    def test_missing_slice_cgroup_exits_1_before_any_nft_call(self):
+        shutil.rmtree(self.cgroup_root / CGROUP)
+        for args, stdin in ((["replace", "ds"], "203.0.113.1\n"), (["flush", "ds"], "")):
+            with self.subTest(args=args):
+                result = self.run_wrapper(args, stdin)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(result.stderr.strip(), "refused: slice cgroup missing")
+                self.assertFalse((self.root / "calls.log").exists())
+                self.assertFalse((self.root / "stdin.log").exists())
+        # A file where the directory should be is not a cgroup either.
+        (self.cgroup_root / CGROUP).write_text("", encoding="utf-8")
+        result = self.run_wrapper(["replace", "ds"], "203.0.113.1\n")
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertFalse((self.root / "calls.log").exists())
+
     def test_empty_sets_render_table_that_matches_nothing(self):
-        script = self.nft.render_table([], [])
+        script = self.nft.render_table([], [], CGROUP)
         self.assertIn("table inet omarchy_ds", script)
         self.assertIn("set omarchy_ds_v4", script)
         self.assertIn("set omarchy_ds_v6", script)
@@ -237,7 +299,7 @@ class NftTests(unittest.TestCase):
         nft = shutil.which("nft")
         if not nft:
             self.skipTest("nft not on PATH")
-        script = self.nft.render_table(["203.0.113.8"], ["2001:db8::8"])
+        script = self.nft.render_table(["203.0.113.8"], ["2001:db8::8"], CGROUP)
         result = subprocess.run(
             [nft, "-c", "-f", "-"],
             input=script,

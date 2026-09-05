@@ -120,6 +120,15 @@ Path(os.environ["DS_RESCAN_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
 sys.exit(0)
 """
 
+SYSTEMCTL = r"""
+import os, sys
+from pathlib import Path
+Path(os.environ["DS_SYSTEMCTL_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
+if os.environ.get("DS_SYSTEMCTL_FAIL"):
+    sys.stderr.write("Failed to connect to bus: No medium found\n")
+    sys.exit(1)
+"""
+
 SHELL_FAIL = r"""
 import os, sys
 from pathlib import Path
@@ -151,6 +160,10 @@ class SetupTests(unittest.TestCase):
         os.environ["DS_RESCAN_LOG"] = str(self.rescan_log)
         os.environ["DS_VISUDO_LOG"] = str(self.visudo_log)
         os.environ.pop("DS_VISUDO_FAIL", None)
+        self.systemctl_log = self.box.runtime / "systemctl.log"
+        os.environ["DS_SYSTEMCTL_LOG"] = str(self.systemctl_log)
+        os.environ.pop("DS_SYSTEMCTL_FAIL", None)
+        self.unit = self.box.config / "systemd" / "user" / "app-distraction.slice"
         os.environ["DS_LOCK_PREFIX"] = str(self.prefix)
         # No notification plugin source in the sandbox: the clone step reports
         # the hold unavailable and never reaches the live omarchy-plugin-clone.
@@ -162,6 +175,7 @@ class SetupTests(unittest.TestCase):
         self.box.fake_bin("sudo", SUDO)
         self.box.fake_bin("visudo", VISUDO)
         self.box.fake_bin("omarchy-shell", SHELL_OK)
+        self.box.fake_bin("systemctl", SYSTEMCTL)
         real_access = os.access
         prefix = self.prefix.resolve()
 
@@ -194,6 +208,11 @@ class SetupTests(unittest.TestCase):
         if not self.visudo_log.exists():
             return []
         return [ln.split("\t") for ln in self.visudo_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    def _systemctl_lines(self):
+        if not self.systemctl_log.exists():
+            return []
+        return [ln for ln in self.systemctl_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
     def _staged(self):
         """Anything the transaction left behind in the destination directories."""
@@ -326,6 +345,59 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.wrapper.exists())
         self.assertFalse(self.sudoers.exists())
         self.assertTrue(any(ln.startswith("rm ") for ln in self._sudo_lines()))
+
+    def test_install_writes_and_starts_the_slice_unit_once(self):
+        self.assertEqual(setup.install(), 0)
+        self.assertEqual(self.unit.read_bytes(), (ROOT / "install" / "app-distraction.slice").read_bytes())
+        self.assertEqual(
+            self._systemctl_lines(),
+            ["--user daemon-reload", "--user start app-distraction.slice"],
+        )
+        # No root in the slice step: the one sudo line is the transaction.
+        self.assertEqual(len(self._sudo_lines()), 1)
+        ident = self._ident(self.unit)
+        self.assertEqual(setup.install(), 0)
+        self.assertEqual(self._ident(self.unit), ident)
+        self.assertEqual(
+            self._systemctl_lines(),
+            ["--user daemon-reload", "--user start app-distraction.slice", "--user start app-distraction.slice"],
+        )
+        # A unit that drifted is rewritten and reloaded.
+        self.unit.write_text("[Unit]\nDescription=drifted\n\n[Slice]\n", encoding="utf-8")
+        self.assertEqual(setup.install(), 0)
+        self.assertEqual(self.unit.read_bytes(), (ROOT / "install" / "app-distraction.slice").read_bytes())
+        self.assertEqual(self._systemctl_lines()[-2:], ["--user daemon-reload", "--user start app-distraction.slice"])
+
+    def test_remove_stops_and_deletes_the_slice_unit_after_the_flush(self):
+        self.assertEqual(setup.install(), 0)
+        self.systemctl_log.write_text("", encoding="utf-8")
+        self.sudo_log.write_text("", encoding="utf-8")
+        self.assertEqual(setup.remove(), 0)
+        self.assertFalse(self.unit.exists())
+        # The flush renders the slice's cgroup rule, so the slice is alive for it and stopped after.
+        self.assertEqual(
+            self._systemctl_lines(),
+            ["--user start app-distraction.slice", "--user stop app-distraction.slice", "--user daemon-reload"],
+        )
+        self.assertTrue(any(ln.endswith("flush ds") for ln in self._sudo_lines()))
+        self.systemctl_log.write_text("", encoding="utf-8")
+        self.assertEqual(setup.remove(), 0)
+        self.assertFalse(self.unit.exists())
+        self.assertEqual(self._systemctl_lines(), ["--user start app-distraction.slice", "--user stop app-distraction.slice"])
+
+    def test_slice_manager_failure_fails_setup_and_stops_remove_before_root(self):
+        os.environ["DS_SYSTEMCTL_FAIL"] = "1"
+        self.assertEqual(setup.install(), 1)
+        # The root half already landed; the failure is reported, not hidden by the rescan.
+        self.assertTrue(self.wrapper.is_file())
+        self.assertEqual(self._systemctl_lines(), ["--user daemon-reload"])
+        self.assertTrue(self.unit.is_file())
+        self.assertTrue(self._rescan_text().strip().endswith("shell rescanPlugins"))
+        self.sudo_log.write_text("", encoding="utf-8")
+        self.assertEqual(setup.remove(), 1)
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self.sudoers.is_file())
+        self.assertEqual(self._sudo_lines(), [])
 
     def test_grant_is_validated_and_activated_as_one_root_owned_file(self):
         """The file visudo accepted is the file that lands: no name is resolved twice."""
