@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-24-the-plugin-owns-launching-while-it-is",
-  "completion_review_status": "needs_work",
-  "completion_reviewed_at": "2026-09-05T19:17:43.565060Z",
+  "completion_review_status": "ship",
+  "completion_reviewed_at": "2026-09-05T19:27:08.642302Z",
   "created_at": "2026-09-05T17:44:35.660223Z",
   "default_impl": null,
   "default_review": null,
@@ -14,7 +14,7 @@
     "fn-24-the-plugin-owns-launching-while-it-is.3": 0
   },
   "next_task": 1,
-  "plan_review_rounds": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "review_attempts": [
@@ -510,12 +510,57 @@
       "timestamp": "2026-09-05T19:17:43.554186Z",
       "tool_calls": 13,
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "14fb0c75a1fe85bed983a596461ab9d15b6fd4f92345e0faefd8d18a4c6d05a9",
+      "backend": "codex",
+      "base_sha": "2a2a900dddde1e579af53b036c12af82a6105e35",
+      "counter_kind": "plan",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-4c1a160e3eccf88ec3c9351eeccd062a",
+            "classification": "introduced",
+            "findingId": "finding-4c1a160e3eccf88ec3c9351eeccd062a",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "completion"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "7c82086550580cacef2d0463ad3b5f91e8ba4fd4",
+      "head_sha_observed": true,
+      "kind": "completion",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 4667,
+      "output_sha256": "4861198dcdf1c6cd0fbe3081424f13873a477154e4462719120d66230e4c91bf",
+      "reservation_id": "dcff0f76fa6242c683ce37f9ff340c53",
+      "round_consumed": true,
+      "scope": "completion",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-05T19:27:08.639762Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-24-the-plugin-owns-launching-while-it-is.1": 1,
     "impl:fn-24-the-plugin-owns-launching-while-it-is.2": 1,
-    "impl:fn-24-the-plugin-owns-launching-while-it-is.3": 1
+    "impl:fn-24-the-plugin-owns-launching-while-it-is.3": 1,
+    "plan#completion": 1
   },
   "review_pending_rounds": {},
   "review_reservations": {},
@@ -539,5 +584,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T19:17:43.571166Z"
+  "updated_at": "2026-09-05T19:27:08.642851Z"
 }
