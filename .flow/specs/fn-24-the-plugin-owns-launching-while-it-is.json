@@ -571,7 +571,7 @@
     "impl:fn-24-the-plugin-owns-launching-while-it-is.3": 0
   },
   "spec_path": ".flow/specs/fn-24-the-plugin-owns-launching-while-it-is.md",
-  "status": "open",
+  "status": "done",
   "title": "The plugin owns launching while it is the default browser, and says so during setup",
   "tracker": {
     "baseHashFlow": null,
@@ -584,5 +584,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T19:27:08.642851Z"
+  "updated_at": "2026-09-05T22:49:04.904677Z"
 }

@@ -7,7 +7,7 @@
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "spec_path": ".flow/specs/fn-30-publish-reviewed-v3-and-refresh-the.md",
-  "status": "open",
+  "status": "done",
   "title": "Publish reviewed v3 and refresh the submission",
   "tracker": {
     "baseHashFlow": null,
@@ -20,5 +20,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T22:44:02.179235Z"
+  "updated_at": "2026-09-05T22:49:10.336233Z"
 }

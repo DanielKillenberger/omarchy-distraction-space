@@ -1454,7 +1454,7 @@
     "impl:fn-22-the-space-is-a-process-group-one.9": 0
   },
   "spec_path": ".flow/specs/fn-22-the-space-is-a-process-group-one.md",
-  "status": "open",
+  "status": "done",
   "title": "The space is a process group: one boundary for windows, links, network, and sound",
   "tracker": {
     "baseHashFlow": null,
@@ -1467,5 +1467,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T14:47:11.478975Z"
+  "updated_at": "2026-09-05T22:49:03.162110Z"
 }

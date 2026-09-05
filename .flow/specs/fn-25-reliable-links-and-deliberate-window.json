@@ -109,7 +109,7 @@
     "impl:fn-25-reliable-links-and-deliberate-window.2": 0
   },
   "spec_path": ".flow/specs/fn-25-reliable-links-and-deliberate-window.md",
-  "status": "open",
+  "status": "done",
   "title": "Reliable links and deliberate window migration",
   "tracker": {
     "baseHashFlow": null,
@@ -122,5 +122,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T21:01:03.809224Z"
+  "updated_at": "2026-09-05T22:49:05.790531Z"
 }

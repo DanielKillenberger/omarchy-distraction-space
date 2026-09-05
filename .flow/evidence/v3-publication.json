@@ -1,0 +1,24 @@
+{
+  "pull_request": {
+    "mergeCommit": {
+      "oid": "8996d60870b7943ff407de64ee208349943cc849"
+    },
+    "mergedAt": "2026-09-05T22:47:54Z",
+    "state": "MERGED",
+    "url": "https://github.com/DanielKillenberger/omarchy-distraction-space/pull/23"
+  },
+  "reviewed_head": "0c683e40c7d50d712a59a9d19fbf70d5b0b08f79",
+  "identical_tree": true,
+  "submission": {
+    "url": "https://github.com/omacom/omarchy-plugin-marketplace/issues/4518",
+    "state": "OPEN",
+    "initial_candidate": "8996d60870b7943ff407de64ee208349943cc849",
+    "readback_verified": true
+  },
+  "python311": "451 tests OK,1 intentional skip",
+  "python314": "451 tests OK,1 intentional skip",
+  "plugin_validation": "passed",
+  "github_ci": "not configured",
+  "merge_authorization": "Explicit user instruction in conversation after local/Fable validation",
+  "release": "No project release procedure found; no tag/release created."
+}

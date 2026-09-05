@@ -138,7 +138,7 @@
     "impl:fn-26-visible-health-and-accessible-v3.3": 0
   },
   "spec_path": ".flow/specs/fn-26-visible-health-and-accessible-v3.md",
-  "status": "open",
+  "status": "done",
   "title": "Visible health and accessible v3 controls",
   "tracker": {
     "baseHashFlow": null,
@@ -151,5 +151,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T21:30:20.959045Z"
+  "updated_at": "2026-09-05T22:49:06.701370Z"
 }

@@ -78,7 +78,7 @@
     "impl:fn-28-room-for-the-early-leave-reason.1": 0
   },
   "spec_path": ".flow/specs/fn-28-room-for-the-early-leave-reason.md",
-  "status": "open",
+  "status": "done",
   "title": "Room for the early-leave reason",
   "tracker": {
     "baseHashFlow": null,
@@ -91,5 +91,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T22:17:41.087895Z"
+  "updated_at": "2026-09-05T22:49:08.555312Z"
 }

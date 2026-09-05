@@ -90,7 +90,7 @@
     "impl:fn-29-type-focus-minutes-directly.1": 0
   },
   "spec_path": ".flow/specs/fn-29-type-focus-minutes-directly.md",
-  "status": "open",
+  "status": "done",
   "title": "Type focus minutes directly",
   "tracker": {
     "baseHashFlow": null,
@@ -103,5 +103,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T22:41:11.027866Z"
+  "updated_at": "2026-09-05T22:49:09.464345Z"
 }

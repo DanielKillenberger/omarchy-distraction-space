@@ -234,7 +234,7 @@
     "impl:fn-27-responsive-listener-and-efficient.3": 0
   },
   "spec_path": ".flow/specs/fn-27-responsive-listener-and-efficient.md",
-  "status": "open",
+  "status": "done",
   "title": "Responsive listener and efficient firewall reconciliation",
   "tracker": {
     "baseHashFlow": null,
@@ -247,5 +247,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T21:39:03.667644Z"
+  "updated_at": "2026-09-05T22:49:07.684385Z"
 }

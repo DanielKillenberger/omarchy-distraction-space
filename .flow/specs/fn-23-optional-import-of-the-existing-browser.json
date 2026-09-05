@@ -267,7 +267,7 @@
     "impl:fn-23-optional-import-of-the-existing-browser.1": 0
   },
   "spec_path": ".flow/specs/fn-23-optional-import-of-the-existing-browser.md",
-  "status": "open",
+  "status": "done",
   "title": "Optional import of the existing browser profile into the distraction profile",
   "tracker": {
     "baseHashFlow": null,
@@ -280,5 +280,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T17:13:43.371111Z"
+  "updated_at": "2026-09-05T22:49:04.029409Z"
 }
