@@ -42,6 +42,8 @@ Autostart owns the long-running listener. To start it now without logging out:
 
 Each web app asks for a login once, because listed web products now run in their own browser profile and that profile starts empty. Your 2.x web apps stay logged in under the work browser's profile, where they can no longer reach their sites; the first time one of those windows opens, the listener closes it and reopens the product in the distraction profile, and you sign in there. Nothing about the Hyprland snippets or the config file changes: a 2.x config loads with every new key at its default, and `setup` adds the slice unit, the launcher entries, and the URL handler on its next run. Run it once after updating.
 
+Or carry the logins over instead of signing in again. With both browsers closed, `distractions profile import` copies the default browser's main profile (`~/.config/google-chrome/Default` for Chrome; the matching directory for Chromium, Brave, Edge, and Vivaldi; `--from <dir>` names any other Chromium profile) into the distraction profile, minus the caches Chromium regenerates, so cookies, passwords, bookmarks, history, and extensions arrive in one go. It refuses while the source browser or the distraction browser is running, refuses a source that is not a Chromium profile, and refuses an existing distraction profile unless you pass `--replace`, which moves the existing one to `Distraction.bak-<date>` beside it and never deletes it. This is a one-time snapshot: nothing keeps the two profiles in sync afterwards, the copied extensions run in the distraction profile from then on, and your Google account shows as signed in on two profiles. It moves about a gigabyte and `setup` never runs it.
+
 ## Remove
 
 ```bash
@@ -146,6 +148,7 @@ With no config file, the first load seeds `list` from your existing `~/.config/o
 |---|---|
 | `status [--json]` | Lock, `on_space`, `site_block`, `hold`, `held`, `notification_hold`, `pass_through`, `links`, `browser`, and `released`. Works with no listener running. |
 | `open <url\|name>` | Launch a listed URL, list entry, or catalog product in the space, or focus its existing window. An unlisted URL is forwarded to the previous default browser. Exit 1 when no browser can be started or the link had no forwarder, 2 on a malformed URL. |
+| `profile import [--from DIR] [--replace]` | Copy the default browser's main profile, or the Chromium profile at `DIR`, into the distraction profile once, skipping caches, and print the destination and the byte count. Exit 1 while either browser runs, when the source is not a Chromium profile or overlaps the destination, or when the destination exists without `--replace`. |
 | `toggle` / `enter` / `leave` | Enter or leave the space. `enter` refuses while locked. |
 | `next` / `prev` | Cycle occupied workspaces, skipping the space. |
 | `lock [MINUTES\|forever] [PURPOSE...]` | Lock. No arguments opens the duration menu, then the purpose input. Leaves the space first when you are on it. |

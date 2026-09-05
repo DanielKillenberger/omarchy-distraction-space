@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ds import catalog, config, hold, hypr, launch, listener, lock, setup, state, ui
+from ds import catalog, config, hold, hypr, launch, listener, lock, profile, setup, state, ui
 
 COMMANDS = {
     "status": state.cmd_status,
@@ -30,6 +30,7 @@ COMMANDS = {
     "senders": hold.cmd_senders,
     "banners": state.cmd_banners,
     "open": launch.cmd_open,
+    "profile": profile.cmd_profile,
 }
 
 
@@ -78,6 +79,10 @@ def build_parser():
     banners = sub.add_parser("banners")
     banners.add_argument("--count", type=positive_int, default=20, metavar="N")
     sub.add_parser("open").add_argument("target")
+    pr = sub.add_parser("profile").add_subparsers(dest="profile_cmd")
+    imp = pr.add_parser("import", help="copy the existing browser profile into the distraction profile once")
+    imp.add_argument("--from", dest="source", metavar="PROFILE_DIR", help="a Chromium profile directory instead of the default browser's main profile")
+    imp.add_argument("--replace", action="store_true", help="move an existing distraction profile aside to a dated backup first")
     return p
 
 
