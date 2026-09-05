@@ -267,8 +267,7 @@ class _Ctx:
                 self.prev = here
         self.sync_hold(force=True)
         if not self.block_enabled():
-            self.flush(reason)
-            return True
+            return self.flush(reason)
         self.request(reason)
         self.write_state(True)
         return self.latest
@@ -326,7 +325,9 @@ class _Ctx:
             return self._follow()
         result = _apply(addrs)
         net.finish_batch(batch, _APPLY.get(result, result))
-        self._reply_waiters(gen, True)
+        # A wrapper refusal is an enforcement failure: whoever asked for this
+        # generation hears `error`, not `ok`, and the state carries `unavailable`.
+        self._reply_waiters(gen, result in ("on", "off"))
         self.write_state()
         self._follow()
     def _follow(self):
@@ -352,11 +353,13 @@ class _Ctx:
                 _send_reply(c.sock, b"error\n")
                 c.gen = "done"
     def flush(self, _reason=None):
+        """Destroy the table; True when the wrapper accepted it, False when it refused."""
         self.gen += 1
         self.latest, self.rerun = self.gen, False
-        _apply([])
+        result = _apply([])
         self._drop_waiters()
         self.write_state(True)
+        return result == "off"
     def event(self, line):
         if hypr.is_config_reload(line):
             hypr.apply_rules(self.exp)
@@ -408,7 +411,9 @@ class _Ctx:
         return self.enforce("reload")
     def refresh(self):
         if not self.block_enabled():
-            return True
+            # Nothing to resolve. The switch is honored already unless the last
+            # flush was refused, in which case this is the retry.
+            return net.site_block == "off" or self.flush("refresh")
         self.request("refresh")
         return self.latest
     def write_state(self, force=False):

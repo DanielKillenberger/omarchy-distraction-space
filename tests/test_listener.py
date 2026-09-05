@@ -89,6 +89,10 @@ with log.open("a", encoding="utf-8") as f:
     f.write(" ".join(args) + "\n")
     f.write(body)
     f.write("\n--\n")
+# A refusal from the wrapper, toggled by a file so a test can flip it mid-run.
+if os.path.exists(os.environ.get("DS_NFT_FAIL_FILE", "")):
+    sys.stderr.write("refused: slice cgroup missing\n")
+    sys.exit(1)
 sys.exit(0)
 """
 
@@ -215,6 +219,7 @@ class ListenerTests(unittest.TestCase):
             "DS_HOOK_LOG": str(self.hook_log),
             "DS_HYPR_STATE": str(self.hypr_state),
             "DS_SYSTEMCTL_LOG": str(self.systemctl_log),
+            "DS_NFT_FAIL_FILE": str(self.box.runtime / "nft.fail"),
             "DS_SOCKET2": str(self.sock2_path),
             "GETENT_MAP": json.dumps({"x.com": ["203.0.113.10"], "www.x.com": ["203.0.113.10"]}),
             "DS_FEEDBACK_HTTP_PORT": "0",
@@ -521,6 +526,44 @@ class ListenerTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self._nft_cmds(), ["flush ds", "replace ds"])
         self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on", 4), self._state())
+
+    def test_wrapper_refusal_replies_error_and_reports_unavailable(self):
+        fail = self.box.runtime / "nft.fail"
+        fail.write_text("1", encoding="utf-8")
+        self._cfg()
+        self._start()
+        self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "unavailable", 4), self._state())
+        # The wrapper refused, so the person asking hears error, not ok.
+        r = self.box.run("refresh", timeout=16)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        r = self.box.run("reload", timeout=16)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        fail.unlink()
+        r = self.box.run("refresh", timeout=16)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on", 4), self._state())
+
+    def test_site_block_disabled_reports_a_refused_flush_and_retries_on_refresh(self):
+        fail = self.box.runtime / "nft.fail"
+        fail.write_text("1", encoding="utf-8")
+        self._cfg(site_block={"enabled": False, "pass_through": True})
+        self._start()
+        self._wait_nft("flush ds")
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "unavailable", 4), self._state())
+        r = self.box.run("reload", timeout=16)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        r = self.box.run("refresh", timeout=16)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        fail.unlink()
+        r = self.box.run("refresh", timeout=16)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "off", 4), self._state())
+        self.assertEqual(self._getent_hosts(), [])
+        # Honored now: a further refresh touches the wrapper no more.
+        n = self._nft_cmds().count("flush ds")
+        self.assertEqual(self.box.run("refresh", timeout=16).returncode, 0)
+        self.assertEqual(self._nft_cmds().count("flush ds"), n)
 
     def test_stale_generation_dropped(self):
         os.environ["GETENT_GATE"] = str(self.gate)
