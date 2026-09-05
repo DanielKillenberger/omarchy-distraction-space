@@ -7,7 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from ds import catalog, config, hold, hypr, listener, lock, setup, state, ui
+from ds import catalog, config, hold, hypr, launch, listener, lock, setup, state, ui
 
 COMMANDS = {
     "status": state.cmd_status,
@@ -28,6 +28,7 @@ COMMANDS = {
     "setup": setup.cmd_setup,
     "senders": hold.cmd_senders,
     "banners": state.cmd_banners,
+    "open": launch.cmd_open,
 }
 
 
@@ -67,6 +68,7 @@ def build_parser():
     sub.add_parser("senders")
     banners = sub.add_parser("banners")
     banners.add_argument("--count", type=positive_int, default=20, metavar="N")
+    sub.add_parser("open").add_argument("target")
     return p
 
 
