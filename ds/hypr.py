@@ -617,13 +617,13 @@ def _adopt(client, name):
             _adopted.popitem(last=False)
         if failed:
             ui.notify("Window could not be moved", f"{name} is still open. Placement will retry on its next event.")
-        else:
+        elif identity:
             ui.notify(
                 f"Keep your {name} window",
                 "Your original stays open. Open the product in a separate distraction profile? "
                 "Unsaved state cannot transfer; outside-profile network blocking still applies.",
                 glyph=GLYPH,
-                action=[CLI, "migrate", address, identity] if identity else None,
+                action=[CLI, "migrate", address, identity],
             )
     return landed
 

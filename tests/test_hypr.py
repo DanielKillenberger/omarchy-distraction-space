@@ -319,6 +319,22 @@ class HyprTests(unittest.TestCase):
         self.assertEqual(hypr.classify(PROFILE_WA, 300), ("class", WHATSAPP))
         self.assertIsNone(hypr.classify("chrome-notweb.whatsapp.com__-Default", 300))
 
+    def test_adopt_skips_migration_offer_when_identity_is_unavailable(self):
+        hypr.apply_rules([WHATSAPP])
+        self.proc.add(300, 1, SESSION_PATH)
+        client = self._client("0xdead", FOREIGN_WA, "1", pid=300)
+        self._state(clients=[client])
+        with mock.patch.object(hypr, "_migration_identity", return_value=None):
+            self.assertEqual(hypr.contain(client), "adopt")
+        self.assertEqual(self._dispatches(), [hypr.move_window_lua("0xdead")])
+        self.assertEqual(self._open_calls(), [])
+        self.assertEqual(self._opened_titles(), [f"WhatsApp {OPENED}"])
+        self.assertFalse(any("close" in " ".join(c) for c in self._hypr_cmds()))
+        self.assertFalse(any("migrate" in n for n in self._notifies()))
+        joined = " ".join(" ".join(n) for n in self._notifies())
+        self.assertNotIn("Keep your", joined)
+        self.assertNotIn("separate", joined)
+
     def test_foreign_failed_move_reports_and_retries_without_launch(self):
         hypr.apply_rules([WHATSAPP])
         self.proc.add(300, 1, SESSION_PATH)

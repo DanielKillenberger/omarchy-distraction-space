@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
-from ds import config, feedback, hypr, listener, lock, net, setup, state, ui
+from ds import catalog, config, feedback, hypr, listener, lock, net, setup, state, ui
 
 STUBS = ()
 STATUS_KEYS = {
@@ -224,6 +224,7 @@ class HealthTests(unittest.TestCase):
         self.saved = {"listener_pid": os.getpid(), "site_block": "on",
                       "notification_hold": "on", "links": "on", "updated": self.observed,
                       "observed_at": dict.fromkeys(("site_block", "notification_hold", "links"), self.observed)}
+        state.write_expansion({"list": [catalog.expand_entry("X")]})
 
     def project(self):
         with patch("ds.config._read", return_value=self.cfg), patch("ds.state._listener_health", return_value="responsive"), patch("ds.hypr.on_space", return_value=False):
@@ -252,6 +253,46 @@ class HealthTests(unittest.TestCase):
         self.saved["links"] = "displaced"
         state.write_state(self.saved)
         self.assertEqual(self.project()["health"]["services"]["links"]["state"], "displaced")
+
+    def test_site_block_off_expansion_shapes_health(self):
+        empty = {"list": []}
+        hostless = {"list": [catalog.expand_entry("Telegram")]}
+        nonempty = {"list": [catalog.expand_entry("X")]}
+        path = state.state_path("expansion.json")
+        for label, expansion, value, timestamp, expected in [
+            ("empty_list", empty, "off", self.observed, "healthy"),
+            ("hostless", hostless, "off", self.observed, "healthy"),
+            ("nonempty", nonempty, "off", self.observed, "pending"),
+            ("missing", None, "off", self.observed, "unknown"),
+            ("malformed_not_dict", [], "off", self.observed, "unknown"),
+            ("malformed_list", {"list": 1}, "off", self.observed, "unknown"),
+            ("malformed_hosts", {"list": [{"name": "X", "hosts": [""]}]}, "off", self.observed, "unknown"),
+            ("unavailable_empty", empty, "unavailable", self.observed, "unavailable"),
+            ("stale_empty", empty, "off", _iso(-1), "stale"),
+        ]:
+            with self.subTest(label=label):
+                if expansion is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    state.write_expansion(expansion)
+                self.saved["site_block"] = value
+                self.saved["observed_at"]["site_block"] = timestamp
+                state.write_state(self.saved)
+                result = self.project()["health"]["services"]["site_block"]
+                self.assertEqual(result["state"], expected)
+                if expected == "healthy":
+                    self.assertIn("Idle", result["reason"])
+
+    def test_healthy_overall_has_empty_reasons(self):
+        state.write_state(self.saved)
+        result = self.project()["health"]
+        self.assertEqual(result["state"], "healthy")
+        self.assertEqual(result["reasons"], [])
+        self.assertTrue(all(v["state"] == "healthy" for v in result["services"].values()))
+
+    def test_unknown_workspace_off_space_hold_is_unknown(self):
+        health = state._health(self.saved, self.cfg, "responsive", None, False)
+        self.assertEqual(health["services"]["notification_hold"]["state"], "unknown")
 
     def test_disabled_and_policy_idle_are_not_failures(self):
         self.cfg["site_block"]["enabled"] = False

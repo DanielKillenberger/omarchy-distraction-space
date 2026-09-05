@@ -243,6 +243,18 @@ def _listener_health(pid):
         sock.close()
 
 
+def _expansion_hosts(expansion):
+    if not isinstance(expansion, dict) or not isinstance(expansion.get("list"), list):
+        return None
+    hosts = []
+    for entry in expansion["list"]:
+        raw = entry.get("hosts") if isinstance(entry, dict) else None
+        if not isinstance(raw, list) or any(not isinstance(h, str) or not h for h in raw):
+            return None
+        hosts.extend(raw)
+    return hosts
+
+
 def _health(st, cfg, listener, on_space, locked):
     observed = st.get("observed_at")
     observed = observed if isinstance(observed, dict) else {}
@@ -260,14 +272,20 @@ def _health(st, cfg, listener, on_space, locked):
             "links": cfg["open_links_in_space"],
         }[key]
         expected = "on"
+        value = st.get(key)
         if key == "notification_hold" and cfg is not None:
             policy = cfg["hold_notifications"]
             expected = ("on" if locked else "off") if policy == "locked" else (
                 None if on_space is None else ("off" if on_space else "on"))
+        elif key == "site_block" and value == "off":
+            hosts = _expansion_hosts(read_expansion())
+            if hosts == []:
+                expected = "off"
+            elif hosts is None:
+                expected = None
         raw_time = observed.get(key)
         when = _parse_iso(raw_time) if isinstance(raw_time, str) else None
         age = (now - when).total_seconds() if when else None
-        value = st.get(key)
         if enabled is False:
             kind, reason = "disabled", "Off by choice."
         elif enabled is None:
