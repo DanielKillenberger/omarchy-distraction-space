@@ -1,11 +1,56 @@
 {
   "branch_name": "fn-28-room-for-the-early-leave-reason",
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-05T22:13:09.679788Z",
   "created_at": "2026-09-05T22:05:10.419138Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-28-room-for-the-early-leave-reason",
+  "impl_review_rounds": {
+    "fn-28-room-for-the-early-leave-reason.1": 0
+  },
   "next_task": 1,
+  "plan_review_rounds": 0,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
+  "review_attempts": [
+    {
+      "artifact_sha256": "c156de63e837dcf99538955ce620787e671f2e47ca0e32a5c618534057a6c4fc",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "7d9272b1f5be794a1a0ad4cb1fbc47c71810b710",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 2891,
+      "output_sha256": "edead3b448acd62db2eb99e62e8a7bc574ea74b4c4b6a1e9ad7411d1566fac59",
+      "reservation_id": "04407e59b57848c7ae6fbc5be202d26e",
+      "round_consumed": true,
+      "scope": "impl:fn-28-room-for-the-early-leave-reason.1",
+      "superseded_by": null,
+      "task": "fn-28-room-for-the-early-leave-reason.1",
+      "timestamp": "2026-09-05T22:12:39.797813Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "impl:fn-28-room-for-the-early-leave-reason.1": 1
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "impl:fn-28-room-for-the-early-leave-reason.1": 0
+  },
   "spec_path": ".flow/specs/fn-28-room-for-the-early-leave-reason.md",
   "status": "open",
   "title": "Room for the early-leave reason",
@@ -20,5 +65,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T22:05:10.427139Z"
+  "updated_at": "2026-09-05T22:13:09.679799Z"
 }

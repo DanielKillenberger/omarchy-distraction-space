@@ -1,0 +1,21 @@
+{
+  "native_input": [
+    {
+      "width": 300,
+      "returncode": 0,
+      "text_preserved": true
+    },
+    {
+      "width": 900,
+      "returncode": 0,
+      "text_preserved": true
+    }
+  ],
+  "lock_unchanged": true,
+  "omarchy": "4.0.2-1",
+  "screen": "3440x1440 scale1",
+  "minimum_reason_characters": 50,
+  "branch_helper": "PASS: native width900, exact reason roundtrip, Escape returns None",
+  "screenshot": "fn-28-room-for-the-early-leave-reason.png",
+  "limits": "Native single-line input still elides very long text. Viewport clamp verified in native Menu.qml; no live DPI or narrow-monitor changes tested."
+}
