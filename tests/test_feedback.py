@@ -852,6 +852,18 @@ class FeedbackTests(unittest.TestCase):
             ("Locked until you unlock.", [feedback._CLI, "enter"]),
         ])
 
+    def test_r10_opened_reads_the_lock_with_both_routers_off(self):
+        # No block page and no pass-through: start() binds nothing, and the
+        # Opened banner must still see the lock it was started with.
+        hypr.apply_rules([expand_entry("X")])
+        self._start(is_locked=True, config={"nudges": {"app_banner": True, "block_page": False},
+                                            "site_block": {"pass_through": False}})
+        open_ended = {"locked": True, "until": None, "purpose": "", "since": None}
+        with patch("ds.state.read_lock", return_value=open_ended):
+            feedback.opened("X")
+        opened = [n for n in self.notices if n[0] == "X opened in the distraction space"]
+        self.assertEqual([n[1] for n in opened], ["Locked until you unlock."])
+
     def test_r10_opened_respects_app_banner_nudge_and_the_space(self):
         hypr.apply_rules([expand_entry("X")])
         with self.subTest("nudge off"):

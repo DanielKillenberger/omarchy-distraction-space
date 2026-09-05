@@ -104,9 +104,11 @@ def start(config, is_locked):
     _block_page = _nudge_on(config, "block_page")
     _app_banner = _nudge_on(config, "app_banner")
     _bind_ok = False
+    # The Opened banner reads the lock too, and it does not need the routers,
+    # so the callback is recorded before the routers decide whether to bind.
+    _is_locked = is_locked if callable(is_locked) else (lambda v=bool(is_locked): v)
     if not _block_page and not _pass_through:
         return
-    _is_locked = is_locked if callable(is_locked) else (lambda v=bool(is_locked): v)
     _stop.clear()
     notified = False
     bound = 0
