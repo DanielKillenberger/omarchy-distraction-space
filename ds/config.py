@@ -277,9 +277,33 @@ def _seed():
     return cfg
 
 
+# The one default that stays out of the file until something sets it: setup
+# asks about links exactly once, and "asked" has to survive every other write
+# (a `list add`, a menu save) between the first load and the answer.
+LINKS_KEY = "open_links_in_space"
+
+
 def save(cfg):
     validate(cfg)
     state.write_json(config_path(), cfg)
+
+
+def links_answered() -> bool:
+    """Whether the config file itself states `open_links_in_space`.
+
+    In memory the key is always present at its default; in the file it appears
+    once setup's question was answered or `config set` named it.
+    """
+    raw = _read_json(config_path())
+    return isinstance(raw, dict) and LINKS_KEY in raw
+
+
+def set_links(value: bool):
+    """Answer the link question: the key written explicitly, every other key kept as it is."""
+    def answer(cfg):
+        cfg[LINKS_KEY] = value
+
+    return update(answer)
 
 
 def _read():
@@ -337,12 +361,19 @@ def update(fn, timeout=None):
     with open(lock_path, "a+", encoding="utf-8") as lf:
         _acquire(lf, timeout)
         try:
+            answered = links_answered()
             cfg = _read()
+            if not answered:
+                # `fn` sees the file's own keys: an assignment, whatever the
+                # value, is the answer; an untouched default stays out of the file.
+                del cfg[LINKS_KEY]
             result = fn(cfg)
             if result is not None:
                 cfg = result
+            answered = LINKS_KEY in cfg
+            cfg = _merge(cfg)
             validate(cfg)
-            save(cfg)
+            state.write_json(config_path(), cfg if answered else {k: v for k, v in cfg.items() if k != LINKS_KEY})
         finally:
             fcntl.flock(lf, fcntl.LOCK_UN)
     try:

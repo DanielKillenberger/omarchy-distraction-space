@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import hashlib
+import json
 import os
 import pwd
 import re
@@ -1328,7 +1329,93 @@ def _load_cfg() -> dict | None:
         return None
 
 
-def install():
+LINKS_QUESTION = "Route links through the distraction space? [Y/n] "
+LINKS_EXPLANATION = """Links from other apps
+
+To open listed sites inside the space, the plugin has to become the
+system's default browser. It is a router, not a browser: it sends
+listed links to the distraction profile and forwards everything else
+to {browser} unchanged. Omarchy's browser keybinds and web apps keep
+working. {browser} may ask to become the default again; answer
+"Don't ask again". "distractions setup --remove" restores {browser}.
+
+Without it, a clicked link to a listed site opens in {browser}, hits
+the block page, and you reopen it from the launcher.
+"""
+_NAME_LINE = re.compile(r"^\s*Name\s*=\s*(.*?)\s*$")
+
+
+def _desktop_name(desktop_id: str | None) -> str:
+    """How the explanation names the previous browser: its entry's `Name`, else its id, else a plain phrase."""
+    if not desktop_id:
+        return "your previous browser"
+    path = launch.desktop_file(desktop_id)
+    data = state.read_bounded(path) if path is not None else None
+    in_main = False
+    for line in (data or b"").decode("utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_main:
+                break
+            in_main = stripped == "[Desktop Entry]"
+            continue
+        m = _NAME_LINE.match(line) if in_main else None
+        if m and m.group(1):
+            return m.group(1)
+    return desktop_id[:-len(".desktop")] if desktop_id.endswith(".desktop") else desktop_id
+
+
+def _previous_browser() -> str | None:
+    """The desktop id links are forwarded to: what `xdg-settings` reports now, unless that is the plugin's handler, then the recorded one."""
+    answered, handler = default_handler()
+    if answered and handler and handler != HANDLER_ID:
+        return handler
+    return state.read_entries()["previous_handler"]
+
+
+def _yes_no(prompt: str) -> bool:
+    """A terminal yes/no; an empty line or end of input is yes, anything unclear is asked again."""
+    while True:
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+        line = sys.stdin.readline()
+        answer = line.strip().lower()
+        if not line or answer in ("", "y", "yes"):
+            return True
+        if answer in ("n", "no"):
+            return False
+
+
+def ask_links(cfg: dict, assume_yes: bool) -> dict:
+    """Setup's one question, before anything asks for a password.
+
+    With no explicit `open_links_in_space` in the config file, the explanation
+    naming the previous browser is printed and, on a terminal without `--yes`,
+    the question asked; the answer goes into the file so it is never asked
+    again. `--yes` or no terminal takes the config value, true by default, and
+    prints the explanation as a notice. Once the file has the key, a rerun
+    prints the current choice and the key that changes it.
+    """
+    key = config.LINKS_KEY
+    if config.links_answered():
+        print(f"links: {'on' if cfg[key] else 'off'} -- change it with: distractions config set {key} {json.dumps(not cfg[key])}")
+        return cfg
+    print(LINKS_EXPLANATION.format(browser=_desktop_name(_previous_browser())))
+    if assume_yes or not sys.stdin.isatty():
+        answer = cfg[key]
+        why = "--yes" if assume_yes else "no terminal to ask"
+        print(f"links: {'on' if answer else 'off'} ({why}) -- change it with: distractions config set {key} {json.dumps(not answer)}")
+    else:
+        answer = _yes_no(LINKS_QUESTION)
+    try:
+        return config.set_links(answer)
+    except (config.Busy, config.Invalid, OSError) as e:
+        print(f"cannot record the answer in {config.config_path()}: {e}", file=sys.stderr)
+        cfg[key] = answer
+        return cfg
+
+
+def install(assume_yes: bool = False):
     wrapper = wrapper_dest()
     sudoers = _sudoers_dest()
     if _writable_ancestor(wrapper) or _writable_ancestor(sudoers):
@@ -1346,13 +1433,15 @@ def install():
     source = _pinned_source(shipped)
     if source is None:
         return 1
+    cfg = _load_cfg()
+    if cfg is not None:
+        cfg = ask_links(cfg, assume_yes)
     grant_bytes = grant.encode("utf-8")
     if not _already_current(source, grant_bytes, wrapper):
         if _root_transaction(source, grant_bytes, wrapper, sudoers) != 0:
             print("sudo setup transaction failed", file=sys.stderr)
             return 1
     slice_rc = sync_slice()
-    cfg = _load_cfg()
     entries_rc = sync_entries({"list": catalog.expand(cfg)}, cfg) if cfg is not None else 1
     clone_rc = sync_clone()
     rescan_rc = _rescan()
@@ -1408,4 +1497,4 @@ def remove():
 def cmd_setup(args):
     if args.remove:
         return remove()
-    return install()
+    return install(assume_yes=bool(getattr(args, "yes", False)))

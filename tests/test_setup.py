@@ -199,6 +199,18 @@ OMARCHY_BASECAMP = (
 )
 
 
+class Tty(io.StringIO):
+    """stdin as a terminal: what the person types, or nothing at all."""
+
+    def isatty(self):
+        return True
+
+
+class ClosedTty(Tty):
+    def readline(self):
+        raise AssertionError("setup prompted")
+
+
 class SetupTests(unittest.TestCase):
     def setUp(self):
         self.box = Sandbox()
@@ -272,6 +284,10 @@ class SetupTests(unittest.TestCase):
         self.box.fake_bin("xdg-settings", XDG_SETTINGS)
         self.box.fake_bin("update-desktop-database", UPDATE_DESKTOP_DATABASE)
         self._cfg()
+        # Every setup run prints the link choice; `_install` captures its own.
+        quiet = contextlib.redirect_stdout(io.StringIO())
+        quiet.__enter__()
+        self.addCleanup(quiet.__exit__, None, None, None)
         real_access = os.access
         prefix = self.prefix.resolve()
 
@@ -344,13 +360,78 @@ class SetupTests(unittest.TestCase):
         path = self.box.state_dir / "state.json"
         return json.loads(path.read_text(encoding="utf-8")).get("links") if path.exists() else None
 
-    def _install(self):
-        """setup.install() with its stderr, minus the clone step's expected line (no source in the sandbox)."""
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            rc = setup.install()
+    def _unanswered(self):
+        """The config file before setup ever asked about links: every key but open_links_in_space."""
+        raw = json.loads(self.box.config_file.read_text(encoding="utf-8"))
+        del raw["open_links_in_space"]
+        self.box.config_file.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+        return raw
+
+    def _config(self):
+        return json.loads(self.box.config_file.read_text(encoding="utf-8"))
+
+    def _install(self, assume_yes=False):
+        """setup.install() with its stderr, minus the clone step's expected line (no source in the sandbox); stdout in `self.stdout`."""
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = setup.install(assume_yes=assume_yes)
+        self.stdout = out.getvalue()
         lines = [ln for ln in err.getvalue().splitlines() if not ln.startswith("notification hold unavailable")]
         return rc, "".join(ln + "\n" for ln in lines)
+
+    def test_setup_asks_about_links_once_naming_the_browser_before_sudo_and_a_rerun_prints_the_choice(self):
+        before = self._unanswered()
+        (self.apps / "google-chrome.desktop").write_text(
+            "[Desktop Entry]\nName=Google Chrome\nExec=/usr/bin/google-chrome-stable %U\n"
+            "[Desktop Action new-window]\nName=New Window\n", encoding="utf-8")
+        os.environ["DS_SUDO_DENY"] = "1"
+        with patch("sys.stdin", Tty("\n")):
+            rc, _err = self._install()
+        # The root transaction was refused, and it ran after the question.
+        self.assertEqual(rc, 1)
+        self.assertTrue(self._sudo_lines())
+        self.assertEqual(self.stdout.count(setup.LINKS_QUESTION), 1)
+        self.assertIn("forwards everything else\nto Google Chrome unchanged", self.stdout)
+        self.assertIn('"distractions setup --remove" restores Google Chrome', self.stdout)
+        self.assertNotIn("google-chrome.desktop", self.stdout)
+        self.assertEqual(self._config(), {**before, "open_links_in_space": True})
+        os.environ.pop("DS_SUDO_DENY")
+        with patch("sys.stdin", ClosedTty()):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertNotIn("Links from other apps", self.stdout)
+        self.assertIn("links: on -- change it with: distractions config set open_links_in_space false", self.stdout)
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        self.assertEqual(self._links(), "on")
+
+    def test_answering_no_leaves_the_handler_unregistered_and_links_off(self):
+        self._unanswered()
+        with patch("sys.stdin", Tty("maybe\nno\n")):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self.stdout.count(setup.LINKS_QUESTION), 2)
+        self.assertIs(self._config()["open_links_in_space"], False)
+        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+        self.assertEqual(self._links(), "off")
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        self.assertFalse(any(ln.startswith("set ") for ln in self._xdg_lines()))
+        self.assertTrue((self.apps / "YouTube.desktop").is_file())
+        with patch("sys.stdin", ClosedTty()):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertIn("links: off -- change it with: distractions config set open_links_in_space true", self.stdout)
+        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+
+    def test_yes_and_a_non_terminal_never_prompt_and_print_the_explanation_as_a_notice(self):
+        for name, assume_yes, stdin in (("--yes", True, ClosedTty()), ("no terminal", False, io.StringIO("n\n"))):
+            with self.subTest(name):
+                before = self._unanswered()
+                with patch("sys.stdin", stdin):
+                    self.assertEqual(self._install(assume_yes=assume_yes), (0, ""))
+                self.assertNotIn(setup.LINKS_QUESTION, self.stdout)
+                self.assertIn("Links from other apps", self.stdout)
+                self.assertIn(f"links: on ({'--yes' if assume_yes else 'no terminal to ask'}) -- change it with: "
+                              "distractions config set open_links_in_space false", self.stdout)
+                self.assertEqual(self._config(), {**before, "open_links_in_space": True})
+                self.assertEqual(self._default(), setup.HANDLER_ID)
+                self.assertEqual(self._links(), "on")
 
     def test_entries_shadow_the_omarchy_web_app_and_remove_restores_it(self):
         omarchy = self.apps / "YouTube.desktop"

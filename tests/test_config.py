@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
+from ds import config
 from ds.config import DEFAULTS, is_schema_key, _lock_timeout, update as config_update
 
 DEFAULT_LIST = [
@@ -168,6 +169,27 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(json.loads(r.stdout), expected)
         self.assertEqual(json.loads(self.box.config_file.read_text(encoding="utf-8")), v2)
+
+    def test_open_links_in_space_stays_out_of_the_file_until_something_sets_it(self):
+        # Setup asks about links once; "not asked yet" is the key's absence from
+        # the file, and it has to survive every write made before the answer.
+        r = self.box.run("config", "get", "open_links_in_space")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIs(json.loads(r.stdout), True)
+        self.assertNotIn("open_links_in_space", json.loads(self.box.config_file.read_text(encoding="utf-8")))
+        self.assertEqual(self.box.run("list", "add", "Bluesky").returncode, 0)
+        raw = json.loads(self.box.config_file.read_text(encoding="utf-8"))
+        self.assertNotIn("open_links_in_space", raw)
+        self.assertIn("Bluesky", raw["list"])
+        self.box.apply_env()
+        self.assertFalse(config.links_answered())
+        # An assignment is the answer, even one that equals the default.
+        self.assertEqual(self.box.run("config", "set", "open_links_in_space", "true").returncode, 0)
+        self.assertTrue(config.links_answered())
+        self.assertEqual(json.loads(self.box.config_file.read_text(encoding="utf-8")), {**raw, "open_links_in_space": True})
+        self.assertIs(config.set_links(False)["open_links_in_space"], False)
+        self.assertEqual(json.loads(self.box.config_file.read_text(encoding="utf-8")), {**raw, "open_links_in_space": False})
+        self.assertIs(json.loads(self.box.run("config", "get", "open_links_in_space").stdout), False)
 
     def test_config_path_honors_xdg(self):
         r = self.box.run("config", "path")
