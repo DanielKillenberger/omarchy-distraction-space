@@ -75,7 +75,7 @@ def build_parser():
     sub.add_parser("release").add_argument("minutes", nargs="?", type=release_minutes)
     st = sub.add_parser("setup")
     st.add_argument("--remove", action="store_true")
-    st.add_argument("--yes", action="store_true", help="answer the link question with the config value (true by default) instead of asking")
+    st.add_argument("--yes", action="store_true", help="never prompt: the link question takes the config value (true by default) and sudo runs with -n")
     sub.add_parser("senders")
     banners = sub.add_parser("banners")
     banners.add_argument("--count", type=positive_int, default=20, metavar="N")

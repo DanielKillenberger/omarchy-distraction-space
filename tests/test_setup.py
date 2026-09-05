@@ -430,8 +430,24 @@ class SetupTests(unittest.TestCase):
         self.assertIsNone(self._entries())
         self.assertEqual(self._config(), before)
 
+    def test_yes_never_asks_for_a_password_either(self):
+        self._unanswered()
+        with patch("sys.stdin", ClosedTty()):
+            rc, err = self._install(assume_yes=True)
+        # The fake sudo refuses -n for anything but the flush, like a real one with
+        # no cached credential; without -n the same transaction goes through.
+        self.assertEqual(rc, 1)
+        self.assertIn("--yes never asks for a password", err)
+        self.assertFalse(self.wrapper.exists())
+        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+        self.assertIs(self._config()["open_links_in_space"], True)
+        with patch("sys.stdin", ClosedTty()):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertTrue(self.wrapper.is_file())
+
     def test_yes_and_a_non_terminal_never_prompt_and_print_the_explanation_as_a_notice(self):
-        for name, assume_yes, stdin in (("--yes", True, ClosedTty()), ("no terminal", False, io.StringIO("n\n"))):
+        # The non-terminal run installs the root files; --yes then finds them current.
+        for name, assume_yes, stdin in (("no terminal", False, io.StringIO("n\n")), ("--yes", True, ClosedTty())):
             with self.subTest(name):
                 before = self._unanswered()
                 with patch("sys.stdin", stdin):

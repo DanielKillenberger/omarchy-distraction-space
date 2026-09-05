@@ -327,15 +327,17 @@ def _already_current(source: bytes, grant: bytes, wrapper_path: Path) -> bool:
     return state.read_bounded(wrapper_path, cap=MAX_PAYLOAD) == source
 
 
-def _root_transaction(wrapper: bytes, grant: bytes, wrapper_path: Path, sudoers_path: Path) -> int:
+def _root_transaction(wrapper: bytes, grant: bytes, wrapper_path: Path, sudoers_path: Path, prompt: bool = True) -> int:
     """One sudo, one prompt: validate and activate both files inside root.
 
     Everything privileged happens in this single invocation, so setup asks for a
     password once and a re-run whose bytes already match does no work inside it.
+    Without `prompt` (`setup --yes`) sudo runs with `-n`: a password it would
+    have to ask for is a failure, never a question.
     """
     header = f"{PAYLOAD_MAGIC}\n{len(wrapper)}\n{len(grant)}\n".encode("ascii")
     proc = subprocess.run(
-        ["sudo", "python3", "-c", ROOT_TRANSACTION, str(wrapper_path), str(sudoers_path)],
+        ["sudo", *([] if prompt else ["-n"]), "python3", "-c", ROOT_TRANSACTION, str(wrapper_path), str(sudoers_path)],
         input=header + wrapper + grant,
         check=False,
     )
@@ -1394,7 +1396,8 @@ def ask_links(cfg: dict, assume_yes: bool) -> dict | None:
     the question asked; the answer goes into the file so it is never asked
     again. `--yes` or no terminal takes the config value, true by default, and
     prints the explanation as a notice. Once the file has the key, a rerun
-    prints the current choice and the key that changes it. None when the
+    prints the current choice and the key that changes it. `--yes` also keeps
+    the root transaction from asking for a password (`sudo -n`). None when the
     answer could not be written: an answer that lives only in this run would
     be asked again, or overridden by a later `--yes`, so setup stops here,
     before anything is installed.
@@ -1442,8 +1445,8 @@ def install(assume_yes: bool = False):
             return 1
     grant_bytes = grant.encode("utf-8")
     if not _already_current(source, grant_bytes, wrapper):
-        if _root_transaction(source, grant_bytes, wrapper, sudoers) != 0:
-            print("sudo setup transaction failed", file=sys.stderr)
+        if _root_transaction(source, grant_bytes, wrapper, sudoers, prompt=not assume_yes) != 0:
+            print("sudo setup transaction failed" + ("; --yes never asks for a password, so run setup without it once" if assume_yes else ""), file=sys.stderr)
             return 1
     slice_rc = sync_slice()
     entries_rc = sync_entries({"list": catalog.expand(cfg)}, cfg) if cfg is not None else 1
