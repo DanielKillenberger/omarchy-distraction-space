@@ -64,11 +64,11 @@ Existing config validation and command behavior remain the authority for menu ch
 
 | Requirement | Task |
 |---|---|
-| R1 | TBD via flow-next-plan |
-| R2 | TBD via flow-next-plan |
-| R3 | TBD via flow-next-plan |
-| R4 | TBD via flow-next-plan |
-| R5 | TBD via flow-next-plan |
+| R1 | fn-26-visible-health-and-accessible-v3.1 |
+| R2 | fn-26-visible-health-and-accessible-v3.1 |
+| R3 | fn-26-visible-health-and-accessible-v3.1 |
+| R4 | fn-26-visible-health-and-accessible-v3.2 |
+| R5 | fn-26-visible-health-and-accessible-v3.1, fn-26-visible-health-and-accessible-v3.2 |
 
 ## Cross-spec integration contract
 

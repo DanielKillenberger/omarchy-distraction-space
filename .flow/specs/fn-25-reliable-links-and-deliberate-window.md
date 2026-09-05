@@ -64,11 +64,11 @@ Foreign-profile window discovery places the window in the space and offers migra
 
 | Requirement | Task |
 |---|---|
-| R1 | TBD via flow-next-plan |
-| R2 | TBD via flow-next-plan |
-| R3 | TBD via flow-next-plan |
-| R4 | TBD via flow-next-plan |
-| R5 | TBD via flow-next-plan |
+| R1 | fn-25-reliable-links-and-deliberate-window.1 |
+| R2 | fn-25-reliable-links-and-deliberate-window.1 |
+| R3 | fn-25-reliable-links-and-deliberate-window.2 |
+| R4 | fn-25-reliable-links-and-deliberate-window.2 |
+| R5 | fn-25-reliable-links-and-deliberate-window.1, fn-25-reliable-links-and-deliberate-window.2 |
 
 ## Cross-spec integration contract
 

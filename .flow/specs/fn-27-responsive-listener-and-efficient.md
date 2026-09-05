@@ -65,12 +65,12 @@ Firewall reconciliation compares normalized desired policy with successfully app
 
 | Requirement | Task |
 |---|---|
-| R1 | TBD via flow-next-plan |
-| R2 | TBD via flow-next-plan |
-| R3 | TBD via flow-next-plan |
-| R4 | TBD via flow-next-plan |
-| R5 | TBD via flow-next-plan |
-| R6 | TBD via flow-next-plan |
+| R1 | fn-27-responsive-listener-and-efficient.1 |
+| R2 | fn-27-responsive-listener-and-efficient.1 |
+| R3 | fn-27-responsive-listener-and-efficient.2 |
+| R4 | fn-27-responsive-listener-and-efficient.2 |
+| R5 | fn-27-responsive-listener-and-efficient.1 |
+| R6 | fn-27-responsive-listener-and-efficient.1, fn-27-responsive-listener-and-efficient.2 |
 
 ## Cross-spec integration contract
 
