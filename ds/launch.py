@@ -47,6 +47,7 @@ class Target:
     entry: dict | None = None
     desktop: str | None = None
     restricted: bool = True
+    explicit_url: bool = False  # scheme URL: skip host-only window reuse
 
 
 def _log(msg):
@@ -186,7 +187,7 @@ def resolve_target(arg, exp, cat):
         if host is None:
             return None
         entry = classify_host(host, exp)
-        return Target("web" if entry is not None else "forward", url=arg, entry=entry)
+        return Target("web" if entry is not None else "forward", url=arg, entry=entry, explicit_url=True)
     entries, _extra = hypr._normalize(exp)
     by_name = {e["name"]: e for e in entries if isinstance(e.get("name"), str)}
     name = _find_name(arg, by_name)
@@ -561,7 +562,7 @@ def focus_existing(host):
 
 def _open_web(target, cfg):
     host = urlsplit(target.url).hostname or ""
-    if focus_existing(host):
+    if not target.explicit_url and focus_existing(host):
         return 0
     browser = pick_browser(cfg)
     if browser is None:

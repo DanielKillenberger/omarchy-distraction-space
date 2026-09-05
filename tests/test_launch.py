@@ -303,7 +303,7 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual([p.name for p in profile.parent.iterdir()], [launch.PROFILE])
 
     def test_existing_profile_window_is_focused_instead_of_relaunched(self):
-        window = {"address": "0xabc", "class": "chrome-www.youtube.com__-Distraction",
+        window = {"address": "0xabc", "class": "chrome-youtube.com__-Distraction",
                   "workspace": {"id": 99, "name": "distraction"}}
         cases = (
             ("on the space", "distraction", "distraction", True, False),
@@ -317,13 +317,48 @@ class LaunchTests(unittest.TestCase):
                 self.hypr_state.write_text(json.dumps({
                     "activeworkspace": {"id": 1, "name": active}, "clients": [window],
                 }), encoding="utf-8")
-                r = self.box.run("open", "https://www.youtube.com/")
+                r = self.box.run("open", "YouTube")
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertFalse(self.run_log.exists())
                 dispatched = [line for line in self._hypr() if line.startswith("dispatch")]
                 self.assertEqual(any("hl.dsp.focus" in d and "0xabc" in d for d in dispatched), focused, dispatched)
                 self.assertEqual(any("hl.dsp.window.move" in d and "0xabc" in d for d in dispatched), moved, dispatched)
                 self.assertFalse(any("hl.dsp.focus" in d and "workspace" in d for d in dispatched), dispatched)
+
+    def test_explicit_same_host_urls_are_delivered_intact(self):
+        # Delivery is the accepted --app invocation, including query, fragment,
+        # and percent-encoding, whether a matching Distraction window exists or not.
+        urls = (
+            "https://www.youtube.com/watch?v=oHg5SJYRHA0&t=42s#t=42",
+            "https://www.youtube.com/results?search_query=caf%C3%A9%20mix#search",
+        )
+        window = {
+            "address": "0xabc",
+            "class": "chrome-www.youtube.com__-Distraction",
+            "workspace": {"id": 99, "name": "distraction"},
+        }
+        for existing in (False, True):
+            for url in urls:
+                with self.subTest(existing=existing, url=url):
+                    if self.hypr_log.exists():
+                        self.hypr_log.unlink()
+                    if self.run_log.exists():
+                        self.run_log.unlink()
+                    self.hypr_state.write_text(json.dumps({
+                        "activeworkspace": {"id": 1, "name": "distraction"},
+                        "clients": [window] if existing else [],
+                    }), encoding="utf-8")
+                    r = self.box.run("open", url)
+                    self.assertEqual(r.returncode, 0, r.stderr)
+                    self.assertEqual(
+                        self._launches(1)[-1],
+                        SLICE_PREFIX + ["google-chrome-stable", *self._profile_flags(url)],
+                    )
+                    dispatched = [line for line in self._hypr() if line.startswith("dispatch")]
+                    self.assertFalse(
+                        any("hl.dsp.focus" in d and "workspace" in d for d in dispatched),
+                        dispatched,
+                    )
 
     def test_native_target_and_unlisted_catalog_name(self):
         r = self.box.run("open", "Telegram")
@@ -367,6 +402,16 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(self._launches(2)[1][len(SLICE_PREFIX)], "chromium")
 
     def test_launch_reports_a_browser_that_did_not_start(self):
+        # A matching youtu.be profile window must not hide a missing binary or a
+        # failed start as if reuse had succeeded.
+        self.hypr_state.write_text(json.dumps({
+            "activeworkspace": {"id": 1, "name": "1"},
+            "clients": [{
+                "address": "0xbe",
+                "class": "chrome-youtu.be__-Distraction",
+                "workspace": {"id": 99, "name": "distraction"},
+            }],
+        }), encoding="utf-8")
         # A configured binary that is not on PATH: no scope is started at all.
         self.box.config_file.write_text(json.dumps({"browser": ["/definitely/missing/browser"]}), encoding="utf-8")
         r = self.box.run("open", "https://youtu.be/abc")
