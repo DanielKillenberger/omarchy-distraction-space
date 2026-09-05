@@ -143,6 +143,30 @@ class NetTests(unittest.TestCase):
         self.assertIn("203.0.113.1", addrs)
         self.assertIn("203.0.113.20", addrs)
 
+    def test_successful_command_does_not_signal_reaped_process_group(self):
+        with mock.patch.object(net.os, "killpg", wraps=os.killpg) as killpg:
+            result = net.run_command([sys.executable, "-c", "print('done')"],
+                                     capture_output=True, text=True, timeout=2)
+        self.assertEqual((result.returncode, result.stdout), (0, "done\n"))
+        killpg.assert_not_called()
+
+    def test_timeout_still_kills_descendant_after_parent_exits(self):
+        import subprocess
+        pidfile = self.box.runtime / "descendant.pid"
+        script = ("import os,time; pid=os.fork(); "
+                  f"open({str(pidfile)!r}, 'w').write(str(pid)) if pid else None; "
+                  "os._exit(0) if pid else time.sleep(3600)")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            net.run_command([sys.executable, "-c", script], capture_output=True, timeout=0.2)
+        pid = int(pidfile.read_text())
+        def alive():
+            try:
+                return Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
+            except FileNotFoundError:
+                return False
+        self.assertFalse(alive())
+        self.assertEqual(net._children, {})
+
     def test_command_deadline_kills_and_reaps_child(self):
         import subprocess
         pidfile = self.box.runtime / "command.pid"
@@ -161,6 +185,136 @@ class NetTests(unittest.TestCase):
                 net.site_block = "off"
                 self.assertEqual(net._apply_result(["203.0.113.10"]), "unavailable")
                 self.assertEqual(net.site_block, "off")
+
+    def test_reconcile_equal_reordered_policy_checks_every_cycle(self):
+        import subprocess
+        reconciler = net._Reconciler()
+        commands = []
+        def command(args, **kwargs):
+            commands.append((args[-2], kwargs.get("input")))
+            return subprocess.CompletedProcess(args, 0, '{"dev": 1, "ino": 2}', '')
+        policies = (["2001:0db8::1", "203.0.113.2", "203.0.113.2"],
+                    ["203.0.113.2", "2001:db8::1"], ["2001:db8::1", "203.0.113.2"])
+        with mock.patch.object(net, "run_command", side_effect=command):
+            with mock.patch.object(net, "site_block", "off"):
+                for addrs in policies:
+                    self.assertEqual(net.apply(addrs), "on")
+            self.assertEqual([verb for verb, _ in commands], ["replace"] * 3)
+            commands.clear()
+            for addrs in policies:
+                self.assertEqual(reconciler.reconcile(addrs), "on")
+        self.assertEqual([verb for verb, _ in commands], ["replace", "check", "check", "check"])
+        self.assertEqual({body for _, body in commands}, {"203.0.113.2\n2001:db8::1\n"})
+        self.assertEqual(net.site_block, "off")
+
+    def test_reconcile_drift_identity_failure_and_recovery(self):
+        import subprocess
+        good = subprocess.CompletedProcess([], 0, '{"dev":1,"ino":2}', '')
+        changed = subprocess.CompletedProcess([], 0, '{"dev":1,"ino":3}', '')
+        for failure in (subprocess.CompletedProcess([], 1, '', 'missing table'),
+                        subprocess.CompletedProcess([], 1, '', 'rule drift'), changed,
+                        subprocess.CompletedProcess([], 0, '{"dev":2,"ino":2}', ''),
+                        subprocess.CompletedProcess([], 0, 'old wrapper', ''),
+                        OSError("missing"), subprocess.TimeoutExpired("check", 1)):
+            with self.subTest(failure=failure):
+                reconciler = net._Reconciler()
+                with mock.patch.object(net, "run_command", return_value=good):
+                    self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "on")
+                with mock.patch.object(net, "run_command", side_effect=[failure, good, good]) as command:
+                    self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "on")
+                self.assertEqual([c.args[0][-2] for c in command.call_args_list],
+                                 ["check", "replace", "check"])
+                with mock.patch.object(net, "run_command", return_value=good) as command:
+                    self.assertEqual(reconciler.reconcile(["203.0.113.3"]), "on")
+                self.assertEqual([c.args[0][-2] for c in command.call_args_list], ["replace", "check"])
+
+    def test_reconcile_failed_apply_or_postcheck_never_seeds_baseline(self):
+        import subprocess
+        good = subprocess.CompletedProcess([], 0, '{"dev":1,"ino":2}', '')
+        failed = subprocess.CompletedProcess([], 1, '', 'refused')
+        for results in ([failed], [good, failed]):
+            with self.subTest(results=results):
+                reconciler = net._Reconciler()
+                with mock.patch.object(net, "run_command", side_effect=results), \
+                     mock.patch.object(net, "_notice_unavailable"):
+                    self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "unavailable")
+                self.assertIsNone(reconciler.baseline)
+                with mock.patch.object(net, "run_command", return_value=good) as command:
+                    self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "on")
+                self.assertEqual([c.args[0][-2] for c in command.call_args_list], ["replace", "check"])
+
+    def test_reconcile_rejects_malformed_check_and_bounds_repair(self):
+        import subprocess
+        good = subprocess.CompletedProcess([], 0, '{"dev":1,"ino":2}', '')
+        for text in ('', 'null', '[]', '{"dev":1}', '{"dev":true,"ino":2}',
+                     '{"dev":1,"ino":0}', '{"dev":-1,"ino":2}',
+                     '{"dev":1,"ino":2,"extra":0}', '{"dev":1,"ino":"2"}',
+                     '{"dev":1,"ino":2}\n{}'):
+            with self.subTest(text=text):
+                reconciler = net._Reconciler()
+                with mock.patch.object(net, "run_command", return_value=good):
+                    self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "on")
+                bad = subprocess.CompletedProcess([], 0, text, '')
+                with mock.patch.object(net, "run_command", side_effect=[bad, good, bad]) as command, \
+                     mock.patch.object(net, "_notice_unavailable"):
+                    self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "unavailable")
+                self.assertEqual(command.call_count, 3)
+                self.assertIsNone(reconciler.baseline)
+
+    def test_reconcile_notifies_once_per_unavailable_streak(self):
+        import subprocess
+        reconciler, verified, notices = net._Reconciler(), False, []
+        def command(args, **kwargs):
+            if args[0] == "omarchy-notification-send":
+                notices.append(args)
+            output = '{"dev":1,"ino":2}' if verified else 'old wrapper'
+            return subprocess.CompletedProcess(args, 0, output, '')
+        with mock.patch.object(net, "run_command", side_effect=command):
+            for _ in range(2):
+                self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "unavailable")
+            self.assertEqual(len(notices), 1)
+            verified = True
+            self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "on")
+            verified = False
+            for _ in range(2):
+                self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "unavailable")
+            self.assertEqual(len(notices), 2)
+
+    def test_reconcile_empty_flushes_each_cycle_and_forgets_baseline(self):
+        import subprocess
+        reconciler = net._Reconciler()
+        with mock.patch.object(net, "run_command", return_value=subprocess.CompletedProcess(
+                [], 0, '{"dev":1,"ino":2}', '')) as command:
+            self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "on")
+            self.assertEqual(reconciler.reconcile([]), "off")
+            self.assertIsNone(reconciler.baseline)
+            self.assertEqual(reconciler.reconcile([]), "off")
+            self.assertEqual(reconciler.reconcile(["203.0.113.2"]), "on")
+        self.assertEqual([c.args[0][-2] for c in command.call_args_list],
+                         ["replace", "check", "flush", "flush", "replace", "check"])
+
+    def test_reconcile_obsolete_check_never_repairs_or_seeds(self):
+        import subprocess
+        good = subprocess.CompletedProcess([], 0, '{"dev":1,"ino":2}', '')
+        for phase in ("replace", "postcheck", "equal_check"):
+            with self.subTest(phase=phase):
+                reconciler = net._Reconciler()
+                if phase == "equal_check":
+                    with mock.patch.object(net, "run_command", return_value=good):
+                        reconciler.reconcile(["203.0.113.2"])
+                current = True
+                calls = []
+                def command(args, **kwargs):
+                    nonlocal current
+                    calls.append(args[-2])
+                    if phase == "replace" or args[-2] == "check":
+                        current = False
+                    return good
+                with mock.patch.object(net, "run_command", side_effect=command):
+                    self.assertIsNone(reconciler.reconcile(["203.0.113.2"], lambda: current))
+                self.assertIsNone(reconciler.baseline)
+                self.assertEqual(calls, ["replace", "check"] if phase == "postcheck" else
+                                 ["check"] if phase == "equal_check" else ["replace"])
 
     def test_empty_final_set_sends_flush_not_empty_replace(self):
         self._map({})

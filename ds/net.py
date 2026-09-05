@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
 import signal
 import subprocess
@@ -40,6 +41,7 @@ def run_command(args, *, timeout, input=None, capture_output=False, check=False,
     proc = subprocess.Popen(args, start_new_session=True, **kwargs)
     _track(proc)
     deadline = time.monotonic() + timeout
+    completed = False
     try:
         while True:
             remaining = deadline - time.monotonic()
@@ -47,6 +49,7 @@ def run_command(args, *, timeout, input=None, capture_output=False, check=False,
                 raise subprocess.TimeoutExpired(args, timeout)
             try:
                 out, err = proc.communicate(input=input, timeout=min(remaining, 0.1))
+                completed = True
                 break
             except subprocess.TimeoutExpired:
                 input = None
@@ -66,10 +69,11 @@ def run_command(args, *, timeout, input=None, capture_output=False, check=False,
                     proc.wait(timeout=0.2)
                 except subprocess.TimeoutExpired:
                     pass
-            try:
-                os.killpg(proc.pid, signal.SIGKILL)
-            except OSError:
-                pass
+            if not completed:
+                try:
+                    os.killpg(proc.pid, signal.SIGKILL)
+                except OSError:
+                    pass
             try:
                 proc.communicate(timeout=1)
             except subprocess.TimeoutExpired:
@@ -199,7 +203,7 @@ def _notice_unavailable() -> None:
     try:
         run_command(
             ["omarchy-notification-send", "Site block unavailable",
-             "Wrapper missing or sudo -n distractions-nft refused."],
+             "Firewall apply or verification failed. Run distractions setup to update the wrapper."],
             timeout=2,
             check=False,
             capture_output=True,
@@ -310,6 +314,82 @@ def _apply_result(addresses):
     if result == "unavailable":
         _notice_unavailable()
     return result
+
+
+def _check_result(addresses):
+    try:
+        proc = run_command(
+            ["sudo", "-n", str(setup.wrapper_dest()), "check", "ds"],
+            input="\n".join(addresses) + "\n", capture_output=True,
+            text=True, timeout=COMMAND_TIMEOUT,
+        )
+        if proc.returncode != 0:
+            return None
+        identity = json.loads(proc.stdout)
+        if (not isinstance(identity, dict) or set(identity) != {"dev", "ino"}
+                or type(identity["dev"]) is not int or identity["dev"] < 0
+                or type(identity["ino"]) is not int or identity["ino"] <= 0):
+            return None
+        return identity["dev"], identity["ino"]
+    except (OSError, subprocess.TimeoutExpired, ValueError, TypeError):
+        return None
+
+
+class _Reconciler:
+    """Verified policy baseline for the listener's serialized worker."""
+
+    def __init__(self):
+        self.baseline = None
+
+    def invalidate(self):
+        self.baseline = None
+
+    def reconcile(self, addresses, current=lambda: True):
+        global _noticed
+        try:
+            desired = tuple(str(addr) for addr in sorted(
+                {ipaddress.ip_address(addr) for addr in (addresses or [])},
+                key=lambda addr: (addr.version, int(addr))))
+            if not current():
+                self.invalidate()
+                return None
+            if not desired:
+                self.invalidate()
+                result = _apply_result([])
+                if not current():
+                    return None
+                if result == "off":
+                    _noticed = False
+                return result
+            baseline = self.baseline
+            if baseline is not None and baseline[0] == desired:
+                identity = _check_result(desired)
+                if not current():
+                    self.invalidate()
+                    return None
+                if identity is not None and identity == baseline[1]:
+                    _noticed = False
+                    return "on"
+            self.invalidate()
+            if not current():
+                return None
+            result = _apply_result(desired)
+            if not current():
+                return None
+            if result != "on":
+                return "unavailable"
+            identity = _check_result(desired)
+            if not current():
+                return None
+            if identity is None:
+                _notice_unavailable()
+                return "unavailable"
+            self.baseline = desired, identity
+            _noticed = False
+            return "on"
+        except Exception:
+            self.invalidate()
+            raise
 
 
 def apply(addresses):

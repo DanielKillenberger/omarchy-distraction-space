@@ -17,7 +17,7 @@ CLIENT_CAP = 256
 
 
 def _reload_wait():
-    return 2 * (net.BATCH_DEADLINE + cgroup.SYSTEMCTL_TIMEOUT + net.COMMAND_TIMEOUT + setup.UDD_TIMEOUT + 15) + 5
+    return 2 * (net.BATCH_DEADLINE + cgroup.SYSTEMCTL_TIMEOUT + 3 * net.COMMAND_TIMEOUT + setup.UDD_TIMEOUT + 15) + 5
 
 
 def cmd_listen(args): return run()
@@ -63,7 +63,7 @@ def _ask(line):
             ui.notify(f"{line.split()[0].capitalize()} deferred",
                       "Setup or remove is updating the launchers. Retry shortly.")
             return 1
-        ui.notify(failed, "The listener rejected the request.")
+        ui.notify(failed, "The listener could not complete all requested work.")
         return 1
     except OSError:
         if connected:
@@ -92,12 +92,13 @@ def _empty():
     return {"list": [], "keep_reachable": [], "nudges": {"app_banner": False, "block_page": False},
             "site_block": {"enabled": True}}
 
-def _apply(addrs, current=lambda: True):
+def _apply(addrs, current, reconciler):
     """Start the slice before replace; only the current generation may apply."""
     if addrs and not cgroup.ensure_slice():
+        reconciler.invalidate()
         net._notice_unavailable()
         return "unavailable"
-    return net._apply_result(addrs) if current() else None
+    return reconciler.reconcile(addrs, current)
 
 def _close(*objs):
     for obj in objs:
@@ -179,6 +180,7 @@ def _listen():
         signal.signal(signal.SIGINT, prev[1])
         feedback.stop()
         ctx.stopping.set()
+        ctx.reconciler.invalidate()
         net.shutdown()
         if ctx.worker is not None:
             ctx.worker.join(timeout=3)
@@ -216,7 +218,7 @@ class _Ctx:
         self.clients = []
         self.worker, self.stopping = None, threading.Event()
         self.observed_at = {}
-        self.disabled_flushed = False
+        self.reconciler = net._Reconciler()
         self.browser_dirty, self.launcher_refresh = True, "off"
         self.launcher_noted = False
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
@@ -332,8 +334,8 @@ class _Ctx:
         if reason == "periodic" and self.busy:
             self.rerun = True
             return
-        if self.block_enabled():
-            self.disabled_flushed = False
+        if not self.block_enabled():
+            self.reconciler.invalidate()
         self.gen += 1
         self.latest, self.reason = self.gen, reason
         self._adopt_waiters(self.latest)
@@ -344,7 +346,7 @@ class _Ctx:
     def _launch(self, gen, reason):
         self.busy = True
         exp, cfg, wake = self.exp, self.cfg, self.wake_w
-        enabled, flushed = self.block_enabled(), self.disabled_flushed
+        enabled = self.block_enabled()
         browser_dirty = self.browser_dirty
         def current():
             return not self.stopping.is_set() and gen == self.latest
@@ -362,11 +364,11 @@ class _Ctx:
                 else:
                     addrs = []
                 if current():
-                    item["result"] = ("off" if not enabled and flushed and reason != "reload"
-                                      else _apply(addrs, current))
+                    item["result"] = _apply(addrs, current, self.reconciler)
                     if item["result"] is not None:
                         item["observed"]["site_block"] = state.now_iso()
             except Exception:
+                self.reconciler.invalidate()
                 item["result"], item["failed"] = "unavailable", True
                 item["observed"]["site_block"] = state.now_iso()
             if current():
@@ -403,10 +405,10 @@ class _Ctx:
         self.busy = False
         gen = batch.get("generation")
         if gen != self.latest:
+            self.reconciler.invalidate()
             net.finish_batch(batch, "stale")
             return self._follow()
         net.site_block = result or "unavailable"
-        self.disabled_flushed = not self.block_enabled() and result == "off"
         self.observed_at.update(item["observed"])
         if item["links"] is not None:
             self.check_links(item["links"], item["observed"]["links"])

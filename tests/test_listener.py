@@ -96,6 +96,8 @@ with log.open("a", encoding="utf-8") as f:
 if os.path.exists(os.environ.get("DS_NFT_FAIL_FILE", "")):
     sys.stderr.write("refused: slice cgroup missing\n")
     sys.exit(1)
+if "check" in args:
+    print('{"dev":1,"ino":2}')
 sys.exit(0)
 """
 
@@ -490,7 +492,7 @@ class ListenerTests(unittest.TestCase):
         return self.nft_log.read_text(encoding="utf-8")
 
     def _nft_cmds(self):
-        """The wrapper verbs in call order: `replace ds` / `flush ds`."""
+        """The wrapper verbs in call order: `replace ds` / `check ds` / `flush ds`."""
         cmds = []
         for block in self._nft().split("\n--\n"):
             line = block.strip().splitlines()
@@ -570,7 +572,10 @@ while not Path({str(gate)!r}).exists():
         for sock in self.fired:
             sock.settimeout(8)
             self.assertEqual(sock.recv(64), b"ok\n")
-        self.assertLessEqual(len(started.read_text().splitlines()), 2)
+        if tool == "sudo":
+            self.assertEqual(len(started.read_text().splitlines()), 3)
+        else:
+            self.assertLessEqual(len(started.read_text().splitlines()), 2)
         self.assertEqual(set(self._state()["observed_at"]),
                          {"site_block", "notification_hold", "links"})
 
@@ -587,6 +592,9 @@ while not Path({str(gate)!r}).exists():
         self._assert_reconciliation_stall("xdg-settings", XDG_SETTINGS)
 
     def test_disable_during_apply_orders_flush_and_rejects_obsolete_success(self):
+        os.environ["GETENT_MAP"] = json.dumps({"x.com": ["203.0.113.10"],
+            "www.x.com": ["203.0.113.10"], "youtube.com": ["203.0.113.20"],
+            "www.youtube.com": ["203.0.113.20"]})
         self._cfg()
         self._start()
         self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
@@ -595,6 +603,51 @@ while not Path({str(gate)!r}).exists():
 import sys, time
 from pathlib import Path
 if "replace" in sys.argv:
+    Path({str(started)!r}).touch()
+    while not Path({str(gate)!r}).exists():
+        time.sleep(0.02)
+""" + SUDO)
+        self._cfg(list=["youtube.com"])
+        self._fire("reload")
+        self.assertTrue(_wait(started.exists))
+        self._cfg(site_block={"enabled": False})
+        self._fire("reload")
+        self.assertEqual(self._reload("ping", timeout=1), b"ok")
+        for sock in self.fired:
+            sock.settimeout(0.1)
+            with self.assertRaises(TimeoutError):
+                sock.recv(64)
+        gate.touch()
+        for sock in self.fired:
+            sock.settimeout(8)
+            self.assertEqual(sock.recv(64), b"ok\n")
+        self.assertEqual(self._nft_cmds()[-2:], ["replace ds", "flush ds"])
+        self.assertEqual(self._state()["site_block"], "off")
+        self.assertEqual(self._getent_hosts().count("x.com"), 1)
+        self.assertEqual(self._getent_hosts().count("youtube.com"), 1)
+
+    def test_equal_refresh_checks_and_advances_observation_without_replace(self):
+        self._cfg()
+        self._start()
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
+        observed = self._state()["observed_at"]["site_block"]
+        for cycle in (2, 3):
+            self.assertTrue(_wait(lambda: listener.state.now_iso() > observed, 2))
+            self.assertEqual(self.box.run("refresh", timeout=16).returncode, 0)
+            self.assertEqual(self._nft_cmds(), ["replace ds"] + ["check ds"] * cycle)
+            latest = self._state()["observed_at"]["site_block"]
+            self.assertGreater(latest, observed)
+            observed = latest
+
+    def test_disable_during_check_never_repairs_or_acknowledges_stale_policy(self):
+        self._cfg()
+        self._start()
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
+        started, gate = self.box.runtime / "check.started", self.box.runtime / "check.gate"
+        self.box.fake_bin("sudo", f"""
+import sys, time
+from pathlib import Path
+if "check" in sys.argv:
     Path({str(started)!r}).touch()
     while not Path({str(gate)!r}).exists():
         time.sleep(0.02)
@@ -612,9 +665,30 @@ if "replace" in sys.argv:
         for sock in self.fired:
             sock.settimeout(8)
             self.assertEqual(sock.recv(64), b"ok\n")
-        self.assertEqual(self._nft_cmds()[-2:], ["replace ds", "flush ds"])
+        self.assertEqual(self._nft_cmds(), ["replace ds", "check ds", "check ds", "flush ds"])
         self.assertEqual(self._state()["site_block"], "off")
-        self.assertEqual(self._getent_hosts().count("x.com"), 2)
+
+    def test_unverifiable_check_reports_error_then_replaces_on_recovery(self):
+        self._cfg()
+        self._start()
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
+        bad = self.box.runtime / "bad.check"
+        bad.touch()
+        self.box.fake_bin("sudo", f"""
+import sys
+from pathlib import Path
+if "check" in sys.argv and Path({str(bad)!r}).exists():
+    print("old wrapper output")
+    sys.exit(0)
+""" + SUDO)
+        self.assertEqual(self.box.run("refresh", timeout=16).returncode, 1)
+        self.assertEqual(self._state()["site_block"], "unavailable")
+        self.assertEqual(self._nft_cmds().count("replace ds"), 2)
+        bad.unlink()
+        self.assertEqual(self.box.run("refresh", timeout=16).returncode, 0)
+        self.assertEqual(self._state()["site_block"], "on")
+        self.assertEqual(self._nft_cmds()[-2:], ["replace ds", "check ds"])
+        self.assertEqual(self._nft_cmds().count("replace ds"), 3)
 
     def _assert_shutdown_stall(self, tool):
         self._cfg()
@@ -819,7 +893,7 @@ time.sleep(3600)
         self.assertEqual((st["links"], st["browser"], st["released"]), ("off", None, {}))
         self.assertEqual(self._systemctl_lines(), ["--user start app-distraction.slice"])
         nft_cmds, hosts = self._nft_cmds(), list(self._getent_hosts())
-        self.assertEqual(nft_cmds, ["replace ds"])
+        self.assertEqual(nft_cmds, ["replace ds", "check ds"])
         self._workspace("2", 2)
         self._send("workspacev2>>2,2")
         self._workspace("distraction", 5)
@@ -845,13 +919,13 @@ time.sleep(3600)
         self._workspace("distraction", 5)
         self._send("workspacev2>>5,distraction")
         self.assertTrue(_wait(lambda: self._hooks().count("enter") == 1, 4), self._hooks())
-        n0 = self._nft().count("replace ds")
-        self.assertTrue(_wait(lambda: self._nft().count("replace ds") >= n0 + 2, 6), self._nft_cmds())
+        self.assertTrue(_wait(lambda: self._nft().count("check ds") >= 3, 6), self._nft_cmds())
+        self.assertEqual(self._nft().count("replace ds"), 1)
         self.assertNotIn("flush ds", self._nft())
         self.assertTrue((self._state() or {}).get("on_space"))
         self.assertEqual(self._state()["site_block"], "on")
-        cmds = self._nft_cmds()
-        self.assertEqual(self._systemctl_lines()[:len(cmds)], ["--user start app-distraction.slice"] * len(cmds))
+        checks = self._nft_cmds().count("check ds")
+        self.assertEqual(self._systemctl_lines()[:checks], ["--user start app-distraction.slice"] * checks)
 
     def test_refresh_resolves_without_rereading_config(self):
         os.environ["GETENT_MAP"] = json.dumps({
@@ -865,12 +939,13 @@ time.sleep(3600)
         self._cfg(list=["youtube.com"])
         r = self.box.run("refresh", timeout=16)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self._nft().count("replace ds"), n_replace + 1)
+        self.assertEqual(self._nft().count("replace ds"), n_replace)
+        self.assertEqual(self._nft().count("check ds"), 2)
         self.assertEqual(sorted(self._getent_hosts()[n_hosts:]), ["www.x.com", "x.com"])
         self.assertNotIn("203.0.113.20", self._nft())
         r = self.box.run("reload", timeout=16)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self._nft().count("replace ds"), n_replace + 2)
+        self.assertEqual(self._nft().count("replace ds"), n_replace + 1)
         self.assertIn("youtube.com", self._getent_hosts())
         self.assertIn("203.0.113.20", self._nft())
 
@@ -884,7 +959,7 @@ time.sleep(3600)
         self.assertEqual(self.box.run("reload", timeout=16).returncode, 0)
         self.assertTrue(_wait(lambda: (self._state() or {}).get("browser") == "chromium", 4), self._state())
 
-    def test_site_block_disabled_flushes_once_and_keeps_hold(self):
+    def test_site_block_disabled_flushes_each_refresh_and_keeps_hold(self):
         self._cfg(site_block={"enabled": False, "pass_through": True})
         self._start()
         self._wait_nft("flush ds")
@@ -896,16 +971,18 @@ time.sleep(3600)
         st = self._state()
         self.assertEqual(st["site_block"], "off")
         self.assertEqual(st["notification_hold"], "on")
+        observed = self._state()["observed_at"]["site_block"]
         r = self.box.run("refresh", timeout=16)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self._nft_cmds(), ["flush ds"])
+        self.assertEqual(self._nft_cmds(), ["flush ds", "flush ds"])
+        self.assertGreater(self._state()["observed_at"]["site_block"], observed)
         self.assertEqual(self._getent_hosts(), [])
         r = self.box.run("status", "--json")
         self.assertEqual(json.loads(r.stdout)["site_block"], "off")
         self._cfg()
         r = self.box.run("reload", timeout=16)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertEqual(self._nft_cmds(), ["flush ds", "replace ds"])
+        self.assertEqual(self._nft_cmds(), ["flush ds", "flush ds", "replace ds", "check ds"])
         self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on", 4), self._state())
 
     def test_wrapper_refusal_replies_error_and_reports_unavailable(self):
@@ -941,10 +1018,10 @@ time.sleep(3600)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "off", 4), self._state())
         self.assertEqual(self._getent_hosts(), [])
-        # Honored now: a further refresh touches the wrapper no more.
+        # Every off observation performs a fresh flush.
         n = self._nft_cmds().count("flush ds")
         self.assertEqual(self.box.run("refresh", timeout=16).returncode, 0)
-        self.assertEqual(self._nft_cmds().count("flush ds"), n)
+        self.assertEqual(self._nft_cmds().count("flush ds"), n + 1)
 
     def test_stale_generation_dropped(self):
         os.environ["GETENT_GATE"] = str(self.gate)
@@ -1011,6 +1088,7 @@ time.sleep(3600)
         self._cfg()
         self._start()
         self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
         exp_before = (self.box.state_dir / "expansion.json").read_bytes()
         nft_before = self._nft()
         self.box.config_file.write_text("{not json", encoding="utf-8")
@@ -1127,6 +1205,7 @@ time.sleep(3600)
         self._cfg()
         self._start()
         self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
         n_before = self._nft().count("replace ds")
         self.gate.unlink()
         got = []
@@ -1142,12 +1221,14 @@ time.sleep(3600)
         self.gate.write_text("1", encoding="utf-8")
         t.join(timeout=12)
         self.assertEqual(got, [b"ok"])
-        self.assertGreater(self._nft().count("replace ds"), n_before)
+        self.assertEqual(self._nft().count("replace ds"), n_before)
+        self.assertGreaterEqual(self._nft().count("check ds"), 2)
 
     def test_resolve_exception_keeps_enforcement(self):
         self._cfg()
         self._start()
         self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
         nft_before = self._nft()
         addrs = self.box.state_dir / "addrs.json"
         addrs.unlink()
@@ -1393,6 +1474,7 @@ time.sleep(3600)
         self._cfg()
         self._start()
         self._wait_nft("replace ds")
+        self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
         n_before = self._nft().count("replace ds")
         self.gate.unlink()
         got = []
@@ -1414,7 +1496,8 @@ time.sleep(3600)
         self.assertFalse(t1.is_alive())
         self.assertFalse(t2.is_alive())
         self.assertEqual(sorted(got), [b"ok", b"ok"])
-        self.assertGreater(self._nft().count("replace ds"), n_before)
+        self.assertEqual(self._nft().count("replace ds"), n_before + 1)
+        self.assertGreaterEqual(self._nft().count("check ds"), 2)
 
     def test_adopted_waiter_survives_two_deadline_batches(self):
         bd = 0.8
