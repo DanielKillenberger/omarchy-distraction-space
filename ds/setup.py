@@ -1,17 +1,19 @@
-"""Privileged wrapper install and removal, the notification-service clone, then plugin rescan."""
+"""Privileged wrapper install and removal, the slice unit, launcher entries and the URL handler, the notification-service clone, then plugin rescan."""
 
 from __future__ import annotations
 
 import hashlib
 import os
 import pwd
+import re
 import shutil
 import stat
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
-from ds import cgroup, state
+from ds import catalog, cgroup, config, state
 
 ROOT = Path(__file__).resolve().parent.parent
 WRAPPER_DEFAULT = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
@@ -19,6 +21,11 @@ SUDOERS_DEFAULT = "/etc/sudoers.d/omarchy-distraction-space"
 NOTIFICATIONS_SOURCE_DEFAULT = "/usr/share/omarchy/shell/plugins/notifications"
 CLONE_SOURCE_ID = "omarchy.notifications"
 PATCH = ROOT / "shell" / "notifications-silenced-senders.patch"
+# The URL handler's desktop id: the file setup writes, and the value `xdg-settings`
+# reports once the plugin is the default browser.
+PLUGIN_ID = "io.github.danielkillenberger.distraction-space"
+HANDLER_ID = PLUGIN_ID + ".desktop"
+HANDLER_MIME = "x-scheme-handler/http;x-scheme-handler/https;"
 # The IPC method the shipped patch adds; its presence in the first-party
 # Service.qml means Omarchy carries the change and the clone is redundant.
 METHOD_MARK = "function silencedSenders("
@@ -664,6 +671,299 @@ def remove_slice() -> int:
     return 0
 
 
+def data_home() -> Path:
+    raw = os.environ.get("XDG_DATA_HOME")
+    return Path(raw) if raw else Path.home() / ".local" / "share"
+
+
+def applications_dir() -> Path:
+    """The person's own applications directory: where Omarchy's web apps live and where the entries shadow from."""
+    return data_home() / "applications"
+
+
+def profile_dir() -> Path:
+    """The distraction browser's profile. `open` fills it; remove leaves it in place."""
+    return data_home() / "omarchy" / "distraction-space" / "browser"
+
+
+def _backup_dir() -> Path:
+    return state.state_path("entries-backup")
+
+
+def _xdg_settings(*args: str) -> tuple[int, str]:
+    """`xdg-settings` as the person, never through sudo. A missing tool answers like its own exit 3."""
+    try:
+        proc = subprocess.run(
+            ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return 3, ""
+    return proc.returncode, (proc.stdout or "").strip()
+
+
+def default_handler() -> str | None:
+    """The desktop id `xdg-settings` reports as the default browser, or None when it cannot say."""
+    rc, out = _xdg_settings("get", "default-web-browser")
+    return out if rc == 0 and out else None
+
+
+_EXEC_PLAIN = re.compile(r"^[A-Za-z0-9_./:=+@,-]+$")
+
+
+def _exec_arg(arg: str) -> str:
+    """One Exec argument, quoted per the Desktop Entry spec, then escaped once more for the file layer."""
+    if _EXEC_PLAIN.match(arg):
+        return arg
+    quoted = "".join("\\" + c if c in '\\"`$' else c for c in arg)
+    return '"' + quoted.replace("\\", "\\\\").replace("%", "%%") + '"'
+
+
+def _icon_name(name: str) -> str:
+    """Omarchy's `safe_icon_name`: the icon its web-app installer fetched for the same product."""
+    return re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+
+
+def _class_prefix(handler: str | None) -> str:
+    """The window-class prefix the distraction browser will carry, from the default browser's desktop id."""
+    stem = (handler or "").removesuffix(".desktop")
+    if stem.startswith("google-chrome"):
+        return "chrome"
+    for family in ("brave", "microsoft-edge", "opera", "vivaldi", "helium", "chromium"):
+        if stem.startswith(family):
+            return family
+    return "chromium"
+
+
+def _app_host(entry: dict) -> str | None:
+    """The host `open` launches the entry with: its first listed host, else the pwa host behind its class."""
+    hosts = entry.get("hosts") or []
+    if hosts and isinstance(hosts[0], str):
+        return hosts[0]
+    for pat in entry.get("classes") or []:
+        m = re.match(r"^\^chrome-(.+)__\.\*\$$", pat) if isinstance(pat, str) else None
+        if m:
+            return re.sub(r"\\(.)", r"\1", m.group(1))
+    return None
+
+
+def _wm_class(entry: dict, handler: str | None) -> str | None:
+    if entry.get("desktop"):
+        klass = (entry.get("classes") or [None])[0]
+        return klass if isinstance(klass, str) and _EXEC_PLAIN.match(klass) else None
+    host = _app_host(entry)
+    return f"{_class_prefix(handler)}-{host}__-Distraction" if host else None
+
+
+def _entry_file(entry: dict) -> str:
+    """Web products shadow Omarchy's `<Name>.desktop`; native products shadow the system `<id>.desktop`."""
+    desktop = entry.get("desktop")
+    return f"{desktop}.desktop" if desktop else f"{entry['name']}.desktop"
+
+
+def _render_entry(entry: dict, handler: str | None) -> str:
+    name = entry["name"]
+    exec_line = " ".join(_exec_arg(a) for a in (str(ROOT / "distractions"), "open", name))
+    lines = [
+        "[Desktop Entry]",
+        "Version=1.0",
+        "Type=Application",
+        f"Name={name}",
+        f"Comment={name} in the distraction space",
+        f"Exec={exec_line}",
+        f"Icon={entry.get('desktop') or _icon_name(name)}",
+        "Terminal=false",
+        "StartupNotify=true",
+    ]
+    wm = _wm_class(entry, handler)
+    if wm:
+        lines.append(f"StartupWMClass={wm}")
+    return "\n".join(lines) + "\n"
+
+
+def _render_handler() -> str:
+    exec_line = " ".join((_exec_arg(str(ROOT / "distractions")), "open", "%u"))
+    return "\n".join([
+        "[Desktop Entry]",
+        "Version=1.0",
+        "Type=Application",
+        "Name=Distraction space",
+        "Comment=Opens listed links in the distraction space and forwards the rest",
+        f"Exec={exec_line}",
+        "Icon=web-browser",
+        "Terminal=false",
+        "NoDisplay=true",
+        f"MimeType={HANDLER_MIME}",
+    ]) + "\n"
+
+
+def _plan(exp: dict, cfg: dict, handler: str | None) -> list[tuple[Path, str]]:
+    """Every file this run wants under the applications directory, in write order."""
+    apps, plan, seen = applications_dir(), [], set()
+    for entry in exp.get("list") or []:
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name or "/" in name or name.startswith("."):
+            continue
+        path = apps / _entry_file(entry)
+        if path in seen:
+            continue
+        seen.add(path)
+        plan.append((path, _render_entry(entry, handler)))
+    if cfg["open_links_in_space"]:
+        plan.append((apps / HANDLER_ID, _render_handler()))
+    return plan
+
+
+def _write_text(path: Path, text: str) -> None:
+    """Whole-file replace: a reader sees the old entry or the new one, never a partial."""
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        os.chmod(tmp, 0o755)
+        os.replace(tmp, path)
+    except OSError:
+        _unlink(Path(tmp))
+        raise
+
+
+def _update_desktop_database(apps: Path) -> None:
+    tool = shutil.which("update-desktop-database")
+    if tool:
+        subprocess.run([tool, str(apps)], capture_output=True, check=False, timeout=60)
+
+
+def _rollback(journal: list[tuple]) -> None:
+    """Undo this run's writes and moves, newest first; the old manifest on disk stays the record."""
+    for step in reversed(journal):
+        try:
+            if step[0] == "wrote":
+                _unlink(Path(step[1]))
+            else:
+                shutil.move(step[2], step[1])
+        except OSError as e:
+            print(f"rollback: {e}", file=sys.stderr)
+
+
+def _write_links(links: str) -> None:
+    """`links` in state.json, so `status` answers before the listener's next check rewrites it."""
+    current = state.read_state() or {}
+    if current.get("links") != links:
+        try:
+            state.write_state({**current, "links": links})
+        except OSError as e:
+            print(f"cannot record links in state: {e}", file=sys.stderr)
+
+
+def _restore_handler(previous: str | None) -> None:
+    """Hand the default browser back; only called while the plugin's handler holds it."""
+    if not previous:
+        print("no previous default browser is recorded; choose one with: xdg-settings set default-web-browser <id>.desktop", file=sys.stderr)
+        return
+    rc, _out = _xdg_settings("set", "default-web-browser", previous)
+    if rc != 0:
+        print(f"xdg-settings could not restore {previous} as the default browser (exit {rc})", file=sys.stderr)
+
+
+def sync_entries(exp: dict, cfg: dict) -> int:
+    """Launcher entries and the URL handler, user-level, finished or rolled back as one.
+
+    A file at an entry's path that the manifest does not own is moved whole into
+    `entries-backup/` and recorded beside the entry; nothing this plugin did not
+    write is ever edited or deleted. Entries the list no longer carries hand back
+    what they shadowed. The manifest is written last, after every file it names,
+    and only then is the default browser switched.
+    """
+    old = state.read_entries()
+    owned = {item["path"]: item["backup"] for item in old["files"]}
+    handler = default_handler()
+    previous = handler if handler and handler != HANDLER_ID else old["previous_handler"]
+    plan = _plan(exp, cfg, handler if handler and handler != HANDLER_ID else previous)
+    wanted = {str(path) for path, _text in plan}
+    apps, backups, journal, files = applications_dir(), _backup_dir(), [], []
+    try:
+        apps.mkdir(parents=True, exist_ok=True)
+        for path_s, backup in owned.items():
+            if path_s in wanted:
+                continue
+            _unlink(Path(path_s))
+            if backup and (Path(backup).exists() or Path(backup).is_symlink()):
+                shutil.move(backup, path_s)
+                journal.append(("moved", backup, path_s))
+        for path, text in plan:
+            backup = owned.get(str(path))
+            # A file or link is moved aside whole; anything else (a directory) is
+            # not a launcher entry and the write below refuses it.
+            existed = path.is_file() or path.is_symlink()
+            if existed and str(path) not in owned:
+                dest = backups / path.name
+                backups.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(path), str(dest))
+                journal.append(("moved", str(path), str(dest)))
+                backup, existed = str(dest), False
+            _write_text(path, text)
+            if not existed:
+                journal.append(("wrote", str(path)))
+            files.append({"path": str(path), "backup": backup})
+        _update_desktop_database(apps)
+        state.write_entries({"files": files, "previous_handler": previous})
+    except OSError as e:
+        print(f"cannot write launcher entries under {apps}: {e}", file=sys.stderr)
+        _rollback(journal)
+        return 1
+    if not cfg["open_links_in_space"]:
+        if handler == HANDLER_ID:
+            _restore_handler(old["previous_handler"])
+        _write_links("off")
+        return 0
+    rc = 0
+    if handler != HANDLER_ID:
+        rc, _out = _xdg_settings("set", "default-web-browser", HANDLER_ID)
+    if rc != 0:
+        print(f"links: displaced -- xdg-settings could not make {HANDLER_ID} the default browser (exit {rc}); rerun: distractions setup", file=sys.stderr)
+    _write_links("on" if rc == 0 else "displaced")
+    return 0
+
+
+def remove_entries() -> int:
+    """`setup --remove`: the previous default back, exactly the manifest's files gone, every backup home."""
+    old = state.read_entries()
+    if old["files"] and default_handler() == HANDLER_ID:
+        _restore_handler(old["previous_handler"])
+    try:
+        for item in old["files"]:
+            path = Path(item["path"])
+            _unlink(path)
+            if item["backup"]:
+                backup = Path(item["backup"])
+                if backup.exists() or backup.is_symlink():
+                    shutil.move(str(backup), str(path))
+                else:
+                    print(f"backup {backup} is missing; {path} stays removed", file=sys.stderr)
+        if old["files"]:
+            _update_desktop_database(applications_dir())
+        _unlink(state.entries_path())
+    except OSError as e:
+        print(f"cannot remove launcher entries: {e}", file=sys.stderr)
+        return 1
+    try:
+        _backup_dir().rmdir()
+    except OSError:
+        pass
+    _write_links("off")
+    prof = profile_dir()
+    if prof.exists():
+        print(f"kept the browser profile at {prof}")
+    return 0
+
+
+def _load_cfg() -> dict | None:
+    try:
+        return config.load()
+    except Exception as e:
+        print(f"{e}; launcher entries and the link handler are left as they are", file=sys.stderr)
+        return None
+
+
 def install():
     wrapper = wrapper_dest()
     sudoers = _sudoers_dest()
@@ -688,14 +988,20 @@ def install():
             print("sudo setup transaction failed", file=sys.stderr)
             return 1
     slice_rc = sync_slice()
+    cfg = _load_cfg()
+    entries_rc = sync_entries({"list": catalog.expand(cfg)}, cfg) if cfg is not None else 1
     clone_rc = sync_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:
         _settle_service()
-    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 else 0
+    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 or entries_rc != 0 else 0
 
 
 def remove():
+    # The user-level half first, in reverse of install: nothing here needs root,
+    # so a person whose grant is already gone still gets their launcher back.
+    if remove_entries() != 0:
+        return 1
     wrapper = wrapper_dest()
     sudoers = _sudoers_dest()
     # The root half is installed and removed as one set: wrapper, grant, and the

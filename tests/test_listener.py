@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
-from ds import listener
+from ds import listener, setup
 from ds.config import DEFAULTS
 from ds.state import write_json
 
@@ -146,10 +146,23 @@ from pathlib import Path
 Path(os.environ["DS_SYSTEMCTL_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
 """
 
+# The default browser is one file the test rewrites between ticks. Never the real xdg-settings.
+XDG_SETTINGS = r"""
+import os, sys
+from pathlib import Path
+args = sys.argv[1:]
+Path(os.environ["DS_XDG_LOG"]).open("a").write(" ".join(args) + "\n")
+if args == ["get", "default-web-browser"]:
+    print(Path(os.environ["DS_XDG_DEFAULT"]).read_text().strip())
+    sys.exit(0)
+sys.exit(1)
+"""
+
 _ENV_KEYS = (
     "DS_HYPR_LOG", "DS_NOTIFY_LOG", "DS_NFT_LOG", "GETENT_LOG", "DS_HOOK_LOG",
     "DS_HYPR_STATE", "DS_SOCKET2", "GETENT_MAP", "GETENT_GATE", "DS_HYPR_FAIL",
     "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT", "DS_SYSTEMCTL_LOG",
+    "XDG_DATA_HOME", "DS_XDG_DEFAULT", "DS_XDG_LOG",
 )
 
 
@@ -210,8 +223,17 @@ class ListenerTests(unittest.TestCase):
         self.systemctl_log = self.box.runtime / "systemctl.log"
         self.sock2_path = self.box.runtime / "socket2.sock"
         self.gate = self.box.runtime / "getent.gate"
+        # XDG_DATA_HOME is not sandboxed by the harness; the entries manifest the
+        # link check reads names files under it, so point it into the sandbox.
+        self.apps = self.box.runtime / "data" / "applications"
+        self.xdg_default = self.box.runtime / "xdg-default"
+        self.xdg_default.write_text("google-chrome.desktop\n", encoding="utf-8")
+        self.xdg_log = self.box.runtime / "xdg.log"
         self._orig_env = {k: os.environ.get(k) for k in _ENV_KEYS}
         os.environ.update({
+            "XDG_DATA_HOME": str(self.box.runtime / "data"),
+            "DS_XDG_DEFAULT": str(self.xdg_default),
+            "DS_XDG_LOG": str(self.xdg_log),
             "DS_HYPR_LOG": str(self.hypr_log),
             "DS_NOTIFY_LOG": str(self.notify_log),
             "DS_NFT_LOG": str(self.nft_log),
@@ -234,6 +256,7 @@ class ListenerTests(unittest.TestCase):
         self.box.fake_bin("busctl", QUIET_STUB)
         self.box.fake_bin("pactl", QUIET_STUB)
         self.box.fake_bin("systemctl", SYSTEMCTL)
+        self.box.fake_bin("xdg-settings", XDG_SETTINGS)
         self.hook_py = self.box.bin / "ds-hook.py"
         self.hook_py.write_text("#!/usr/bin/env python3\n" + HOOK, encoding="utf-8")
         self.hook_py.chmod(0o755)
@@ -389,6 +412,31 @@ class ListenerTests(unittest.TestCase):
             return []
         return [ln for ln in self.systemctl_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
+    def _register_handler(self):
+        """What `distractions setup` leaves behind: the handler file, its manifest line, and the default set to it."""
+        handler = self.apps / setup.HANDLER_ID
+        handler.parent.mkdir(parents=True, exist_ok=True)
+        handler.write_text("[Desktop Entry]\nType=Application\nName=Distraction space\n", encoding="utf-8")
+        write_json(self.box.state_dir / "entries.json", {
+            "files": [{"path": str(handler), "backup": None}],
+            "previous_handler": "google-chrome.desktop",
+        })
+        self.xdg_default.write_text(setup.HANDLER_ID + "\n", encoding="utf-8")
+
+    def _xdg_lines(self):
+        if not self.xdg_log.exists():
+            return []
+        return [ln for ln in self.xdg_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    def _notices(self, needle):
+        if not self.notify_log.exists():
+            return []
+        return [ln for ln in self.notify_log.read_text(encoding="utf-8").splitlines() if needle in ln]
+
+    def _links(self):
+        st = self._state()
+        return st.get("links") if st else None
+
     def _state(self):
         path = self.box.state_dir / "state.json"
         if not path.exists():
@@ -421,6 +469,37 @@ class ListenerTests(unittest.TestCase):
 
     def _wait_nft(self, needle, timeout=6.0):
         self.assertTrue(_wait(lambda: needle in self._nft(), timeout), f"missing {needle!r} in {self._nft()!r}")
+
+    def test_links_displaced_on_a_later_tick_with_one_notice(self):
+        self._cfg()
+        self._register_handler()
+        self._start(extra_env=self._period_env(1.0))
+        self.assertTrue(_wait(lambda: self._links() == "on"), self._state())
+        # Another browser takes the default behind the listener's back.
+        self.xdg_default.write_text("google-chrome.desktop\n", encoding="utf-8")
+        self.assertTrue(_wait(lambda: self._links() == "displaced", timeout=8.0), self._state())
+        self.assertTrue(_wait(lambda: len(self._notices("distractions setup")) == 1))
+        # Two more periods: still displaced, still the one notice.
+        self.assertTrue(_wait(lambda: len(self._xdg_lines()) >= 4, timeout=8.0), self._xdg_lines())
+        self.assertEqual(self._links(), "displaced")
+        self.assertEqual(len(self._notices("distractions setup")), 1)
+
+    def test_links_off_without_a_registered_handler_or_with_the_switch_off(self):
+        # Nothing registered: the state says off and xdg-settings is never asked.
+        self._cfg()
+        self._start()
+        self.assertTrue(_wait(lambda: self._links() == "off"), self._state())
+        self.assertEqual(self._xdg_lines(), [])
+        self._stop()
+        self.conn.close()
+        self.sock2.close()
+        # Registered, but the switch is off: the same answer, still no call.
+        self._register_handler()
+        self._cfg(open_links_in_space=False)
+        self._start()
+        self.assertTrue(_wait(lambda: self._links() == "off"), self._state())
+        self.assertEqual(self._xdg_lines(), [])
+        self.assertEqual(self._notices("distractions setup"), [])
 
     def test_second_listen_exits_silently(self):
         self._cfg()

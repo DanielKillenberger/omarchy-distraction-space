@@ -198,6 +198,7 @@ class _Ctx:
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
         self.hold_failed_at = 0.0
         self.links, self.browser, self.released = "off", None, {}
+        self.links_noted = False
         self.capture, self.mute = hold.Capture(), hold.Mute()
     def _note_invalid(self):
         if not self.noted:
@@ -211,6 +212,12 @@ class _Ctx:
         if not self.hold_noted:
             ui.notify("Notification hold unavailable", "The shell lacks silencedSenders. Run: distractions setup")
             self.hold_noted = True
+    def check_links(self):
+        """Whether listed links still route here; a displaced handler is noticed once per lifetime."""
+        self.links = _links_state(self.cfg)
+        if self.links == "displaced" and not self.links_noted:
+            ui.notify("Links no longer open in the space", "Another browser is the default. Run: distractions setup")
+            self.links_noted = True
     def hold_table(self):
         return hold.key_table(self.exp.get("list") or [])
     def block_enabled(self):
@@ -266,6 +273,7 @@ class _Ctx:
             if here is not None and self.prev is None:
                 self.prev = here
         self.sync_hold(force=True)
+        self.check_links()
         if not self.block_enabled():
             return self.flush(reason)
         self.request(reason)
@@ -383,6 +391,8 @@ class _Ctx:
         self.write_state()
         if time.monotonic() - self.last_period >= PERIOD:
             self.last_period = time.monotonic()
+            self.check_links()
+            self.write_state()
             if self.block_enabled():
                 self.request("periodic")
     def space(self, name=None):
@@ -439,6 +449,18 @@ def _clone_check():
     why = setup.clone_drift()
     if why:
         ui.notify("Notification hold needs setup", f"{why[0].upper()}{why[1:]}. Run: distractions setup")
+
+def _links_state(cfg):
+    """`on` while setup's handler is still the default browser, `displaced` when another took it.
+
+    `off` when the switch is off or setup never registered the handler (the
+    manifest names it); `xdg-settings` is only asked once there is something to hold.
+    """
+    if not (cfg or config.DEFAULTS)["open_links_in_space"]:
+        return "off"
+    if not any(Path(item["path"]).name == setup.HANDLER_ID for item in state.read_entries()["files"]):
+        return "off"
+    return "on" if setup.default_handler() == setup.HANDLER_ID else "displaced"
 
 def _read_cfg():
     if not config.config_path().exists():

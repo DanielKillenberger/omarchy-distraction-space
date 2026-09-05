@@ -86,7 +86,7 @@ Path(os.environ["DS_NOTIFY_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
 
 _ENV = ("DS_NOTIFICATIONS_SOURCE", "DS_SHELL_LOG", "DS_NOTIFY_LOG", "USER", "DS_CLONE_FAIL",
         "DS_CLONE_CORRUPT", "DS_SHELL_DOWN", "DS_WRAPPER_DEST", "DS_SUDOERS_DEST", "DS_SETUP_SUDO_LOG",
-        "DS_LOCK_PREFIX", "DS_SUDO_DENY", "DS_FLUSH_RC", "DS_FLUSH_ERR")
+        "DS_LOCK_PREFIX", "DS_SUDO_DENY", "DS_FLUSH_RC", "DS_FLUSH_ERR", "XDG_DATA_HOME")
 
 
 def _preimage(text: str) -> dict[str, str]:
@@ -405,6 +405,12 @@ class CloneTests(unittest.TestCase):
         self.box.fake_bin("visudo", VISUDO)
         # setup now installs and starts the slice unit; keep the user manager out of the test.
         self.box.fake_bin("systemctl", "import sys\nsys.exit(0)\n")
+        # It also writes launcher entries and registers the URL handler: the entries
+        # land in the sandbox (XDG_DATA_HOME is not sandboxed by the harness) and
+        # the default browser is never the real one's.
+        os.environ["XDG_DATA_HOME"] = str(self.box.runtime / "data")
+        self.box.fake_bin("xdg-settings", "import sys\nprint('google-chrome.desktop')\n")
+        self.box.fake_bin("update-desktop-database", "import sys\nsys.exit(0)\n")
         real_access, resolved = os.access, prefix.resolve()
 
         def fake_access(path, mode, **kwargs):

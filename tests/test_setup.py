@@ -3,7 +3,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
+import json
 import os
 import pwd
 import shutil
@@ -18,6 +21,7 @@ from harness import ROOT, Sandbox
 
 sys.path.insert(0, str(ROOT))
 from ds import setup
+from ds.config import DEFAULTS
 
 SUDO = r"""
 import os, shutil, subprocess, sys
@@ -145,6 +149,40 @@ Path(os.environ["DS_RESCAN_LOG"]).open("a").write("fail " + " ".join(sys.argv[1:
 sys.exit(1)
 """
 
+# The default browser lives in one file the test reads and rewrites; `set` can be
+# made to fail like the real tool's exit 4. Never the real xdg-settings.
+XDG_SETTINGS = r"""
+import os, sys
+from pathlib import Path
+args = sys.argv[1:]
+Path(os.environ["DS_XDG_LOG"]).open("a").write(" ".join(args) + "\n")
+store = Path(os.environ["DS_XDG_DEFAULT"])
+if args == ["get", "default-web-browser"]:
+    if not store.exists():
+        sys.exit(2)
+    print(store.read_text().strip())
+    sys.exit(0)
+if args[:2] == ["set", "default-web-browser"] and len(args) == 3:
+    rc = int(os.environ.get("DS_XDG_SET_RC", "0"))
+    if rc:
+        sys.stderr.write("xdg-settings: failed to set default browser\n")
+        sys.exit(rc)
+    store.write_text(args[2] + "\n")
+    sys.exit(0)
+sys.exit(1)
+"""
+
+UPDATE_DESKTOP_DATABASE = r"""
+import os, sys
+from pathlib import Path
+Path(os.environ["DS_UDD_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
+"""
+
+OMARCHY_YOUTUBE = (
+    "[Desktop Entry]\nVersion=1.0\nName=YouTube\nExec=omarchy-launch-webapp https://youtube.com/\n"
+    "Terminal=false\nType=Application\nIcon=youtube\nStartupNotify=true\n"
+)
+
 
 class SetupTests(unittest.TestCase):
     def setUp(self):
@@ -191,6 +229,33 @@ class SetupTests(unittest.TestCase):
         self.box.fake_bin("visudo", VISUDO)
         self.box.fake_bin("omarchy-shell", SHELL_OK)
         self.box.fake_bin("systemctl", SYSTEMCTL)
+        # The harness leaves XDG_DATA_HOME alone, and on a developer machine it
+        # names the real applications directory: point it into the sandbox.
+        self.data = self.box.runtime / "data"
+        self.apps = self.data / "applications"
+        self.apps.mkdir(parents=True)
+        self.xdg_default = self.box.runtime / "xdg-default"
+        self.xdg_default.write_text("google-chrome.desktop\n", encoding="utf-8")
+        self.xdg_log = self.box.runtime / "xdg.log"
+        self.udd_log = self.box.runtime / "udd.log"
+        saved = {k: os.environ.get(k) for k in ("XDG_DATA_HOME", "DS_XDG_DEFAULT", "DS_XDG_LOG", "DS_UDD_LOG", "DS_XDG_SET_RC")}
+
+        def restore():
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        self.addCleanup(restore)
+        os.environ.update(
+            XDG_DATA_HOME=str(self.data), DS_XDG_DEFAULT=str(self.xdg_default),
+            DS_XDG_LOG=str(self.xdg_log), DS_UDD_LOG=str(self.udd_log),
+        )
+        os.environ.pop("DS_XDG_SET_RC", None)
+        self.box.fake_bin("xdg-settings", XDG_SETTINGS)
+        self.box.fake_bin("update-desktop-database", UPDATE_DESKTOP_DATABASE)
+        self._cfg()
         real_access = os.access
         prefix = self.prefix.resolve()
 
@@ -240,6 +305,168 @@ class SetupTests(unittest.TestCase):
     def _ident(self, path):
         st = path.stat()
         return (st.st_dev, st.st_ino)
+
+    def _cfg(self, **over):
+        cfg = json.loads(json.dumps(DEFAULTS))
+        cfg["list"] = ["YouTube", "Telegram"]
+        cfg.update(over)
+        self.box.config_file.write_text(json.dumps(cfg) + "\n", encoding="utf-8")
+
+    def _xdg_lines(self):
+        if not self.xdg_log.exists():
+            return []
+        return [ln for ln in self.xdg_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    def _default(self):
+        return self.xdg_default.read_text(encoding="utf-8").strip()
+
+    def _entries(self):
+        path = self.box.state_dir / "entries.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def _links(self):
+        path = self.box.state_dir / "state.json"
+        return json.loads(path.read_text(encoding="utf-8")).get("links") if path.exists() else None
+
+    def _install(self):
+        """setup.install() with its stderr, minus the clone step's expected line (no source in the sandbox)."""
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = setup.install()
+        lines = [ln for ln in err.getvalue().splitlines() if not ln.startswith("notification hold unavailable")]
+        return rc, "".join(ln + "\n" for ln in lines)
+
+    def test_entries_shadow_the_omarchy_web_app_and_remove_restores_it(self):
+        omarchy = self.apps / "YouTube.desktop"
+        omarchy.write_text(OMARCHY_YOUTUBE, encoding="utf-8")
+        stray = self.apps / "Stray.desktop"
+        stray.write_text("[Desktop Entry]\nName=Stray\n", encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        telegram, handler = self.apps / "org.telegram.desktop.desktop", self.apps / setup.HANDLER_ID
+        youtube = omarchy.read_text(encoding="utf-8")
+        self.assertIn(f"Exec={ROOT / 'distractions'} open YouTube\n", youtube)
+        self.assertIn("Icon=youtube\n", youtube)
+        self.assertIn("StartupWMClass=chrome-youtube.com__-Distraction\n", youtube)
+        self.assertIn(f"Exec={ROOT / 'distractions'} open Telegram\n", telegram.read_text(encoding="utf-8"))
+        self.assertIn("StartupWMClass=org.telegram.desktop\n", telegram.read_text(encoding="utf-8"))
+        text = handler.read_text(encoding="utf-8")
+        self.assertIn("MimeType=x-scheme-handler/http;x-scheme-handler/https;\n", text)
+        self.assertIn(f"Exec={ROOT / 'distractions'} open %u\n", text)
+        self.assertIn("NoDisplay=true\n", text)
+        backup = self.box.state_dir / "entries-backup" / "YouTube.desktop"
+        self.assertEqual(backup.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
+        self.assertEqual(self._entries(), {
+            "files": [
+                {"path": str(omarchy), "backup": str(backup)},
+                {"path": str(telegram), "backup": None},
+                {"path": str(handler), "backup": None},
+            ],
+            "previous_handler": "google-chrome.desktop",
+        })
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        self.assertEqual(self._links(), "on")
+        self.assertEqual(self.udd_log.read_text(encoding="utf-8"), f"{self.apps}\n")
+        # Nothing privileged in the user-level half: still the one transaction.
+        self.assertEqual(len(self._sudo_lines()), 1)
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(setup.remove(), 0)
+        self.assertEqual(omarchy.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
+        self.assertFalse(backup.exists())
+        self.assertFalse(telegram.exists())
+        self.assertFalse(handler.exists())
+        self.assertTrue(stray.is_file())
+        self.assertIsNone(self._entries())
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        self.assertEqual(self._links(), "off")
+        self.assertEqual(out.getvalue(), "")
+        # The browser profile is never purged; its path is reported when it exists.
+        setup.profile_dir().mkdir(parents=True)
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(setup.remove(), 0)
+        self.assertIn(str(setup.profile_dir()), out.getvalue())
+        self.assertTrue(setup.profile_dir().is_dir())
+
+    def test_rerun_keeps_the_backup_and_a_dropped_entry_hands_its_file_back(self):
+        omarchy = self.apps / "YouTube.desktop"
+        omarchy.write_text(OMARCHY_YOUTUBE, encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        backup = self.box.state_dir / "entries-backup" / "YouTube.desktop"
+        first = self._entries()
+        # A re-run owns the file already: no second backup, the record carried forward,
+        # and the default is not set again once it is ours.
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self._entries(), first)
+        self.assertEqual(backup.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
+        self.assertEqual(self._xdg_lines().count(f"set default-web-browser {setup.HANDLER_ID}"), 1)
+        # Dropping YouTube from the list restores Omarchy's entry and forgets it.
+        self._cfg(list=["Telegram"])
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(omarchy.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
+        self.assertFalse(backup.exists())
+        self.assertEqual([f["path"] for f in self._entries()["files"]],
+                         [str(self.apps / "org.telegram.desktop.desktop"), str(self.apps / setup.HANDLER_ID)])
+        self.assertEqual(self._entries()["previous_handler"], "google-chrome.desktop")
+
+    def test_handler_failure_leaves_links_displaced_and_setup_exits_0(self):
+        os.environ["DS_XDG_SET_RC"] = "4"
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertEqual(len([ln for ln in err.splitlines() if "displaced" in ln]), 1)
+        self.assertEqual(self._links(), "displaced")
+        self.assertTrue((self.apps / setup.HANDLER_ID).is_file())
+        self.assertEqual(self._entries()["previous_handler"], "google-chrome.desktop")
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        # Remove sees the default was never ours and does not touch it.
+        self.assertEqual(setup.remove(), 0)
+        self.assertNotIn("set default-web-browser google-chrome.desktop", self._xdg_lines())
+
+    def test_open_links_false_writes_no_handler_and_reports_off(self):
+        self._cfg(open_links_in_space=False)
+        self.assertEqual(self._install(), (0, ""))
+        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+        self.assertEqual(self._links(), "off")
+        self.assertFalse(any(ln.startswith("set ") for ln in self._xdg_lines()))
+        self.assertEqual([f["path"] for f in self._entries()["files"]],
+                         [str(self.apps / "YouTube.desktop"), str(self.apps / "org.telegram.desktop.desktop")])
+        # Switching it off after it was on hands the default back and drops the handler.
+        self._cfg(open_links_in_space=True)
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        self._cfg(open_links_in_space=False)
+        self.assertEqual(self._install(), (0, ""))
+        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        self.assertEqual(self._links(), "off")
+
+    def test_write_failure_mid_run_leaves_no_manifest_and_no_plugin_files(self):
+        omarchy = self.apps / "YouTube.desktop"
+        omarchy.write_text(OMARCHY_YOUTUBE, encoding="utf-8")
+        # A directory where the second entry goes: the write fails after the first
+        # entry was backed up and written, so the rollback has both kinds to undo.
+        (self.apps / "org.telegram.desktop.desktop").mkdir()
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertIn(str(self.apps), err)
+        self.assertEqual(omarchy.read_text(encoding="utf-8"), OMARCHY_YOUTUBE)
+        self.assertFalse((self.box.state_dir / "entries-backup" / "YouTube.desktop").exists())
+        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+        self.assertIsNone(self._entries())
+        self.assertIsNone(self._links())
+        self.assertFalse(any(ln.startswith("set ") for ln in self._xdg_lines()))
+
+    def test_unwritable_applications_dir_fails_with_the_path_and_no_manifest(self):
+        os.chmod(self.apps, 0o555)
+        self.addCleanup(os.chmod, self.apps, 0o755)
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertIn(str(self.apps), err)
+        self.assertEqual(sorted(p.name for p in self.apps.iterdir()), [])
+        self.assertIsNone(self._entries())
+        # The rest of setup still ran: the root half landed and the rescan was last.
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self._rescan_text().strip().endswith("shell rescanPlugins"))
 
     def test_install_idempotent_and_rescan_last(self):
         rc = setup.install()
