@@ -10,7 +10,7 @@
   "id": "fn-27-responsive-listener-and-efficient",
   "impl_review_rounds": {
     "fn-27-responsive-listener-and-efficient.1": 0,
-    "fn-27-responsive-listener-and-efficient.2": 1,
+    "fn-27-responsive-listener-and-efficient.2": 0,
     "fn-27-responsive-listener-and-efficient.3": 0
   },
   "next_task": 1,
@@ -121,27 +121,50 @@
       "task": "fn-27-responsive-listener-and-efficient.3",
       "timestamp": "2026-09-05T21:01:01.668709Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "0d4f039fe45a0b7fb9d8dad860228b182c7f63250e46e3dd495ea08f95129985",
+      "backend": "claude-cli",
+      "counter_kind": "impl",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "claude-cli",
+        "digest_truncated": false,
+        "items": [],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "a2c66c3707653f8644cc66a51150c960dcb7c763",
+      "head_sha_observed": false,
+      "kind": "impl",
+      "outcome": "verdict",
+      "output_bytes": 6210,
+      "output_sha256": "3bd5100578c4b7322bbe5893cf58e25b1d875a2c51cdc17eed949b457eae228d",
+      "reservation_id": "884f865b22a84c76952e69242385b079",
+      "round_consumed": true,
+      "scope": "impl:fn-27-responsive-listener-and-efficient.2",
+      "superseded_by": null,
+      "task": "fn-27-responsive-listener-and-efficient.2",
+      "timestamp": "2026-09-05T21:27:38.597346Z",
+      "verdict": "SHIP"
     }
   ],
   "review_hash_epoch": {
     "impl:fn-27-responsive-listener-and-efficient.1": 1,
+    "impl:fn-27-responsive-listener-and-efficient.2": 1,
     "impl:fn-27-responsive-listener-and-efficient.3": 1
   },
-  "review_pending_rounds": {
-    "impl:fn-27-responsive-listener-and-efficient.2": 1
-  },
-  "review_reservations": {
-    "884f865b22a84c76952e69242385b079": {
-      "artifact_sha256": "0d4f039fe45a0b7fb9d8dad860228b182c7f63250e46e3dd495ea08f95129985",
-      "counter_scope": "impl:fn-27-responsive-listener-and-efficient.2",
-      "epoch": 0,
-      "exclusive": true,
-      "forced": false,
-      "review_type": "impl"
-    }
-  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
   "review_transport_failures": {
     "impl:fn-27-responsive-listener-and-efficient.1": 0,
+    "impl:fn-27-responsive-listener-and-efficient.2": 0,
     "impl:fn-27-responsive-listener-and-efficient.3": 0
   },
   "spec_path": ".flow/specs/fn-27-responsive-listener-and-efficient.md",
@@ -158,5 +181,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T21:22:30.092851Z"
+  "updated_at": "2026-09-05T21:27:39.042346Z"
 }

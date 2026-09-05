@@ -18,9 +18,16 @@ PATH=/usr/bin:$PATH python3 -m unittest tests.test_net tests.test_nft tests.test
 - No arbitrary privileged command surface or weakened fixed wrapper validation.
 
 ## Done summary
-TBD
+The listener now skips unchanged firewall replacement only after a fresh complete policy check confirms the same slice device/inode. Changed policy, drift, recreated slice, or failed verification permits at most one replacement and postcheck per cycle. Failed verification reports unavailable and discards the baseline; empty/disabled policy flushes each time. Cancellation and stale-generation ordering stay serialized. The wait budget includes three wrapper calls.
 
+Focused gate passed95 tests with1 intentional skip; full integrated gate passed445 tests with1 intentional skip. Real-kernel namespace evidence in .flow/evidence/v3-live-reconcile.json confirms one replace andthreechecks overthreeequal cycles, repair of extra-rule anddeleted-table drift, and repeatedemptyflush. No CPU/latency percentage claimed.
+
+Fable implementation review SHIP with no blocking findings. Successful subprocess cleanup no longer signals reaped children; timeout descendants remaincovered. Notice recovery and generic incomplete-work messages are tested. Public net.apply(addresses) remains unchanged.
+
+stage: impl-review - ran (model: claude-fable-5-1).
+stage: plan-sync - skipped(config: planSync.enabled=false).
+No push, merge, release or deployment.
 ## Evidence
-- Commits:
-- Tests:
+- Commits: 7cea6ff, 8edafdb, 075f4e2
+- Tests: PATH=/usr/bin:$PATH python3 -m unittest tests.test_net tests.test_nft tests.test_listener (95 passed,1 intentional skip), PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (445 passed,1 intentional skip), Real kernel reconciliation in disposable namespace: .flow/evidence/v3-live-reconcile.json
 - PRs:

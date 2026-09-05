@@ -14,7 +14,7 @@
     "fn-26-visible-health-and-accessible-v3.3": 0
   },
   "next_task": 1,
-  "plan_review_rounds": 0,
+  "plan_review_rounds": 1,
   "plan_review_status": "unknown",
   "plan_reviewed_at": null,
   "review_attempts": [
@@ -102,8 +102,19 @@
     "impl:fn-26-visible-health-and-accessible-v3.2": 1,
     "impl:fn-26-visible-health-and-accessible-v3.3": 1
   },
-  "review_pending_rounds": {},
-  "review_reservations": {},
+  "review_pending_rounds": {
+    "plan": 1
+  },
+  "review_reservations": {
+    "7f9d85f6e78e48fc883ee68031ce10b3": {
+      "artifact_sha256": "91743ea69b3fb21239d47f725bee1abdee2ed461eee9fb7572e273ba951fb558",
+      "counter_scope": "plan",
+      "epoch": 0,
+      "exclusive": true,
+      "forced": false,
+      "review_type": "completion"
+    }
+  },
   "review_transport_failures": {
     "impl:fn-26-visible-health-and-accessible-v3.1": 0,
     "impl:fn-26-visible-health-and-accessible-v3.2": 0,
@@ -123,5 +134,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-05T21:17:42.462396Z"
+  "updated_at": "2026-09-05T21:25:59.341915Z"
 }
