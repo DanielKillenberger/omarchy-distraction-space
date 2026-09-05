@@ -700,11 +700,16 @@ def _xdg_env() -> dict[str, str]:
 
 
 def _xdg_settings(*args: str) -> tuple[int, str]:
-    """`xdg-settings` as the person, never through sudo. A missing tool answers like its own exit 3."""
+    """`xdg-settings` as the person, never through sudo. A missing tool answers like its own exit 3.
+
+    `get` runs on the listener's loop and gets 5 s so a hung tool cannot hold
+    it; `set` runs from setup, rewrites mimeapps and the desktop cache, and on
+    this machine takes several seconds, so it gets 60 s.
+    """
+    budget = 60 if args[:1] == ("set",) else 5
     try:
         proc = subprocess.run(
-            # Short: the listener asks on its own loop, and a hung tool must not hold it.
-            ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=5, env=_xdg_env(),
+            ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=budget, env=_xdg_env(),
         )
     except (OSError, subprocess.TimeoutExpired):
         return 3, ""
