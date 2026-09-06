@@ -1551,7 +1551,8 @@ class HoldRetryTests(unittest.TestCase):
             self.assertEqual(push.call_count, 1)
             self.assertEqual(notify.call_count, 1)
             self.assertEqual(ctx.hold_ipc, "unavailable")
-            self.assertEqual(ctx.hold_outage_until, 0.0, "a shell that answered gets no short retry window")
+            self.assertEqual(ctx.hold_outage_until, 1000.0,
+                             "a shell that answered gets no window, and the outage stays marked spent")
             clock[0] = 1000.0 + 1.0
             ctx.sync_hold()
             self.assertEqual(push.call_count, 1)
