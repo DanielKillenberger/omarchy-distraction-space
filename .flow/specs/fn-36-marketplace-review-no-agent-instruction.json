@@ -1,0 +1,24 @@
+{
+  "branch_name": "fn-36-marketplace-review-no-agent-instruction",
+  "created_at": "2026-09-06T20:55:14.431737Z",
+  "depends_on_epics": [],
+  "id": "fn-36-marketplace-review-no-agent-instruction",
+  "next_task": 1,
+  "plan_review_status": "unknown",
+  "plan_reviewed_at": null,
+  "spec_path": ".flow/specs/fn-36-marketplace-review-no-agent-instruction.md",
+  "status": "open",
+  "title": "Marketplace review: no agent instruction files, fixed root destinations",
+  "tracker": {
+    "baseHashFlow": null,
+    "baseHashTracker": null,
+    "depRelations": [],
+    "id": null,
+    "identifier": null,
+    "lastSyncedAt": null,
+    "mergeBaseFlow": null,
+    "mergeBaseTracker": null,
+    "url": null
+  },
+  "updated_at": "2026-09-06T20:55:25.082022Z"
+}
