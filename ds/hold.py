@@ -547,7 +547,8 @@ class Mute:
         self.active, self.table, self.owned = False, {"names": {}, "binaries": {}, "hosts": {}}, {}
         self.tail = _MuteTail(self)
         self.missing, self.fail_noted, self.retry_at = False, False, 0.0
-        self.started = False
+        # `started`: sync has run once; `sweep`: a release could not list the streams and is still owed.
+        self.started, self.sweep = False, False
 
     def fileno(self):
         return self.tail.fileno()
@@ -555,7 +556,7 @@ class Mute:
     def tick(self, now=None):
         now = time.monotonic() if now is None else now
         self.tail.tick(now)
-        if not self.active and self.owned and now >= self.retry_at:
+        if not self.active and (self.owned or self.sweep) and now >= self.retry_at:
             self.release(now)
 
     def _load(self) -> dict:
@@ -697,15 +698,16 @@ class Mute:
         muted stream whose process is in the slice is unmuted too, record or no
         record, so a mute that outlived its record is not stuck; a muted stream
         outside the slice is left alone. A stream whose unmute failed stays in
-        the file and is retried from `tick` every RELEASE_RETRY seconds; a failed
-        list leaves the sweep to the next release. The file clears once nothing
-        is left.
+        the file, and a failed list keeps the whole sweep owed; both are retried
+        from `tick` every RELEASE_RETRY seconds. The file clears once nothing is
+        left.
         """
         self.active = False
         self.tail.stop()
         owned = self.owned or self._load()
         self.owned = {}
         streams = self._list()
+        self.sweep = streams is None
         if streams is None:
             self.owned = owned
         else:
@@ -731,7 +733,7 @@ class Mute:
             for index, ident in owned.items():
                 if index not in seen:
                     _log(f"drop {index} ({ident}): stream gone")
-        if self.owned:
+        if self.owned or self.sweep:
             self.retry_at = (time.monotonic() if now is None else now) + RELEASE_RETRY
         self._save()
 
