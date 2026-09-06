@@ -53,7 +53,9 @@ elif args[1:2] in (["silence"], ["unsilence"]) and len(args) == 3:
             out.append(key)
     else:
         out = [k for k in out if k != key]
-    path.write_text(json.dumps(out))
+    tmp = path.with_name(path.name + ".tmp." + str(os.getpid()))
+    tmp.write_text(json.dumps(out))
+    os.replace(tmp, path)
     print(json.dumps(out))
 else:
     print("Function not found.")
@@ -115,7 +117,12 @@ class HoldUnitTests(unittest.TestCase):
                 os.environ[k] = v
 
     def _silenced(self):
-        return json.loads(self.shell_state.read_text()) if self.shell_state.exists() else []
+        if not self.shell_state.exists():
+            return []
+        try:
+            return json.loads(self.shell_state.read_text())
+        except (json.JSONDecodeError, OSError):
+            return None
 
     def _calls(self):
         return self.shell_log.read_text().splitlines() if self.shell_log.exists() else []
@@ -315,7 +322,12 @@ class HoldListenerTests(unittest.TestCase):
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
 
     def _silenced(self):
-        return json.loads(self.shell_state.read_text()) if self.shell_state.exists() else []
+        if not self.shell_state.exists():
+            return []
+        try:
+            return json.loads(self.shell_state.read_text())
+        except (json.JSONDecodeError, OSError):
+            return None
 
     def _held(self):
         path = self.box.state_dir / "held.jsonl"
