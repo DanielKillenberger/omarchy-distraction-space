@@ -222,7 +222,10 @@ class _Ctx:
         self.browser_dirty, self.launcher_refresh = True, "off"
         self.launcher_noted = False
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
-        self.hold_failed_at = 0.0
+        # hold_outage_until: the deadline of the short retry window for the
+        # outage in progress, 0.0 when no outage is in progress. A deadline
+        # already past means that outage spent its window and gets no other.
+        self.hold_failed_at, self.hold_outage_until = 0.0, 0.0
         self.links, self.browser = "off", None
         self.links_noted = False
         self.capture, self.mute = hold.Capture(), hold.Mute()
@@ -273,24 +276,43 @@ class _Ctx:
     def block_enabled(self):
         sb = self.exp.get("site_block")
         return sb.get("enabled") is not False if isinstance(sb, dict) else True
-    def sync_hold(self, force=False):
+    def sync_hold(self, force=False, now=None):
         """Push the plugin's sender keys on every change of effective hold or of the keys.
 
-        While the shell answered `unavailable`, the push is retried once per PERIOD until it takes.
+        While the push comes back `unavailable` it is retried once per PERIOD
+        until it takes. A shell that could not be reached at all is usually one
+        that is merely late to start, so its first failure opens one episode:
+        every hold.RETRY_EVERY seconds for hold.RETRY_WINDOW from that first
+        failure. Later failures neither extend the episode nor open another,
+        and only a push that got through ends it, so an exhausted window
+        reopens for the next outage and not for this one.
         """
         want = hold.effective_hold(self.cfg, self.prev, lock.is_locked())
         keys = list(self.hold_table())
-        now = time.monotonic()
-        retry = self.hold_ipc == "unavailable" and now - self.hold_failed_at >= PERIOD
-        if not force and not retry and want == self.hold_on and keys == self.pushed:
+        now = time.monotonic() if now is None else now
+        changed = want != self.hold_on or keys != self.pushed
+        # A short retry re-runs the shell push alone; the mute sync scans the
+        # audio server and belongs to a transition, not to every attempt.
+        short = self.hold_ipc == "unavailable" and now < self.hold_outage_until
+        retry = self.hold_ipc == "unavailable" and \
+            now - self.hold_failed_at >= (hold.RETRY_EVERY if short else PERIOD)
+        if not force and not retry and not changed:
             return
-        self.hold_ipc = hold.push(keys, want, retire=[k for k in self.pushed if k not in keys])
+        res = hold.push(keys, want)
+        self.hold_ipc = res.state
         self.observed_at["notification_hold"] = state.now_iso()
         self.hold_on, self.pushed = want, keys
-        if self.hold_ipc == "unavailable":
+        if res.state == "unavailable":
             self.hold_failed_at = now
-            self._note_hold()
-        self.mute.sync(want and hold.mute_on(self.cfg), hold.audio_table(self.exp.get("list") or []))
+            if res.kind != hold.TRANSPORT:
+                self.hold_outage_until = 0.0
+                self._note_hold()
+            elif not self.hold_outage_until:
+                self.hold_outage_until = now + hold.RETRY_WINDOW
+        else:
+            self.hold_outage_until = 0.0
+        if force or changed or res.state != "unavailable" or not short:
+            self.mute.sync(want and hold.mute_on(self.cfg), hold.audio_table(self.exp.get("list") or []), now)
     def release_hold(self):
         if self.pushed:
             hold.push(self.pushed, False)

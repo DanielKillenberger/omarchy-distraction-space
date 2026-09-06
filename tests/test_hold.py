@@ -26,6 +26,11 @@ import json, os, sys
 from pathlib import Path
 Path(os.environ["DS_SHELL_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
 args = sys.argv[1:]
+# A shell that is not up yet: the real wrapper reports an unreachable shell on
+# stderr with exit 1, whatever the call was. Delete the marker and it answers.
+if Path(os.environ.get("DS_SHELL_DOWN", "/nonexistent")).exists():
+    sys.stderr.write("omarchy-shell is not running\n")
+    sys.exit(1)
 if args[:1] != ["notifications"]:
     print("Target not found.")
     sys.exit(1)
@@ -45,9 +50,14 @@ elif args[1:2] in (["silence"], ["unsilence"]) and len(args) == 3:
     def norm(item):
         key = item.strip().lower()
         return key[4:] if key.startswith("www.") else key
+    key = norm(args[2])
+    # A shell that ran the call and refused it: "*" for every key, or one key.
+    refuse = Path(os.environ.get("DS_SHELL_REFUSE", "/nonexistent"))
+    if refuse.exists() and refuse.read_text().strip() in ("*", key):
+        print("error")
+        sys.exit(0)
     out = [norm(i) for i in current if isinstance(i, str) and norm(i)]
     out = list(dict.fromkeys(out))
-    key = norm(args[2])
     if args[1] == "silence":
         if key and key not in out:
             out.append(key)
@@ -80,7 +90,8 @@ while True:
     time.sleep(0.05)
 """
 
-_ENV_KEYS = ("DS_SHELL_LOG", "DS_SHELL_STATE", "DS_SHELL_MISSING", "DS_BUS_LOG", "DS_BUS_LINES",
+_ENV_KEYS = ("DS_SHELL_LOG", "DS_SHELL_STATE", "DS_SHELL_MISSING", "DS_SHELL_DOWN", "DS_SHELL_REFUSE",
+             "DS_BUS_LOG", "DS_BUS_LINES",
              "DS_BUS_EXIT", "DS_HYPR_LOG", "DS_HYPR_STATE", "DS_NOTIFY_LOG", "DS_NFT_LOG", "DS_SOCKET2",
              "GETENT_MAP", "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT")
 LIST = ["Telegram", "Discord", "example.com"]
@@ -106,7 +117,8 @@ class HoldUnitTests(unittest.TestCase):
         self.shell_state = self.box.runtime / "shell-state.json"
         self._orig = {k: os.environ.get(k) for k in _ENV_KEYS}
         os.environ.update(DS_SHELL_LOG=str(self.shell_log), DS_SHELL_STATE=str(self.shell_state))
-        os.environ.pop("DS_SHELL_MISSING", None)
+        for key in ("DS_SHELL_MISSING", "DS_SHELL_DOWN", "DS_SHELL_REFUSE"):
+            os.environ.pop(key, None)
         self.box.fake_bin("omarchy-shell", SHELL)
 
     def tearDown(self):
@@ -154,41 +166,78 @@ class HoldUnitTests(unittest.TestCase):
     def test_push_adds_and_removes_only_plugin_keys(self):
         # "example.com" is on the plugin list AND was silenced by hand beforehand.
         self.shell_state.write_text(json.dumps(["hand added", "WWW.Example.COM"]))
-        self.assertEqual(hold.push(KEYS, True), "on")
+        self.assertEqual(hold.push(KEYS, True), ("on", ""))
         self.assertEqual(self._silenced(), ["hand added", "example.com", *KEYS[:4]])
-        self.assertEqual(hold.push(KEYS, True), "on")
+        self.assertEqual(hold.push(KEYS, True), ("on", ""))
         mutations = [c for c in self._calls() if c.split()[1] in ("silence", "unsilence")]
         self.assertEqual(len(mutations), len(self._silenced()) - 2, "one call per added key, none on the no-op push")
         self.assertFalse(any("setSilencedSenders" in c for c in self._calls()), "the JSON setter is unreachable through qs ipc")
-        self.assertEqual(hold.push(KEYS[1:], True, retire=[KEYS[0]]), "on")
+        # A key the list no longer names is owned and unwanted: that alone retires it.
+        self.assertEqual(hold.push(KEYS[1:], True), ("on", ""))
         self.assertEqual(self._silenced(), ["hand added", "example.com", *KEYS[1:4]])
-        self.assertEqual(hold.push(KEYS[1:], False), "off")
+        self.assertEqual(hold.push(KEYS[1:], False), ("off", ""))
         self.assertEqual(self._silenced(), ["hand added", "example.com"], "a hand-silenced key survives hold off")
         self.assertFalse(hold.owned_path().exists())
 
     def test_owned_keys_persist_across_a_restart(self):
         self.shell_state.write_text(json.dumps(["hand added"]))
-        self.assertEqual(hold.push(KEYS, True), "on")
+        self.assertEqual(hold.push(KEYS, True), ("on", ""))
         self.assertEqual(sorted(json.loads(hold.owned_path().read_text())), sorted(KEYS))
         # A fresh process knows what it owns without having pushed anything this run.
-        self.assertEqual(hold.push(KEYS, False), "off")
+        self.assertEqual(hold.push(KEYS, False), ("off", ""))
         self.assertEqual(self._silenced(), ["hand added"])
         # A key the person removed by hand while owned is simply not there any more.
-        self.assertEqual(hold.push(KEYS, True), "on")
+        self.assertEqual(hold.push(KEYS, True), ("on", ""))
         self.shell_state.write_text(json.dumps(["hand added", *KEYS[1:]]))
-        self.assertEqual(hold.push(KEYS, False), "off")
+        self.assertEqual(hold.push(KEYS, False), ("off", ""))
         self.assertEqual(self._silenced(), ["hand added"])
         self.assertFalse(hold.owned_path().exists())
+
+    def test_retired_key_whose_removal_failed_is_retried_on_the_next_push(self):
+        refuse = self.box.runtime / "shell-refuse"
+        self.assertEqual(hold.push(KEYS, True), ("on", ""))
+        refuse.write_text(KEYS[0])
+        os.environ["DS_SHELL_REFUSE"] = str(refuse)
+        self.assertEqual(hold.push(KEYS[1:], True), ("unavailable", hold.ANSWERED))
+        self.assertIn(KEYS[0], self._silenced(), "the shell kept the key its unsilence refused")
+        self.assertIn(KEYS[0], json.loads(hold.owned_path().read_text()), "and the plugin still owns it")
+        refuse.unlink()
+        self.assertEqual(hold.push(KEYS[1:], True), ("on", ""))
+        self.assertNotIn(KEYS[0], self._silenced())
+        self.assertEqual(sorted(json.loads(hold.owned_path().read_text())), sorted(KEYS[1:]))
 
     def test_push_missing_method_is_unavailable_without_a_set_call(self):
         missing = self.box.runtime / "shell-missing"
         missing.write_text("1")
         os.environ["DS_SHELL_MISSING"] = str(missing)
-        self.assertEqual(hold.push(KEYS, True), "unavailable")
+        self.assertEqual(hold.push(KEYS, True), ("unavailable", hold.ANSWERED))
         self.assertEqual(self._calls(), ["notifications silencedSenders"])
         self.assertIn("hold: silencedSenders: Function not found.", self._log_text())
         with mock.patch.object(hold.subprocess, "run", side_effect=PermissionError("denied")):
-            self.assertEqual(hold.push(KEYS, True), "unavailable")
+            self.assertEqual(hold.push(KEYS, True), ("unavailable", hold.TRANSPORT))
+
+    def test_push_tells_an_unreachable_shell_from_an_answered_failure(self):
+        down = self.box.runtime / "shell-down"
+        down.write_text("1")
+        os.environ["DS_SHELL_DOWN"] = str(down)
+        self.assertEqual(hold.push(KEYS, True), ("unavailable", hold.TRANSPORT))
+        self.assertIn("hold: silencedSenders: omarchy-shell is not running", self._log_text())
+        down.unlink()
+        # The shell ran the call and refused it: answered, whatever the key.
+        refuse = self.box.runtime / "shell-refuse"
+        refuse.write_text("*")
+        os.environ["DS_SHELL_REFUSE"] = str(refuse)
+        self.assertEqual(hold.push(KEYS, True), ("unavailable", hold.ANSWERED))
+        self.assertIn(f"hold: silence {KEYS[0]}: error", self._log_text())
+        refuse.unlink()
+        cases = [
+            (mock.patch.object(hold.subprocess, "run",
+                               side_effect=hold.subprocess.TimeoutExpired("omarchy-shell", 10)), hold.TRANSPORT),
+            (mock.patch.object(hold, "_shell", return_value=("not json", "", "")), hold.ANSWERED),
+        ]
+        for patcher, want in cases:
+            with self.subTest(kind=want), patcher:
+                self.assertEqual(hold.push(KEYS, True), ("unavailable", want))
 
     def test_capture_start_failure_backs_off_instead_of_raising(self):
         cap = hold.Capture()
@@ -249,6 +298,66 @@ class HoldUnitTests(unittest.TestCase):
         self.assertEqual(r.stdout.splitlines(), KEYS)
 
 
+class HoldRetryWindowTests(unittest.TestCase):
+    """The retry episode's arithmetic on synthetic time; the shell push and the mute are stubs."""
+
+    def setUp(self):
+        self.box = Sandbox()
+        self.addCleanup(self.box.cleanup)
+        self.box.apply_env()
+        from ds import listener
+        self.listener = listener
+        self.ctx = listener._Ctx()
+        self.ctx.prev = False  # off the space, so the configured hold wants to be on
+        self.ctx.mute = mock.Mock()
+        self.result, self.pushes = hold.Push("unavailable", hold.TRANSPORT), 0
+        for target in (mock.patch.object(listener.hold, "push", side_effect=self._push),
+                       mock.patch.object(listener.ui, "notify")):
+            self.notify = target.start()
+            self.addCleanup(target.stop)
+
+    def _push(self, keys, on):
+        self.pushes += 1
+        return self.result
+
+    def test_a_late_shell_gets_one_bounded_episode_per_outage(self):
+        ctx = self.ctx
+        ctx.sync_hold(now=100.0)  # the first push of this listener's life, and it cannot reach the shell
+        self.assertEqual((self.pushes, ctx.hold_ipc), (1, "unavailable"))
+        self.assertEqual(ctx.hold_outage_until, 110.0)
+        ctx.sync_hold(now=101.0)
+        self.assertEqual(self.pushes, 1, "the episode retries every RETRY_EVERY seconds, not every tick")
+        for now in (102.0, 104.0, 106.0, 108.0):
+            ctx.sync_hold(now=now)
+        self.assertEqual((self.pushes, ctx.hold_outage_until), (5, 110.0), "later failures do not extend the episode")
+        self.assertEqual(self.ctx.mute.sync.call_count, 1, "a short retry re-runs the shell push alone")
+        for now in (110.0, 120.0, 160.0):
+            ctx.sync_hold(now=now)
+        self.assertEqual(self.pushes, 5, "past the window the per-period retry is the only one left")
+        ctx.sync_hold(now=168.0)
+        self.assertEqual((self.pushes, ctx.hold_outage_until), (6, 110.0), "a per-period push reopens nothing")
+        self.assertFalse(ctx.hold_noted, "an unreachable shell is not the shell that lacks the feature")
+        self.notify.assert_not_called()
+        # The shell answers again: the outage is over, and the next one is a new episode.
+        self.result = hold.Push("on", "")
+        ctx.sync_hold(now=228.0)
+        self.assertEqual((ctx.hold_ipc, ctx.hold_outage_until), ("on", 0.0))
+        self.result = hold.Push("unavailable", hold.TRANSPORT)
+        ctx.sync_hold(force=True, now=230.0)
+        self.assertEqual(ctx.hold_outage_until, 240.0)
+
+    def test_an_answered_failure_leaves_the_next_outage_its_own_episode(self):
+        """test_listener.HoldRetryTests owns the answered failure's period and notice."""
+        ctx = self.ctx
+        self.result = hold.Push("unavailable", hold.ANSWERED)
+        ctx.sync_hold(now=100.0)
+        self.assertEqual(ctx.hold_outage_until, 0.0)
+        # The shell answered a moment ago, so its going unreachable now is a first failure.
+        self.result = hold.Push("unavailable", hold.TRANSPORT)
+        ctx.sync_hold(now=160.0)
+        self.assertEqual((self.pushes, ctx.hold_outage_until), (2, 170.0))
+
+
 class HoldListenerTests(unittest.TestCase):
     def setUp(self):
         self.box = Sandbox()
@@ -267,7 +376,8 @@ class HoldListenerTests(unittest.TestCase):
             "GETENT_MAP": json.dumps({"example.com": ["203.0.113.10"], "www.example.com": ["203.0.113.10"]}),
             "DS_FEEDBACK_HTTP_PORT": "0", "DS_FEEDBACK_TLS_PORT": "0",
         })
-        os.environ.pop("DS_SHELL_MISSING", None)
+        for key in ("DS_SHELL_MISSING", "DS_SHELL_DOWN", "DS_SHELL_REFUSE"):
+            os.environ.pop(key, None)
         for name, src in (("omarchy-shell", SHELL), ("busctl", BUSCTL), ("hyprctl", HYPRCTL),
                           ("getent", GETENT), ("sudo", SUDO), ("omarchy-notification-send", NOTIFY)):
             self.box.fake_bin(name, src)
@@ -400,16 +510,7 @@ class HoldListenerTests(unittest.TestCase):
         missing = self.box.runtime / "shell-missing"
         missing.write_text("1")
         os.environ["DS_SHELL_MISSING"] = str(missing)
-        site = self.box.runtime / "pysite"
-        site.mkdir(exist_ok=True)
-        (site / "sitecustomize.py").write_text(
-            "import sys\n"
-            f"sys.path.insert(0, {str(ROOT)!r})\n"
-            "from ds import listener\n"
-            "listener.PERIOD = 1.0\n",
-            encoding="utf-8",
-        )
-        self._start(extra_env={"PYTHONPATH": str(site)})
+        self._start(extra_env=self._pysite("from ds import listener\nlistener.PERIOD = 1.0\n"))
         self.assertTrue(_wait(lambda: self._state().get("notification_hold") == "unavailable", 5), self._state())
         self.assertEqual(len(self._notices()), 1)
         self.assertIn("hold: silencedSenders: Function not found.", self._log_text())
@@ -423,6 +524,65 @@ class HoldListenerTests(unittest.TestCase):
             any(ln.split()[1:2] == ["silence"] for ln in self.shell_log.read_text().splitlines()),
             self.shell_log.read_text(),
         )
+
+    def _attempts(self):
+        """One log line per unreachable-shell attempt, and nothing else writes it."""
+        return self._log_text().count("silencedSenders: omarchy-shell is not running")
+
+    def _pysite(self, body):
+        site = self.box.runtime / "pysite"
+        site.mkdir(exist_ok=True)
+        (site / "sitecustomize.py").write_text(
+            f"import sys\nsys.path.insert(0, {str(ROOT)!r})\n{body}", encoding="utf-8")
+        return {"PYTHONPATH": str(site)}
+
+    def test_a_late_shell_recovers_inside_the_window_without_a_notice(self):
+        down = self.box.runtime / "shell-down"
+        down.write_text("1")
+        os.environ["DS_SHELL_DOWN"] = str(down)
+        self._start()
+        self.assertTrue(_wait(lambda: self._state().get("notification_hold") == "unavailable", 5), self._state())
+        failed_at = self._state()["observed_at"]["notification_hold"]
+        down.unlink()  # the shell was only late; it answers from here on
+        self.assertTrue(
+            _wait(lambda: self._state().get("notification_hold") == "on", 6),
+            (self._state(), self._log_text()),
+        )
+        self.assertEqual(self._silenced(), KEYS, "the recovered push holds what the policy calls for")
+        self.assertTrue(self._state().get("hold"))
+        self.assertNotEqual(self._state()["observed_at"]["notification_hold"], failed_at,
+                            "the recovery publishes a fresh observation")
+        self.assertEqual(self._notices(), [])
+        self.assertGreaterEqual(self._attempts(), 1)
+
+    def test_a_shell_that_never_answers_stops_at_the_window_and_never_notifies(self):
+        down = self.box.runtime / "shell-down"
+        down.write_text("1")
+        os.environ["DS_SHELL_DOWN"] = str(down)
+        # A four-second window of one-second retries: the same arithmetic, briefly.
+        self._start(extra_env=self._pysite("from ds import hold\nhold.RETRY_WINDOW = 4.0\nhold.RETRY_EVERY = 1.0\n"))
+        self.assertTrue(_wait(lambda: self._attempts() >= 3, 6), self._log_text())
+        time.sleep(3.0)
+        spent = self._attempts()
+        time.sleep(2.5)
+        self.assertEqual(self._attempts(), spent, "past the window only the 60-second period retries")
+        self.assertEqual(self._notices(), [], "an unreachable shell is never told to run setup")
+        self.assertEqual(self._state().get("notification_hold"), "unavailable")
+
+    def test_a_shell_that_answers_error_notifies_once(self):
+        refuse = self.box.runtime / "shell-refuse"
+        refuse.write_text("*")
+        os.environ["DS_SHELL_REFUSE"] = str(refuse)
+        self._start()
+        self.assertTrue(_wait(lambda: self._state().get("notification_hold") == "unavailable", 5), self._state())
+        self.assertEqual(len(self._notices()), 1)
+        self.assertIn(f"hold: silence {KEYS[0]}: error", self._log_text())
+        self._go("distraction", 5)
+        self.assertTrue(_wait(lambda: self._state().get("notification_hold") == "off", 5), self._state())
+        self._go("2", 2)
+        self.assertTrue(_wait(lambda: self._state().get("notification_hold") == "unavailable", 5), self._state())
+        self.assertEqual(len(self._notices()), 1, "the notice is once per listener lifetime")
+        self.assertEqual(self._attempts(), 0, "a shell that answered is not an unreachable one")
 
     def test_busctl_exit_restarts_with_backoff(self):
         self.bus_exit.write_text("1")
