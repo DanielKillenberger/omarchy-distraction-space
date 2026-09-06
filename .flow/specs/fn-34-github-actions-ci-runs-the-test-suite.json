@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-34-github-actions-ci-runs-the-test-suite",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-06T16:17:50.583673Z",
   "created_at": "2026-09-06T16:02:06.328831Z",
   "default_impl": null,
   "default_review": null,
@@ -74,5 +74,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-06T16:15:31.764940Z"
+  "updated_at": "2026-09-06T16:17:50.583683Z"
 }

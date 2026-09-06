@@ -19,7 +19,8 @@ R2 needed no apt step and no test edits: the suite fakes every desktop tool via 
 Honest limit: GitHub Actions cannot run locally. The job's green status is asserted from the local run of the same command (451 tests, 1 skipped, green on Python 3.14.7) and the runner facts above, not from an observed workflow run. The first push to GitHub is the real check.
 
 baseline: green (PATH=/usr/bin:$PATH python3 -m unittest discover -s tests; no receipt existed at HEAD)
-stage: impl-review - ran (codex:gpt-6-astra:medium fan-out, 3/3 draws SHIP, 0 findings, receipt /tmp/impl-review-receipt-aed9e3047b69-fn-34-github-actions-ci-runs-the-test-suite.1.json)
+stage: impl-review - ran (codex:gpt-6-astra:medium fan-out, 3/3 draws SHIP, 0 findings, receipt /tmp/impl-review-receipt-aed9e3047b69-fn-34-github-actions-ci-runs-the-test-suite.1.json) (model: codex gpt-6-astra medium)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
 - Commits: ed590db6a7ef72230770bacc4191db1642526a5f
 - Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (baseline: green, 451 tests, 1 skipped), PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (verify: green, 451 tests, 1 skipped; receipt .flow/tmp/green-receipts/ed590db6-unittest.json), python3 -c 'yaml.safe_load(.github/workflows/tests.yml)' (parses: on.push.branches=[main], on.pull_request, matrix 3.11/3.x, 4 steps)
