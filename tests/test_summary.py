@@ -454,6 +454,32 @@ class SummaryListenerTests(_Env):
         self.assertEqual(self._hooks()[1], {"event": "unlock", "held": {"Telegram": 1}})
         self.assertFalse(self._held_file().exists())
 
+    def test_after_unlock_entering_the_space_shows_no_notice_hands_counts_to_the_hook_and_clears(self):
+        self._write_cfg(after="unlock")
+        self._start()
+        self._hold({"Telegram": 2, "Discord": 1})
+        self._go("distraction", 5)
+        self.assertTrue(_wait(lambda: len(self._hooks()) == 1, 3), self._hooks())
+        self.assertEqual(self._hooks()[0], {"event": "enter", "held": {"Telegram": 2, "Discord": 1}})
+        self.assertFalse(self._held_file().exists())
+        self.assertTrue(_wait(lambda: self._state().get("held") == {}, 3), self._state())
+        time.sleep(0.5)
+        self.assertEqual(self._notices(), [])
+
+    def test_after_unlock_lock_expiry_still_notifies_once(self):
+        self._write_cfg(after="unlock")
+        write_json(self.box.state_dir / "lock.json",
+                   {"locked": True, "since": _iso(-60), "until": _iso(2), "purpose": "deep work"})
+        self._start()
+        self._hold({"Telegram": 2, "Discord": 1})
+        self.assertTrue(_wait(lambda: self._notices() == [f"{summary.TITLE} {GROUPED}"], 8), self._notices())
+        self.assertIn("Lock ended deep work", self.notify_log.read_text(encoding="utf-8"))
+        self.assertTrue(_wait(lambda: len(self._hooks()) == 1, 3), self._hooks())
+        self.assertEqual(self._hooks()[0], {"event": "unlock", "held": {"Telegram": 2, "Discord": 1}})
+        self.assertFalse(self._held_file().exists())
+        time.sleep(0.5)
+        self.assertEqual(len(self._notices()), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
