@@ -382,6 +382,25 @@ class AudioUnitTests(_Env):
         self.assertEqual(self._streams(), {"4": False})
         self.assertIsNone(self._muted())
 
+    def test_failed_listing_without_a_record_retries_the_sweep_from_tick(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        self.streams.write_text(json.dumps([stream(4, "Chromium", "chrome", 400, muted=True)]))
+        (self.box.runtime / "pactl.fail").write_text("1")
+        m = hold.Mute()
+        with mock.patch.object(hold, "_log") as log:
+            m.sync(False, self.table, now=100.0)
+            m.tick(now=100.0 + hold.RELEASE_RETRY - 0.5)
+        self.assertEqual(log.call_args_list, [mock.call("pactl: Connection failure: Connection refused")])
+        self.assertEqual(len(self._calls("-f json list")), 1)
+        self.assertEqual(self._streams(), {"4": True})
+        self.assertIsNone(self._muted())
+        (self.box.runtime / "pactl.fail").unlink()
+        m.tick(now=100.0 + hold.RELEASE_RETRY)
+        self.assertEqual(self._streams(), {"4": False})
+        self.assertFalse(m.sweep)
+        m.tick(now=100.0 + 2 * hold.RELEASE_RETRY)
+        self.assertEqual(len(self._calls("-f json list")), 2, "a listed sweep is not owed again")
+
     def test_mute_and_release_write_one_log_line_each(self):
         self.streams.write_text(json.dumps([stream(3, "Telegram Desktop", "telegram-desktop", 100)]))
         m = hold.Mute()
