@@ -1,27 +1,35 @@
 -- Distraction space (io.github.danielkillenberger.distraction-space):
--- a stream from the distraction browser starts muted while the hold flag
--- exists, and unmuted while it does not, whatever WirePlumber saved for it.
+-- a stream from the distraction browser starts muted while the hold key
+-- is set on this script's own metadata object, and unmuted while it is
+-- not, whatever WirePlumber saved for it.
 -- `distractions setup` installs this script; `setup --remove` deletes it.
--- The flag path is filled in by setup; the listener writes and removes it.
+-- The listener sets and deletes the key through `pw-metadata`.
 
 local APP_ID = "io.github.danielkillenberger.distraction-space"
-local FLAG = @HOLD_FLAG@
+local HOLD_KEY = "hold"
 
 local log = Log.open_topic ("s-distraction-space")
 
--- A flag that cannot be read is an absent one.
-local function holdOn ()
-  local f = io.open (FLAG, "r")
-  if not f then
-    return false
+-- A metadata object of the plugin's name is how the listener sees the hook loaded,
+-- and the hold key the listener sets lives on it.
+loaded_metadata = ImplMetadata (APP_ID)
+loaded_metadata:activate (Features.ALL, function (m, e)
+  if e then
+    log:warning ("failed to activate the " .. APP_ID .. " metadata: " .. tostring (e))
+  else
+    m:set (0, "hold-mute", "Spa:String:JSON", "\"loaded\"")
   end
-  f:close ()
-  return true
+end)
+
+-- A key that cannot be read is an absent one.
+local function holdOn ()
+  local ok, value = pcall (function () return loaded_metadata:find (0, HOLD_KEY) end)
+  return ok and value ~= nil
 end
 
 hold_mute_hook = SimpleEventHook {
   name = "node/distraction-space-hold-mute",
-  -- After the saved per-identity state, so the flag has the last word.
+  -- After the saved per-identity state, so the key has the last word.
   after = "node/restore-stream",
   interests = {
     EventInterest {
@@ -42,13 +50,3 @@ hold_mute_hook = SimpleEventHook {
   end
 }
 hold_mute_hook:register ()
-
--- A metadata object of the plugin's name is how the listener sees the hook loaded.
-loaded_metadata = ImplMetadata (APP_ID)
-loaded_metadata:activate (Features.ALL, function (m, e)
-  if e then
-    log:warning ("failed to activate the " .. APP_ID .. " metadata: " .. tostring (e))
-  else
-    m:set (0, "hold-mute", "Spa:String:JSON", "\"loaded\"")
-  end
-end)

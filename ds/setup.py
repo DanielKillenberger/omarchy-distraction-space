@@ -721,12 +721,13 @@ def remove_slice() -> int:
 
 
 def sync_hook() -> int:
-    """Install the WirePlumber hook script and its config fragment under the person's WirePlumber config, restart WirePlumber once when either changed, and report a hook that did not load; no root."""
+    """Install the WirePlumber hook script under the WirePlumber data directory and its config fragment under the config directory, restart WirePlumber once when either changed, and report a hook that did not load; no root."""
     if wp.wireplumber_bin() is None:
         print("wireplumber not found; distraction streams are muted reactively", file=sys.stderr)
         return 0
-    script = wp.render_script().encode()
+    script = wp.script_text().encode()
     fragment = wp.fragment_text().encode()
+    # A required feature whose script is missing keeps WirePlumber from starting, so the script is written first.
     targets = ((wp.script_path(), script), (wp.fragment_path(), fragment))
     changed = any((path.read_bytes() if path.is_file() else None) != data for path, data in targets)
     if changed:
@@ -742,14 +743,18 @@ def sync_hook() -> int:
             print(err or "systemctl --user restart wireplumber failed", file=sys.stderr)
             return 0
         print("wireplumber restarted so the hold hook loads")
-    if wp.wait_loaded() is not True:
+    loaded = wp.wait_loaded()
+    if loaded is None:
+        print("pw-metadata not found or failed; cannot tell whether the WirePlumber hold hook loaded; distraction streams are muted reactively", file=sys.stderr)
+    elif loaded is False:
         print("the WirePlumber hold hook did not load; distraction streams are muted reactively", file=sys.stderr)
     return 0
 
 
 def remove_hook() -> int:
     removed = False
-    for path in (wp.script_path(), wp.fragment_path()):
+    # A required feature whose script is gone keeps WirePlumber from starting, so the fragment goes first.
+    for path in (wp.fragment_path(), wp.script_path()):
         if not path.exists():
             continue
         try:
