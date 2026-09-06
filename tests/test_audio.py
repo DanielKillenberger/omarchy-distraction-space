@@ -18,7 +18,7 @@ from test_hold import BUSCTL, LIST, SHELL
 from test_listener import GETENT, HYPRCTL, NOTIFY, SUDO, _wait
 
 sys.path.insert(0, str(ROOT))
-from ds import catalog, cgroup, hold
+from ds import catalog, cgroup, hold, wp
 from ds.config import DEFAULTS
 from ds.state import write_json
 
@@ -57,7 +57,21 @@ else:
 
 _ENV_KEYS = ("DS_PACTL_LOG", "DS_PACTL_STREAMS", "DS_PACTL_EVENTS", "DS_PACTL_FAIL", "DS_PACTL_STUCK", "DS_SHELL_LOG", "DS_SHELL_STATE",
              "DS_SHELL_MISSING", "DS_BUS_LOG", "DS_BUS_LINES", "DS_BUS_EXIT", "DS_HYPR_LOG", "DS_HYPR_STATE",
-             "DS_NOTIFY_LOG", "DS_NFT_LOG", "DS_SOCKET2", "GETENT_MAP", "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT")
+             "DS_NOTIFY_LOG", "DS_NFT_LOG", "DS_SOCKET2", "GETENT_MAP", "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT",
+             "DS_PW_METADATA_LOADED", "DS_PW_METADATA_LOG")
+
+PW_METADATA = r"""
+import os, sys
+from pathlib import Path
+log = os.environ.get("DS_PW_METADATA_LOG")
+if log:
+    Path(log).parent.mkdir(parents=True, exist_ok=True)
+    Path(log).open("a").write(" ".join(sys.argv[1:]) + "\n")
+marker = os.environ.get("DS_PW_METADATA_LOADED")
+if marker and Path(marker).exists():
+    print('Found "io.github.danielkillenberger.distraction-space" metadata 7')
+sys.exit(0)
+"""
 CUSTOM = {"name": "Foo", "hosts": ["foo.org"], "audio": {"name": ["Chromium"], "binary": ["chrome"]}}
 START = "4242"
 
@@ -289,7 +303,13 @@ class AudioUnitTests(_Env):
             m.sync(True, self.table)
             m.sync(False, self.table)
         self.assertTrue(m.missing)
-        self.assertEqual(log.call_args_list, [mock.call("pactl missing; sound mute is off")])
+        path = wp.flag_path()
+        self.assertEqual(log.call_args_list, [
+            mock.call(f"flag written: {path}"),
+            mock.call("hold hook not installed; streams are muted reactively (run: distractions setup)"),
+            mock.call("pactl missing; sound mute is off"),
+            mock.call(f"flag removed: {path}"),
+        ])
         self.assertIsNone(m.tail.proc)
         m2 = hold.Mute()
         m2.active = True
@@ -309,7 +329,13 @@ class AudioUnitTests(_Env):
             m.sync(True, self.table)
             m.sync(False, self.table, now=100.0)
             m.tick(now=100.0 + hold.RELEASE_RETRY - 0.5)
-        self.assertEqual(log.call_count, 1)
+        path = wp.flag_path()
+        self.assertEqual(log.call_args_list, [
+            mock.call(f"flag written: {path}"),
+            mock.call("hold hook not installed; streams are muted reactively (run: distractions setup)"),
+            mock.call("pactl: Connection failure: Connection refused"),
+            mock.call(f"flag removed: {path}"),
+        ])
         self.assertFalse(m.missing)
         self.assertEqual(self._muted(), {"3": f"100:{START}"})
         self.assertEqual(self._streams(), {"3": True})
@@ -408,8 +434,12 @@ class AudioUnitTests(_Env):
             m.sync(True, self.table)
             m.sync(True, self.table)
             m.sync(False, self.table)
+        path = wp.flag_path()
         self.assertEqual(log.call_args_list, [
+            mock.call(f"flag written: {path}"),
+            mock.call("hold hook not installed; streams are muted reactively (run: distractions setup)"),
             mock.call(f"mute 3 (100:{START}): Telegram"),
+            mock.call(f"flag removed: {path}"),
             mock.call(f"unmute 3 (100:{START}): hold ended"),
         ])
 
@@ -437,6 +467,79 @@ class AudioUnitTests(_Env):
         ])
         self.assertEqual(self._streams(), {"3": False, "7": True, "8": False, "9": False})
         self.assertIsNone(self._muted())
+
+    def _hold_log(self):
+        path = self.box.state_dir / "log"
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def _hold_log_count(self, needle):
+        return sum(1 for ln in self._hold_log().splitlines() if needle in ln)
+
+    def test_sync_writes_the_flag_once_per_streak_and_release_removes_it(self):
+        self.streams.write_text("[]")
+        m = hold.Mute()
+        m.sync(True, self.table)
+        self.assertTrue(wp.flag_path().is_file())
+        self.assertEqual(self._hold_log_count("hold: flag written:"), 1)
+        m.sync(True, self.table)
+        self.assertEqual(self._hold_log_count("hold: flag written:"), 1)
+        m.sync(False, self.table)
+        self.assertFalse(wp.flag_path().exists())
+        self.assertEqual(self._hold_log_count("hold: flag removed:"), 1)
+        m.sync(False, self.table)
+        self.assertEqual(self._hold_log_count("hold: flag removed:"), 1)
+
+    def test_first_sync_with_hold_off_removes_a_stale_flag(self):
+        wp.flag_path().write_text("stale\n", encoding="utf-8")
+        hold.Mute().sync(False, self.table)
+        self.assertFalse(wp.flag_path().exists())
+        self.assertEqual(self._hold_log_count("hold: flag removed:"), 1)
+
+    @unittest.skipIf(os.geteuid() == 0, "root can write a 0500 directory")
+    def test_flag_write_failure_is_logged_once_and_the_scan_still_mutes(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        self.streams.write_text(json.dumps([stream(4, "Chromium", "chrome", 400)]))
+        log_path = self.box.state_dir / "log"
+        log_path.write_text("", encoding="utf-8")
+        state_dir = self.box.state_dir
+        mode = state_dir.stat().st_mode
+        self.addCleanup(os.chmod, state_dir, mode)
+        os.chmod(state_dir, 0o500)
+        m = hold.Mute()
+        m.sync(True, self.table)
+        m.sync(True, self.table)
+        self.assertEqual(self._streams()["4"], True)
+        self.assertEqual(self._hold_log_count(f"cannot write {wp.flag_path()}"), 1)
+
+    def test_missing_hook_is_logged_once_per_streak_and_the_reactive_scan_still_mutes(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        self.streams.write_text(json.dumps([stream(4, "Chromium", "chrome", 400)]))
+        m = hold.Mute()
+        m.sync(True, self.table)
+        m.sync(True, self.table)
+        self.assertEqual(self._hold_log_count("hold hook not installed"), 1)
+        self.assertEqual(self._streams()["4"], True)
+        m.sync(False, self.table)
+        m.sync(True, self.table)
+        self.assertEqual(self._hold_log_count("hold hook not installed"), 2)
+
+        wp.script_path().parent.mkdir(parents=True, exist_ok=True)
+        wp.fragment_path().parent.mkdir(parents=True, exist_ok=True)
+        wp.script_path().write_text("-- hook\n", encoding="utf-8")
+        wp.fragment_path().write_text("# fragment\n", encoding="utf-8")
+        marker = self.box.runtime / "pw-metadata.loaded"
+        os.environ["DS_PW_METADATA_LOADED"] = str(marker)
+        os.environ["DS_PW_METADATA_LOG"] = str(self.box.runtime / "pw-metadata.log")
+        self.box.fake_bin("pw-metadata", PW_METADATA)
+        before = self._hold_log_count("hold hook not loaded")
+        hooked = hold.Mute()
+        hooked.sync(True, self.table)
+        hooked.sync(True, self.table)
+        self.assertEqual(self._hold_log_count("hold hook not loaded"), before + 1)
+        marker.write_text("1", encoding="utf-8")
+        hold.Mute().sync(True, self.table)
+        self.assertEqual(self._hold_log_count("hold hook not loaded"), before + 1)
+        self.assertEqual(self._hold_log_count("hold hook not installed"), 2)
 
 
 class MuteListenerTests(_Env):
@@ -511,15 +614,20 @@ class MuteListenerTests(_Env):
             f.write("Event 'new' on sink-input #3\nEvent 'new' on sink-input #4\n")
         self.assertTrue(_wait(lambda: self._streams() == {"3": True, "4": False}, 5), self._streams())
         self.assertTrue(_wait(lambda: self._muted() == {"3": me}, 3), self._muted())
+        flag = self.box.state_dir / "hold.flag"
+        self.assertTrue(flag.exists())
         self._go("distraction", 5)
         self.assertTrue(_wait(lambda: self._streams() == {"3": False, "4": False}, 5), self._streams())
         self.assertTrue(_wait(lambda: self._muted() is None, 3))
+        self.assertFalse(flag.exists())
         self.assertTrue(_wait(lambda: self.proc.poll() is None and all(
             (Path(f"/proc/{pid}/cmdline").read_bytes().find(b"subscribe") < 0) for pid in _kids(self.proc.pid)), 3))
         self._go("2", 2)
         self.assertTrue(_wait(lambda: self._streams() == {"3": True, "4": False}, 5), self._streams())
         self.assertTrue(_wait(lambda: self._muted() == {"3": me}, 3), self._muted())
+        self.assertTrue(flag.exists())
         err = self._stop()
+        self.assertFalse(flag.exists())
         self.assertEqual(self._streams(), {"3": False, "4": False}, err)
         self.assertIsNone(self._muted())
         self.assertNotIn("pactl", err)

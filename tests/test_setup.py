@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, ClosedTty, Sandbox, Tty
 
 sys.path.insert(0, str(ROOT))
-from ds import launch, setup
+from ds import launch, setup, wp
 from ds.config import DEFAULTS
 
 SUDO = r"""
@@ -186,6 +186,19 @@ Path(os.environ["DS_UDD_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
 time.sleep(float(os.environ.get("DS_UDD_SLEEP", "0")))
 """
 
+PW_METADATA = r"""
+import os, sys
+from pathlib import Path
+log = os.environ.get("DS_PW_METADATA_LOG")
+if log:
+    Path(log).parent.mkdir(parents=True, exist_ok=True)
+    Path(log).open("a").write(" ".join(sys.argv[1:]) + "\n")
+marker = os.environ.get("DS_PW_METADATA_LOADED")
+if marker and Path(marker).exists():
+    print('Found "io.github.danielkillenberger.distraction-space" metadata 7')
+sys.exit(0)
+"""
+
 OMARCHY_YOUTUBE = (
     "[Desktop Entry]\nVersion=1.0\nName=YouTube\nExec=omarchy-launch-webapp https://youtube.com/\n"
     "Terminal=false\nType=Application\nIcon=youtube\nStartupNotify=true\n"
@@ -237,8 +250,10 @@ class SetupTests(unittest.TestCase):
         # The clone tests run setup.install() too and would inherit a poisoned
         # visudo or log paths that point into this sandbox after it is gone.
         for key in ("DS_VISUDO_FAIL", "DS_SYSTEMCTL_FAIL", "DS_SYSTEMCTL_STOP_FAIL",
-                    "DS_VISUDO_LOG", "DS_SYSTEMCTL_LOG", "DS_SETUP_SUDO_LOG", "DS_RESCAN_LOG"):
+                    "DS_VISUDO_LOG", "DS_SYSTEMCTL_LOG", "DS_SETUP_SUDO_LOG", "DS_RESCAN_LOG",
+                    "DS_WIREPLUMBER", "DS_PW_METADATA_LOADED", "DS_PW_METADATA_LOG"):
             self.addCleanup(os.environ.pop, key, None)
+        os.environ["DS_WIREPLUMBER"] = str(self.box.runtime / "no-wireplumber")
         self.unit = self.box.config / "systemd" / "user" / "app-distraction.slice"
         os.environ["DS_LOCK_PREFIX"] = str(self.prefix)
         # No notification plugin source in the sandbox: the clone step reports
@@ -328,6 +343,20 @@ class SetupTests(unittest.TestCase):
             return []
         return [ln for ln in self.systemctl_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
+    def _wp_restarts(self):
+        return [ln for ln in self._systemctl_lines() if ln == "--user restart wireplumber"]
+
+    def _enable_wireplumber(self, loaded=True):
+        os.environ["DS_WIREPLUMBER"] = str(self.box.fake_bin("wireplumber", "import sys\nsys.exit(0)\n"))
+        self.box.fake_bin("pw-metadata", PW_METADATA)
+        marker = self.box.runtime / "pw-metadata.loaded"
+        os.environ["DS_PW_METADATA_LOADED"] = str(marker)
+        os.environ["DS_PW_METADATA_LOG"] = str(self.box.runtime / "pw-metadata.log")
+        if loaded:
+            marker.write_text("1", encoding="utf-8")
+        elif marker.exists():
+            marker.unlink()
+
     def _staged(self):
         """Anything the transaction left behind in the destination directories."""
         left = []
@@ -378,7 +407,9 @@ class SetupTests(unittest.TestCase):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             rc = setup.install(assume_yes=assume_yes)
         self.stdout = out.getvalue()
-        lines = [ln for ln in err.getvalue().splitlines() if not ln.startswith("notification hold unavailable")]
+        lines = [ln for ln in err.getvalue().splitlines()
+                 if not ln.startswith("notification hold unavailable")
+                 and not ln.startswith("wireplumber not found")]
         return rc, "".join(ln + "\n" for ln in lines)
 
     def test_setup_asks_about_links_once_naming_the_browser_before_sudo_and_a_rerun_prints_the_choice(self):
@@ -1371,6 +1402,49 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(r.returncode, 1, r.stderr)
         self.assertTrue(self.wrapper.is_file())
         self.assertTrue(self.sudoers.is_file())
+
+    def test_install_writes_the_hook_and_restarts_wireplumber_once(self):
+        self._enable_wireplumber(loaded=True)
+        self.assertEqual(setup.install(), 0)
+        script = self.box.config / "wireplumber" / "scripts" / "distraction-space-hold-mute.lua"
+        fragment = self.box.config / "wireplumber" / "wireplumber.conf.d" / "distraction-space-hold-mute.conf"
+        self.assertEqual(script.read_text(encoding="utf-8"), wp.render_script())
+        self.assertEqual(fragment.read_text(encoding="utf-8"), wp.fragment_text())
+        self.assertEqual(self._wp_restarts(), ["--user restart wireplumber"])
+        self.assertEqual(setup.install(), 0)
+        self.assertEqual(self._wp_restarts(), ["--user restart wireplumber"])
+        script.write_text("-- drifted\n", encoding="utf-8")
+        self.assertEqual(setup.install(), 0)
+        self.assertEqual(script.read_text(encoding="utf-8"), wp.render_script())
+        self.assertEqual(self._wp_restarts(), ["--user restart wireplumber", "--user restart wireplumber"])
+
+    def test_install_reports_a_hook_that_did_not_load_and_still_succeeds(self):
+        self._enable_wireplumber(loaded=False)
+        with patch.object(wp, "LOAD_WAIT", 0.0):
+            rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertIn("did not load", err)
+
+    def test_install_without_wireplumber_installs_nothing_and_says_so(self):
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            rc = setup.install()
+        self.assertEqual(rc, 0)
+        self.assertFalse((self.box.config / "wireplumber" / "scripts" / "distraction-space-hold-mute.lua").exists())
+        self.assertFalse((self.box.config / "wireplumber" / "wireplumber.conf.d" / "distraction-space-hold-mute.conf").exists())
+        self.assertIn("wireplumber not found", err.getvalue())
+
+    def test_remove_deletes_the_hook_and_restarts_wireplumber(self):
+        self._enable_wireplumber(loaded=True)
+        self.assertEqual(setup.install(), 0)
+        self.systemctl_log.write_text("", encoding="utf-8")
+        self.assertEqual(setup.remove(), 0)
+        self.assertFalse((self.box.config / "wireplumber" / "scripts" / "distraction-space-hold-mute.lua").exists())
+        self.assertFalse((self.box.config / "wireplumber" / "wireplumber.conf.d" / "distraction-space-hold-mute.conf").exists())
+        self.assertEqual(self._wp_restarts(), ["--user restart wireplumber"])
+        self.systemctl_log.write_text("", encoding="utf-8")
+        self.assertEqual(setup.remove(), 0)
+        self.assertEqual(self._wp_restarts(), [])
 
 
 if __name__ == "__main__":
