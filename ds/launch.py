@@ -573,6 +573,85 @@ def _browser_child_env():
     return env
 
 
+def _pulse_pairs(prop):
+    """Each `key=value` of a PULSE_PROP line as libpulse reads it: `(key, value, start, end)`.
+
+    Pairs are separated by whitespace, which is also allowed around the `=`;
+    a value runs to the next whitespace, or sits in double quotes or ticks
+    with backslash escapes, and the next key may follow a closing quote
+    directly. A line libpulse would refuse raises ValueError.
+    """
+    i, n = 0, len(prop)
+    while True:
+        while i < n and prop[i].isspace():
+            i += 1
+        if i >= n:
+            return
+        start = i
+        while i < n and prop[i] != "=" and not prop[i].isspace():
+            i += 1
+        key = prop[start:i]
+        while i < n and prop[i].isspace():
+            i += 1
+        if not key or i >= n or prop[i] != "=":
+            raise ValueError(f"malformed PULSE_PROP at {start}")
+        i += 1
+        while i < n and prop[i].isspace():
+            i += 1
+        if i < n and prop[i] in "\"'":
+            quote, i, out = prop[i], i + 1, []
+            while True:
+                if i >= n:
+                    raise ValueError(f"unterminated quote at {start}")
+                c = prop[i]
+                if c == "\\" and i + 1 < n:
+                    out.append(prop[i + 1])
+                    i += 2
+                    continue
+                i += 1
+                if c == quote:
+                    break
+                out.append(c)
+            value = "".join(out)
+        else:
+            vstart = i
+            while i < n and not prop[i].isspace():
+                i += 1
+            value = prop[vstart:i]
+        yield key, value, start, i
+
+
+def _strip_identity(prop):
+    """`prop` with every `application.id` pair naming this plugin removed and the rest of the line untouched, quoted values included; a line libpulse would refuse carries no identity and is returned as is."""
+    try:
+        pairs = list(_pulse_pairs(prop))
+    except ValueError:
+        return prop
+    pieces, pos = [], 0
+    for key, value, start, end in pairs:
+        if key == "application.id" and value == _PULSE_APPLICATION_ID:
+            pieces.append(prop[pos:start].rstrip())
+            pos = end
+    if not pieces:
+        return prop
+    pieces.append(prop[pos:])
+    return "".join(pieces).strip()
+
+
+def _forward_env():
+    """The plugin's `application.id` never leaves the slice: a forward hands the work browser the inherited property line without it, every other property intact."""
+    env = dict(os.environ)
+    if "PULSE_PROP" not in env:
+        return env
+    original = env["PULSE_PROP"]
+    stripped = _strip_identity(original)
+    if not stripped and original:
+        env.pop("PULSE_PROP")
+    else:
+        env["PULSE_PROP"] = stripped
+    return env
+
+
 def _launch_browser_in_slice(argv):
     """Run a known browser as Chromium's own portal scope inside the slice.
 
@@ -670,10 +749,12 @@ def forward(url=None, flags=(), app=False):
     not parse) falls back to `omarchy-launch-browser` with `BROWSER` dropped;
     that script resolves the default browser again, so when the default is
     this plugin the fallback would only come straight back, and nothing is
-    launched: exit 1 with one line, as when the script is missing.
+    launched: exit 1 with one line, as when the script is missing. Both paths
+    strip this plugin's application.id from PULSE_PROP so the identity never
+    leaves the slice.
     """
     handler = state.read_entries()["previous_handler"]
-    argv = env = None
+    argv, env = None, _forward_env()
     if handler and handler != HANDLER_ID:
         argv = exec_argv(handler, None if app else url, skip_own=True)
         if argv is None:
@@ -683,7 +764,6 @@ def forward(url=None, flags=(), app=False):
             _notice("Link not forwarded", f"no previous browser is recorded and {FALLBACK_FORWARDER} would resolve to this plugin again; rerun: distractions setup")
             return 1
         argv = [FALLBACK_FORWARDER] + ([] if url is None or app else [url])
-        env = dict(os.environ)
         env.pop("BROWSER", None)
     if app and url is not None:
         argv.append(f"--app={url}")

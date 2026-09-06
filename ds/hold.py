@@ -12,7 +12,7 @@ from collections import namedtuple
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ds import catalog, cgroup, config, state
+from ds import catalog, cgroup, config, state, wp
 
 FIELD_CAP = 4096
 FILE_CAP = 64 * 1024
@@ -541,7 +541,11 @@ def muted_path():
 
 
 class Mute:
-    """Mute the listed apps' streams while hold is on; unmute what this plugin muted, by identity, and any muted stream still in the slice."""
+    """Mute the listed apps' streams while hold is on; unmute what this plugin muted, by identity, and any muted stream still in the slice.
+
+    While hold is on, a key on the WirePlumber hook's metadata object tells it
+    to mute a new distraction-browser stream at creation.
+    """
 
     def __init__(self):
         self.active, self.table, self.owned = False, {"names": {}, "binaries": {}, "hosts": {}}, {}
@@ -549,6 +553,7 @@ class Mute:
         self.missing, self.fail_noted, self.retry_at = False, False, 0.0
         # `started`: sync has run once; `sweep`: a release could not list the streams and is still owed.
         self.started, self.sweep = False, False
+        self.key_state, self.hook_noted, self.key_noted = None, False, False
 
     def fileno(self):
         return self.tail.fileno()
@@ -621,10 +626,37 @@ class Mute:
         _log(f"{verb} {index} ({ident}): {why}")
         return True
 
+    def _hold_key(self, on):
+        object_id, error = wp.hold(on)
+        verb = "set" if on else "deleted"
+        if error is not None:
+            if not self.key_noted:
+                _log(f"cannot {'set' if on else 'delete'} the hold key: {error}; streams are muted reactively")
+            self.key_noted = True
+            return
+        self.key_noted = False
+        if object_id is None:
+            if not self.hook_noted:
+                if not wp.installed():
+                    _log("hold hook not installed; streams are muted reactively (run: distractions setup)")
+                else:
+                    _log("hold hook not loaded in WirePlumber; streams are muted reactively")
+            self.hook_noted = True
+            self.key_state = None
+            return
+        self.hook_noted = False
+        if (on, object_id) != self.key_state:
+            _log(f"hold key {verb} (metadata {object_id})")
+        self.key_state = (on, object_id)
+
     def sync(self, on, table, now=None):
-        """On every hold transition and list change: mute while on, release when off."""
+        """On every hold transition and list change: mute while on, release when off.
+
+        The hold key is asserted on every sync, even when pactl is missing.
+        """
         self.table = table
         first, self.started = not self.started, True
+        self._hold_key(on)
         if on and not self.missing:
             if not self.active:
                 self.active = True
@@ -691,6 +723,11 @@ class Mute:
         if rescan and self.active:
             self.scan()
 
+    def stop(self, now=None):
+        """The listener is stopping: the hold ends with it, so the key goes, then the streams are released."""
+        self._hold_key(False)
+        self.release(now)
+
     def release(self, now=None):
         """Hold ended, or the listener started with it off: unmute what the record names and what the slice holds.
 
@@ -700,7 +737,8 @@ class Mute:
         outside the slice is left alone. A stream whose unmute failed stays in
         the file, and a failed list keeps the whole sweep owed; both are retried
         from `tick` every RELEASE_RETRY seconds. The file clears once nothing is
-        left.
+        left. The hold key is not this method's: `sync` reaches here with the
+        hold still on when pactl is missing, and the key must stay set then.
         """
         self.active = False
         self.tail.stop()

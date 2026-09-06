@@ -17,7 +17,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from ds import catalog, cgroup, config, launch, state
+from ds import catalog, cgroup, config, launch, state, wp
 
 ROOT = Path(__file__).resolve().parent.parent
 WRAPPER_DEFAULT = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
@@ -717,6 +717,56 @@ def remove_slice() -> int:
     if rc != 0:
         print(err or "systemctl --user daemon-reload failed", file=sys.stderr)
         return 1
+    return 0
+
+
+def sync_hook() -> int:
+    """Install the WirePlumber hook script under the WirePlumber data directory and its config fragment under the config directory, restart WirePlumber once when either changed, and report a hook that did not load; no root."""
+    if wp.wireplumber_bin() is None:
+        print("wireplumber not found; distraction streams are muted reactively", file=sys.stderr)
+        return 0
+    script = wp.script_text().encode()
+    fragment = wp.fragment_text().encode()
+    # A required feature whose script is missing keeps WirePlumber from starting, so the script is written first.
+    targets = ((wp.script_path(), script), (wp.fragment_path(), fragment))
+    changed = any((path.read_bytes() if path.is_file() else None) != data for path, data in targets)
+    if changed:
+        for path, data in targets:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(data)
+            except OSError as e:
+                print(f"cannot install {path}: {e}", file=sys.stderr)
+                return 1
+        rc, err = cgroup.systemctl_user("restart", "wireplumber")
+        if rc != 0:
+            print(err or "systemctl --user restart wireplumber failed", file=sys.stderr)
+            return 0
+        print("wireplumber restarted so the hold hook loads")
+    loaded = wp.wait_loaded()
+    if loaded is None:
+        print("pw-metadata not found or failed; cannot tell whether the WirePlumber hold hook loaded; distraction streams are muted reactively", file=sys.stderr)
+    elif loaded is False:
+        print("the WirePlumber hold hook did not load; distraction streams are muted reactively", file=sys.stderr)
+    return 0
+
+
+def remove_hook() -> int:
+    removed = False
+    # A required feature whose script is gone keeps WirePlumber from starting, so the fragment goes first.
+    for path in (wp.fragment_path(), wp.script_path()):
+        if not path.exists():
+            continue
+        try:
+            path.unlink()
+        except OSError as e:
+            print(f"cannot remove {path}: {e}", file=sys.stderr)
+            return 1
+        removed = True
+    if removed and wp.wireplumber_bin() is not None:
+        rc, err = cgroup.systemctl_user("restart", "wireplumber")
+        if rc != 0:
+            print(err or "systemctl --user restart wireplumber failed", file=sys.stderr)
     return 0
 
 
@@ -1516,12 +1566,13 @@ def install(assume_yes: bool = False):
             print("sudo setup transaction failed" + (f"; {why} never asks for a password, so run setup from a terminal once" if quiet else ""), file=sys.stderr)
             return 1
     slice_rc = sync_slice()
+    hook_rc = sync_hook()
     entries_rc = sync_entries({"list": catalog.expand(cfg)}, cfg) if cfg is not None else 1
     clone_rc = sync_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:
         _settle_service()
-    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 or entries_rc != 0 else 0
+    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 or entries_rc != 0 or hook_rc != 0 else 0
 
 
 def remove():
@@ -1554,6 +1605,8 @@ def remove():
     # still exist a retry can flush again, so a failure here leaves remove
     # repeatable instead of half done.
     if remove_slice() != 0:
+        return 1
+    if remove_hook() != 0:
         return 1
     if root_half:
         proc = subprocess.run(
