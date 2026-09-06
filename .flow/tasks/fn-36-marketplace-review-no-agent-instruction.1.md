@@ -14,7 +14,8 @@ Both marketplace findings at bcfc76a are closed in the repository itself. `AGENT
 
 Inherited flake, not fixed here: `tests/test_net.py::test_timeout_still_kills_descendant_after_parent_exits` races on `/proc/<pid>/stat` (ProcessLookupError between the existence check and the read); it fails roughly 1 run in 3 in isolation on untouched code and deserves its own change. Follow-up worth noting: `SPEC.md` still cross-links `CLAUDE.md` in a comment; harmless, but a fresh clone no longer carries that file.
 
-stage: impl-review - ran [round 1 SHIP] (codex fan-out, gpt-6-astra medium, three draws all SHIP, rid f7a274ab84e9453cab73c7fc780eaa45)
+stage: impl-review - ran [round 1 SHIP] (codex fan-out, gpt-6-astra medium, three draws all SHIP, rid f7a274ab84e9453cab73c7fc780eaa45) (model: codex gpt-6-astra medium)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
 - Commits: 57255e5ba0767d3ae4a667870d27ea48e3a58c14
 - Tests: baseline: green - PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (451 tests, rc 0, pre-edit), PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (run 1 on 57255e5: 455 tests, rc 1 - single error in tests/test_net.py test_timeout_still_kills_descendant_after_parent_exits, an inherited /proc/<pid>/stat read race in files this task does not touch; reproduces 1 in 3 isolated runs), PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (run 2 on 57255e5: 455 tests, rc 0, OK skipped=1 - receipted), PATH=/usr/bin:$PATH python3 -m unittest tests.test_setup tests.test_clone tests.test_net (focused, 91 tests), red-first: the four new tests fail against the pre-change ds/setup.py for the intended reasons (env override moves the paths; no refusal; no _transaction_script)
