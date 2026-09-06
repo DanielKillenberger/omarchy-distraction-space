@@ -506,8 +506,29 @@ class AudioUnitTests(_Env):
                 mock.call("hold key deleted (metadata 7)"),
                 mock.call("hold key deleted (metadata 8)"),
             ])
-            m.release()
+            deleted = self._pw_lines().count(HOLD_DEL)
+            m.stop()
+            self.assertEqual(self._pw_lines().count(HOLD_DEL), deleted + 1)
             self.assertEqual(self._pw_lines()[-1], HOLD_DEL)
+
+    def test_a_missing_pactl_never_deletes_an_active_hold_key(self):
+        self.pw_marker.write_text("1", encoding="utf-8")
+        self.streams.write_text("[]")
+        m = hold.Mute()
+        m.sync(True, self.table)
+        self.assertTrue(m.active)
+        asserted = []
+        with mock.patch.object(wp, "hold", side_effect=lambda on: (asserted.append(on), (7, None))[1]), \
+                mock.patch.object(hold.subprocess, "run", side_effect=FileNotFoundError("pactl")), \
+                mock.patch.object(hold.subprocess, "Popen", side_effect=FileNotFoundError("pactl")):
+            m.sync(True, self.table)
+            self.assertTrue(m.missing)
+            m.sync(True, self.table)
+            m.tick(now=hold.RELEASE_RETRY * 2)
+            self.assertEqual(asserted, [True, True])
+            self.assertEqual(m.key_state, (True, 7))
+            m.sync(False, self.table)
+            self.assertEqual(asserted, [True, True, False])
 
     def test_listener_start_asserts_the_current_state(self):
         self.pw_marker.write_text("1", encoding="utf-8")

@@ -186,7 +186,7 @@ def _listen():
             ctx.worker.join(timeout=3)
         ctx.capture.stop()
         ctx.release_hold()
-        ctx.mute.release()
+        ctx.mute.stop()
         for c in ctx.clients:
             _close(c.sock)
         ctx.clients = []

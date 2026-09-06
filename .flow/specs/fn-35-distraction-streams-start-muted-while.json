@@ -8,7 +8,9 @@
   "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-35-distraction-streams-start-muted-while",
-  "impl_review_rounds": {},
+  "impl_review_rounds": {
+    "fn-35-distraction-streams-start-muted-while.1": 1
+  },
   "next_task": 1,
   "plan_review_rounds": 0,
   "plan_review_status": "ship",
@@ -170,6 +172,58 @@
       "task": null,
       "timestamp": "2026-09-06T17:30:52.966537Z",
       "verdict": "SHIP"
+    },
+    {
+      "artifact_sha256": "b41006c89425be7643d095ee117db4058b560d3cea2c0f3b69752b65a38f9aac",
+      "backend": "codex",
+      "base_sha": "ef688240f793b5742fce6d483a76a8203933ef49",
+      "counter_kind": "impl",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-037b38882f308c44e4d2d1f7b0b135cc",
+            "classification": "introduced",
+            "findingId": "finding-037b38882f308c44e4d2d1f7b0b135cc",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-2249a0374070b1423759c2aa3ddf4088",
+            "classification": "introduced",
+            "findingId": "finding-2249a0374070b1423759c2aa3ddf4088",
+            "firstSeenThisRound": true,
+            "severity": "P2",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "0b5c93127a2e56064a69028e19a515ed7be68350",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 3171,
+      "output_sha256": "a9289d7a97da5b89da96744506da1b8cb499fbdd534dd8ca5e0e597666c11457",
+      "reservation_id": "3f8fca1e347244009a056c8052bced83",
+      "round_consumed": true,
+      "scope": "impl:fn-35-distraction-streams-start-muted-while.1",
+      "superseded_by": null,
+      "task": "fn-35-distraction-streams-start-muted-while.1",
+      "timestamp": "2026-09-06T18:17:43.450519Z",
+      "verdict": "NEEDS_WORK"
     }
   ],
   "review_hash_epoch": {
@@ -179,6 +233,7 @@
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
+    "impl:fn-35-distraction-streams-start-muted-while.1": 0,
     "plan": 0
   },
   "spec_path": ".flow/specs/fn-35-distraction-streams-start-muted-while.md",
@@ -195,5 +250,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-06T17:30:52.969158Z"
+  "updated_at": "2026-09-06T18:17:43.452942Z"
 }
