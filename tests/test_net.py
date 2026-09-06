@@ -194,7 +194,9 @@ class NetTests(unittest.TestCase):
         def alive():
             try:
                 return Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
+                # A reaped pid is gone, not a zombie: the open can miss the
+                # directory (ENOENT) or the read can lose the task (ESRCH).
                 return False
         self.assertFalse(alive())
         self.assertEqual(net._children, {})
