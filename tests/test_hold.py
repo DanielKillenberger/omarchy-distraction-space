@@ -346,16 +346,52 @@ class HoldRetryWindowTests(unittest.TestCase):
         ctx.sync_hold(force=True, now=230.0)
         self.assertEqual(ctx.hold_outage_until, 240.0)
 
-    def test_an_answered_failure_leaves_the_next_outage_its_own_episode(self):
+    def test_a_short_retry_never_scans_the_audio_server_even_when_it_succeeds(self):
+        ctx = self.ctx
+        ctx.sync_hold(now=100.0)
+        self.assertEqual(ctx.mute.sync.call_count, 1, "the failure that opened the episode is a transition")
+        self.result = hold.Push("on", "")
+        ctx.sync_hold(now=102.0)
+        self.assertEqual((ctx.hold_ipc, ctx.mute.sync.call_count), ("on", 1),
+                         "the recovery is a short retry: the shell push alone")
+        # The periodic force, and any policy or key change, sync as they always did.
+        ctx.sync_hold(force=True, now=160.0)
+        self.assertEqual(ctx.mute.sync.call_count, 2)
+
+    def test_the_episode_runs_from_the_failure_not_from_the_call_that_blocked(self):
+        """One shell call can block for the whole IPC timeout before it fails."""
+        clock = [100.0]
+
+        def slow_push(keys, on):
+            clock[0] += hold.IPC_TIMEOUT
+            self.pushes += 1
+            return self.result
+
+        with mock.patch.object(self.listener.hold, "push", side_effect=slow_push), \
+             mock.patch.object(self.listener.time, "monotonic", side_effect=lambda: clock[0]):
+            self.ctx.sync_hold()
+            self.assertEqual((self.ctx.hold_failed_at, self.ctx.hold_outage_until), (110.0, 120.0),
+                             "a window measured from the call would already be spent")
+            clock[0] = 112.0
+            self.ctx.sync_hold()
+        self.assertEqual(self.pushes, 2, "the retry still lands inside the window")
+
+    def test_only_a_push_that_got_through_lets_the_next_outage_open_a_window(self):
         """test_listener.HoldRetryTests owns the answered failure's period and notice."""
         ctx = self.ctx
+        ctx.sync_hold(now=100.0)  # unreachable: this outage opens its one window
+        self.assertEqual(ctx.hold_outage_until, 110.0)
         self.result = hold.Push("unavailable", hold.ANSWERED)
-        ctx.sync_hold(now=100.0)
-        self.assertEqual(ctx.hold_outage_until, 0.0)
-        # The shell answered a moment ago, so its going unreachable now is a first failure.
+        ctx.sync_hold(now=102.0)
+        self.assertEqual(ctx.hold_outage_until, 102.0, "an answered failure ends the short retries at once")
+        ctx.sync_hold(now=104.0)
+        self.assertEqual(self.pushes, 2, "and hands the outage back to the per-period retry")
+        # Still the same unavailable spell, so the shell going quiet again opens nothing.
         self.result = hold.Push("unavailable", hold.TRANSPORT)
-        ctx.sync_hold(now=160.0)
-        self.assertEqual((self.pushes, ctx.hold_outage_until), (2, 170.0))
+        ctx.sync_hold(now=162.0)
+        self.assertEqual((self.pushes, ctx.hold_outage_until), (3, 102.0))
+        ctx.sync_hold(now=164.0)
+        self.assertEqual(self.pushes, 3)
 
 
 class HoldListenerTests(unittest.TestCase):
