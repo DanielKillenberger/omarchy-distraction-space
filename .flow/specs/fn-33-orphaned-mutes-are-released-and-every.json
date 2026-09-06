@@ -1,7 +1,7 @@
 {
   "branch_name": "fn-33-orphaned-mutes-are-released-and-every",
-  "completion_review_status": "unknown",
-  "completion_reviewed_at": null,
+  "completion_review_status": "not_required",
+  "completion_reviewed_at": "2026-09-06T16:04:10.293439Z",
   "created_at": "2026-09-06T15:25:16.345310Z",
   "default_impl": null,
   "default_review": null,
@@ -127,5 +127,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-06T15:58:51.272859Z"
+  "updated_at": "2026-09-06T16:04:10.293449Z"
 }
