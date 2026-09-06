@@ -322,15 +322,19 @@ class _Ctx:
     def release_hold(self):
         if self.pushed:
             hold.push(self.pushed, False)
-    def summarize(self):
+    def summarize(self, notify=True):
         """A boundary this listener marks (a lock expired, the space was entered): claim the records, start the notice.
 
         Returns the per-app counts for the hook of the same boundary. A manual
         `distractions unlock` is the command's boundary; it claims and notifies itself.
+        The enter boundary may claim without notifying.
         """
         records = summary.take()
-        summary.start(records, self.cfg)
+        if notify:
+            summary.start(records, self.cfg)
         return summary.counts(records)
+    def _notice_on_enter(self):
+        return self.cfg is None or summary.settings(self.cfg).get("after") != "unlock"
     def boot(self, reason):
         cfg = _read_cfg()
         if cfg is None:
@@ -512,7 +516,7 @@ class _Ctx:
             self.write_state()
             return
         if here is True and prev is not True:
-            lock.run_hook("enter", _env("enter", held=self.summarize()))
+            lock.run_hook("enter", _env("enter", held=self.summarize(notify=self._notice_on_enter())))
         elif here is False and prev is True:
             lock.run_hook("leave", _env("leave"))
         self.prev = here

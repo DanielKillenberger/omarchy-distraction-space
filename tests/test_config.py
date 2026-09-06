@@ -119,6 +119,21 @@ class ConfigTests(unittest.TestCase):
         self.box.config_file.write_text(json.dumps({"summary": {"command": "auto"}}), encoding="utf-8")
         self.assertEqual(json.loads(self.box.run("config", "get", "summary.command").stdout), "auto")
 
+    def test_summary_after_defaults_to_any_and_rejects_unknown(self):
+        self.assertEqual(DEFAULTS["summary"]["after"], "any")
+        self.box.config_file.write_text(json.dumps({"mute_sounds": False}), encoding="utf-8")
+        r = self.box.run("config", "get", "summary.after")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(json.loads(r.stdout), "any")
+        self.box.config_file.write_text(json.dumps({"summary": {"timeout_seconds": 5}}), encoding="utf-8")
+        self.assertEqual(json.loads(self.box.run("config", "get", "summary.after").stdout), "any")
+        self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
+        before = self.box.config_file.read_bytes()
+        r = self.box.run("config", "set", "summary.after", "sometimes")
+        self.assertEqual(r.returncode, 1, r.stderr)
+        self.assertIn("summary.after", r.stderr)
+        self.assertEqual(self.box.config_file.read_bytes(), before)
+
     def test_invalid_values_leave_file_unchanged(self):
         self.assertEqual(self.box.run("config", "get", "mute_sounds").returncode, 0)
         before = self.box.config_file.read_bytes()
