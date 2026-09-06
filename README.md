@@ -185,7 +185,18 @@ For opt-in firewall and web-app audio checks, see [live validation](docs/interna
 PATH=/usr/bin:$PATH python3 -m unittest discover -s tests
 ```
 
-The suite runs offline. `tests/harness.py` gives every test its own temporary XDG root, the tests put fake `hyprctl`, `getent`, `busctl`, `pactl`, `systemctl`, `systemd-run`, `xdg-settings`, and nft binaries at the front of `PATH`, and the cgroup reads go to a fake `/proc`, so a run never touches your session, your user manager, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, most of `tests/test_hypr.py` fails here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request. Agent instruction files such as `AGENTS.md` and `CLAUDE.md` are kept outside the repository: Omarchy installs the checkout as the plugin, and they are ignored so they never ship in it.
+The suite runs offline. `tests/harness.py` gives every test its own temporary XDG root, the tests put fake `hyprctl`, `getent`, `busctl`, `pactl`, `systemctl`, `systemd-run`, `xdg-settings`, and nft binaries at the front of `PATH`, and the cgroup reads go to a fake `/proc`, so a run never touches your session, your user manager, your config, or your firewall. The `/usr/bin` prefix keeps a shim-based version manager out of the way. Under mise's `python3` shim, most of `tests/test_hypr.py` fails here, because the child process resolves the real `hyprctl` instead of the fake. Plain `python3 -m unittest discover -s tests` is enough on a machine without one. Keep the suite offline in a pull request.
+
+Work is tracked with [flow-next](https://github.com/gmickel/flow-next). Its state, the `.flow` directory of specs, tasks, receipts, and memory, and the agent instruction files `CLAUDE.md` and `AGENTS.md` live in a sibling repository, [omarchy-distraction-space-flow](https://github.com/DanielKillenberger/omarchy-distraction-space-flow), and never ship in the plugin: Omarchy installs this checkout as it is, and the marketplace reviews it that way. To work with them, clone the sibling next to this checkout and link it in; all three names are ignored here, so the links never enter a commit:
+
+```bash
+git clone https://github.com/DanielKillenberger/omarchy-distraction-space-flow ../omarchy-distraction-space-flow
+ln -s ../omarchy-distraction-space-flow/.flow .flow
+ln -s ../omarchy-distraction-space-flow/CLAUDE.md CLAUDE.md
+ln -s ../omarchy-distraction-space-flow/AGENTS.md AGENTS.md
+```
+
+Specs and receipts are committed to the sibling repository; a pull request here carries code, tests, and docs only.
 
 Lint the bar widget with `qmllint` from `qt6-declarative`; it is not on `PATH`. Quickshell maps `qs.*` onto the shell root, so a bare `-I "$OMARCHY_PATH/shell"` cannot resolve `qs.Commons` or `qs.Ui`. Give it an import directory whose `qs` entry links to the shell instead.
 
