@@ -17,6 +17,7 @@ Also fixed, in its own commit: tests/test_net.py's liveness helper caught only F
 Follow-up not taken (outside the ACs): each shell call still blocks the tick for up to the 10-second IPC timeout, so a hanging shell can make the listener look unresponsive for that long. The spec accepts and documents this; docs/internals.md now names it.
 
 stage: impl-review - ran [2026-09-06T11:00Z..2026-09-06T11:20Z] (codex:gpt-6-astra:medium, fan-out x3; round 1 NEEDS_WORK with 3 findings, all fixed; round 2 SHIP unanimous)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
 - Commits: 49b49a5c998ed1872ea07c4923ac2b1df5363e11, 3c9769259de123c6c16433eb4de58be8e0c14954, 264d55f7e9ef03f138c2a107cdaf2f5dfa8fcc0d
 - Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests (460 tests, OK; baseline 451 OK), green receipt .flow/tmp/green-receipts/264d55f7-unittest.json
