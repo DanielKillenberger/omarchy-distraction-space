@@ -8,6 +8,7 @@ import re
 import subprocess
 import sys
 import time
+from collections import namedtuple
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -17,6 +18,17 @@ FIELD_CAP = 4096
 FILE_CAP = 64 * 1024
 BACKOFF = (1.0, 4.0, 16.0)
 IPC_TIMEOUT = 10
+# A shell that is merely late costs a whole per-period wait of false degraded
+# state, so a transport failure gets a short bounded window of its own. Each
+# attempt blocks the listener for up to IPC_TIMEOUT; the window is short enough
+# that a shell which is really gone costs nothing beyond it.
+RETRY_EVERY, RETRY_WINDOW = 2.0, 10.0
+TRANSPORT, ANSWERED = "transport", "answered"
+# `omarchy-shell` collapses an unreachable shell into exit 1 with one of these
+# lines; anything else it reports came back from a shell that ran the call.
+UNREACHABLE = ("omarchy-shell is not running", "omarchy-shell is not responding",
+               "omarchy-shell is not ready")
+Push = namedtuple("Push", "state kind")
 MATCH = "interface='org.freedesktop.Notifications',member='Notify'"
 BUSCTL = ["busctl", "--user", "monitor", "--json=short", "--match", MATCH]
 PACTL_LIST = ["pactl", "-f", "json", "list", "sink-inputs"]
@@ -96,39 +108,48 @@ def mute_on(cfg) -> bool:
 
 
 def _shell(*args):
+    """`(answer, error, kind)`: the trimmed stdout, or None with why it failed and how.
+
+    `kind` is TRANSPORT when the shell could not be reached, timed out, or the
+    call itself failed, and ANSWERED when a shell that ran the call reported a
+    failure. An unrecognized message counts as answered: guessing wrong there
+    costs the per-period retry, which is what every failure cost before.
+    """
     try:
         proc = subprocess.run(
             ["omarchy-shell", "notifications", *args],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False, timeout=IPC_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
-        return None, "omarchy-shell timed out"
+        return None, "omarchy-shell timed out", TRANSPORT
     except OSError as e:
-        return None, f"omarchy-shell: {e}"
+        return None, f"omarchy-shell: {e}", TRANSPORT
     out = (proc.stdout or "").strip()
     if proc.returncode != 0:
-        return None, (proc.stderr or "").strip() or out or f"exit {proc.returncode}"
-    return out, ""
+        err = (proc.stderr or "").strip() or out or f"exit {proc.returncode}"
+        return None, err, TRANSPORT if err in UNREACHABLE else ANSWERED
+    return out, "", ""
 
 
 def _read_silenced():
-    out, err = _shell("silencedSenders")
+    """`(keys, kind)`: the shell's silenced list, or None with the failure kind."""
+    out, err, kind = _shell("silencedSenders")
     if out is None:
         _log(f"silencedSenders: {err}")
-        return None
+        return None, kind
     try:
         items = json.loads(out)
     except json.JSONDecodeError:
         items = None
     if not isinstance(items, list):
         _log(f"silencedSenders: unexpected answer {out!r}")
-        return None
+        return None, ANSWERED
     seen = []
     for item in items:
         key = normalize(item) if isinstance(item, str) else ""
         if key and key not in seen:
             seen.append(key)
-    return seen
+    return seen, ""
 
 
 def owned_path():
@@ -150,41 +171,45 @@ def _write_owned(keys) -> None:
         _log(f"silenced-owned.json: {e}")
 
 
-def push(keys, on, retire=()) -> str:
+def push(keys, on) -> Push:
     """Add (on) or remove (off) the plugin's sender keys in the shell's silenced list.
 
     Only keys this plugin put there are ever removed: a key the person had
     silenced by hand before a hold began is never touched in either direction.
-    The owned set persists in `silenced-owned.json` so a listener restart or a
-    retired key (`retire`: pushed earlier, no longer on the list) still knows
-    what to give back. Returns `on`, `off`, or `unavailable` for
-    `state.json.notification_hold`.
+    The owned set persists in `silenced-owned.json`, so a listener restart still
+    knows what to give back, and an owned key the list no longer names is
+    released on the next push however many pushes ago it was retired.
+
+    Returns `Push(state, kind)`: `state` is `on`, `off`, or `unavailable` for
+    `state.json.notification_hold`, and `kind` tells a transport failure from an
+    answered one for the caller's retry.
     """
-    current = _read_silenced()
+    current, kind = _read_silenced()
     if current is None:
-        return "unavailable"
+        return Push("unavailable", kind)
     keys = [normalize(k) for k in keys if normalize(k)]
+    wanted = set(keys) if on else set()
     owned = [k for k in _read_owned() if k in current]
-    remove = [k for k in owned if k in (set(normalize(r) for r in retire) | (set() if on else set(keys)))]
+    remove = [k for k in owned if k not in wanted]
     add = [k for k in keys if k not in current] if on else []
     # One IPC call per key: `qs ipc call` parses a `[...]` argument as its own
     # list syntax, so a JSON array can never reach setSilencedSenders intact.
     for key in remove:
-        out, err = _shell("unsilence", key)
+        out, err, kind = _shell("unsilence", key)
         if out is None or out == "error":
             _log(f"unsilence {key}: {err or out}")
             _write_owned(owned)
-            return "unavailable"
+            return Push("unavailable", kind or ANSWERED)
         owned.remove(key)
     for key in add:
-        out, err = _shell("silence", key)
+        out, err, kind = _shell("silence", key)
         if out is None or out == "error":
             _log(f"silence {key}: {err or out}")
             _write_owned(owned)
-            return "unavailable"
+            return Push("unavailable", kind or ANSWERED)
         owned.append(key)
     _write_owned(owned)
-    return "on" if on else "off"
+    return Push("on" if on else "off", "")
 
 
 def sender_origin(app, icon, body) -> str:

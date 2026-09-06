@@ -222,7 +222,10 @@ class _Ctx:
         self.browser_dirty, self.launcher_refresh = True, "off"
         self.launcher_noted = False
         self.hold_on, self.hold_ipc, self.hold_noted, self.pushed = None, "off", False, []
-        self.hold_failed_at = 0.0
+        # hold_outage_until: the deadline of the short retry window for the
+        # outage in progress, 0.0 when no outage is in progress. A deadline
+        # already past means that outage spent its window and gets no other.
+        self.hold_failed_at, self.hold_outage_until = 0.0, 0.0
         self.links, self.browser = "off", None
         self.links_noted = False
         self.capture, self.mute = hold.Capture(), hold.Mute()
@@ -273,24 +276,49 @@ class _Ctx:
     def block_enabled(self):
         sb = self.exp.get("site_block")
         return sb.get("enabled") is not False if isinstance(sb, dict) else True
-    def sync_hold(self, force=False):
+    def sync_hold(self, force=False, now=None):
         """Push the plugin's sender keys on every change of effective hold or of the keys.
 
-        While the shell answered `unavailable`, the push is retried once per PERIOD until it takes.
+        While the push comes back `unavailable` it is retried once per PERIOD
+        until it takes. A shell that could not be reached at all is usually one
+        that is merely late to start, so the first failure of an outage opens
+        one episode: every hold.RETRY_EVERY seconds for hold.RETRY_WINDOW from
+        that failure. Later failures neither extend that window nor open a
+        second one, and only a push that got through ends the outage, so the
+        next one gets its own episode and this one never gets another.
         """
         want = hold.effective_hold(self.cfg, self.prev, lock.is_locked())
         keys = list(self.hold_table())
-        now = time.monotonic()
-        retry = self.hold_ipc == "unavailable" and now - self.hold_failed_at >= PERIOD
-        if not force and not retry and want == self.hold_on and keys == self.pushed:
+        fixed, now = now is not None, time.monotonic() if now is None else now
+        changed = want != self.hold_on or keys != self.pushed
+        short = self.hold_ipc == "unavailable" and now < self.hold_outage_until
+        retry = self.hold_ipc == "unavailable" and \
+            now - self.hold_failed_at >= (hold.RETRY_EVERY if short else PERIOD)
+        if not force and not retry and not changed:
             return
-        self.hold_ipc = hold.push(keys, want, retire=[k for k in self.pushed if k not in keys])
+        res = hold.push(keys, want)
+        # One shell call blocks for up to hold.IPC_TIMEOUT, so the episode is
+        # measured from when the failure came back, not from when it was asked.
+        done = now if fixed else time.monotonic()
+        self.hold_ipc = res.state
         self.observed_at["notification_hold"] = state.now_iso()
         self.hold_on, self.pushed = want, keys
-        if self.hold_ipc == "unavailable":
-            self.hold_failed_at = now
-            self._note_hold()
-        self.mute.sync(want and hold.mute_on(self.cfg), hold.audio_table(self.exp.get("list") or []))
+        if res.state == "unavailable":
+            self.hold_failed_at = done
+            if res.kind != hold.TRANSPORT:
+                # An answered failure gets no window, and leaves the outage
+                # marked with a deadline already spent, so no later failure
+                # opens one before a push gets through.
+                self.hold_outage_until = done
+                self._note_hold()
+            elif not self.hold_outage_until:
+                self.hold_outage_until = done + hold.RETRY_WINDOW
+        else:
+            self.hold_outage_until = 0.0
+        # A short retry re-runs the shell push alone, whatever it answers: the
+        # mute sync scans the audio server and belongs to a transition.
+        if force or changed or not short:
+            self.mute.sync(want and hold.mute_on(self.cfg), hold.audio_table(self.exp.get("list") or []), now)
     def release_hold(self):
         if self.pushed:
             hold.push(self.pushed, False)
