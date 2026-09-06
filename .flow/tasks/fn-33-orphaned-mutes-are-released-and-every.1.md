@@ -16,7 +16,8 @@ Tests (tests/test_audio.py): orphan released at hold end (R1, R3), start sweep w
 
 baseline: green (463 tests OK before edit); verify: 469 tests OK, GREEN_RECEIPT 6be7537c-unittest
 
-stage: impl-review - ran [round 1 fan-out x3 NEEDS_WORK (one deduped finding: a failed listing with nothing owned lost the sweep retry) .. round 2 SHIP]
+stage: impl-review - ran [round 1 fan-out x3 NEEDS_WORK (one deduped finding: a failed listing with nothing owned lost the sweep retry) .. round 2 SHIP] (model: codex gpt-6-astra medium)
+stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
 - Commits: b8fd3416902355eddf76e3db5bbf4378b497bb20, 6be7537c5967675ec8d4b5f273704e1306558c7f
 - Tests: PATH=/usr/bin:$PATH python3 -m unittest discover -s tests, PATH=/usr/bin:$PATH python3 -m unittest tests.test_audio
