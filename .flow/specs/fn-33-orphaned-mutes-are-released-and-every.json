@@ -9,7 +9,7 @@
   "depends_on_epics": [],
   "id": "fn-33-orphaned-mutes-are-released-and-every",
   "impl_review_rounds": {
-    "fn-33-orphaned-mutes-are-released-and-every.1": 1
+    "fn-33-orphaned-mutes-are-released-and-every.1": 0
   },
   "next_task": 1,
   "plan_review_rounds": 0,
@@ -59,9 +59,55 @@
       "task": "fn-33-orphaned-mutes-are-released-and-every.1",
       "timestamp": "2026-09-06T15:53:17.425962Z",
       "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "5cbd59d027da7ca491a28a80cfb13a1c864d65ff8ca940f27297321264d45f0a",
+      "backend": "codex",
+      "base_sha": "4fb959bc95b347c70f22f7f2fac42e35cba9942f",
+      "counter_kind": "impl",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "not_applicable"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-213e9d96b24a45b58b840440d47aa890",
+            "classification": "introduced",
+            "findingId": "finding-213e9d96b24a45b58b840440d47aa890",
+            "firstSeenThisRound": false,
+            "severity": "P2",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "implementation"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "6be7537c5967675ec8d4b5f273704e1306558c7f",
+      "head_sha_observed": true,
+      "kind": "impl",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 842,
+      "output_sha256": "2cb3dc1e267a3673237b3ff84605b63747170af5b33d55f10d8bc5686bca0931",
+      "reservation_id": "902d49eae01944aeb8c9079f755cc6af",
+      "round_consumed": true,
+      "scope": "impl:fn-33-orphaned-mutes-are-released-and-every.1",
+      "superseded_by": null,
+      "task": "fn-33-orphaned-mutes-are-released-and-every.1",
+      "timestamp": "2026-09-06T15:58:51.270886Z",
+      "verdict": "SHIP"
     }
   ],
-  "review_hash_epoch": {},
+  "review_hash_epoch": {
+    "impl:fn-33-orphaned-mutes-are-released-and-every.1": 1
+  },
   "review_pending_rounds": {},
   "review_reservations": {},
   "review_transport_failures": {
@@ -81,5 +127,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-06T15:53:17.428097Z"
+  "updated_at": "2026-09-06T15:58:51.272859Z"
 }
