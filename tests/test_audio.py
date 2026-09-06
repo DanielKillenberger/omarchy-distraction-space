@@ -200,7 +200,7 @@ class AudioUnitTests(_Env):
     def test_scan_mutes_attributed_streams_records_identity_and_release_unmutes(self):
         m = hold.Mute()
         m.sync(False, self.table)
-        self.assertEqual(self._calls(), [])
+        self.assertEqual(self._calls(), ["-f json list sink-inputs"])
         self.streams.write_text(json.dumps([
             stream(3, "Telegram Desktop", "telegram-desktop", 100), stream(4, "Chromium", "chrome", 400),
             stream(5, "Chromium", "chrome", 201), stream(6, "Telegram Desktop", "telegram-desktop", 100, muted=True),
@@ -217,7 +217,7 @@ class AudioUnitTests(_Env):
         self.assertIsNone(self._muted())
         self.assertFalse(m.active)
         m.sync(False, self.table)
-        self.assertEqual(len(self._calls("-f json list")), 3)
+        self.assertEqual(len(self._calls("-f json list")), 4)
 
     def test_release_leaves_reused_index_and_user_unmute_alone(self):
         write_json(self.box.state_dir / "muted.json", {"3": f"100:{START}", "7": "555:1", "9": f"201:{START}"})
@@ -248,10 +248,13 @@ class AudioUnitTests(_Env):
         self.assertEqual(self._streams(), {"3": True, "4": True})
         self.assertEqual(self._muted(), {"3": f"100:{START}", "4": f"201:{START}"})
         m.tail.proc.stdin.write(b"Event 'remove' on sink-input #3\n")
-        m.tail.proc.stdin.close()
+        m.tail.proc.stdin.flush()
         time.sleep(0.1)
-        m.pump()
+        with mock.patch.object(hold, "_log") as log:
+            m.pump()
         self.assertEqual(self._muted(), {"4": f"201:{START}"})
+        self.assertEqual(log.call_args_list, [mock.call(f"drop 3 (100:{START}): stream removed")])
+        m.tail.proc.stdin.close()
         m.release()
         self.assertEqual(self._calls("set-sink-input-mute"), ["set-sink-input-mute 3 1", "set-sink-input-mute 4 1",
                                                               "set-sink-input-mute 4 0"])
@@ -331,6 +334,90 @@ class AudioUnitTests(_Env):
         self.assertIsNone(self._muted())
         self.assertEqual(self._calls("set-sink-input-mute"),
                          ["set-sink-input-mute 3 0", "set-sink-input-mute 5 0", "set-sink-input-mute 5 0"])
+
+    def test_release_unmutes_an_orphaned_slice_stream_at_hold_end(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        self.streams.write_text(json.dumps([
+            stream(3, "Telegram Desktop", "telegram-desktop", 100),
+            stream(4, "Chromium", "chrome", 400, muted=True),
+        ]))
+        m = hold.Mute()
+        m.sync(True, self.table)
+        self.assertEqual(self._muted(), {"3": f"100:{START}"})
+        m.sync(False, self.table)
+        self.assertEqual(self._streams(), {"3": False, "4": False})
+        self.assertIsNone(self._muted())
+        self.assertEqual(self._calls("set-sink-input-mute"),
+                         ["set-sink-input-mute 3 1", "set-sink-input-mute 3 0", "set-sink-input-mute 4 0"])
+
+    def test_first_sync_with_hold_off_sweeps_the_slice_and_leaves_streams_outside_it(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        fake_cgroup(self.proc, 100, "/user.slice/user-1000.slice/user@1000.service/app.slice/app-telegram.scope")
+        self.streams.write_text(json.dumps([
+            stream(4, "Chromium", "chrome", 400, muted=True),
+            stream(3, "Telegram Desktop", "telegram-desktop", 100, muted=True),
+            stream(7, "Chromium", "chrome", 519, muted=False),
+        ]))
+        m = hold.Mute()
+        m.sync(False, self.table)
+        self.assertEqual(self._streams(), {"3": True, "4": False, "7": False})
+        self.assertIsNone(self._muted())
+        self.assertEqual(self._calls("set-sink-input-mute"), ["set-sink-input-mute 4 0"])
+        n = len(self._calls())
+        m.sync(False, self.table)
+        self.assertEqual(len(self._calls()), n)
+
+    def test_orphan_unmute_failure_is_logged_and_retried_from_tick(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        self.streams.write_text(json.dumps([stream(4, "Chromium", "chrome", 400, muted=True)]))
+        os.environ["DS_PACTL_STUCK"] = "4"
+        m = hold.Mute()
+        with mock.patch.object(hold, "_log") as log:
+            m.sync(False, self.table, now=50.0)
+        self.assertEqual(log.call_args_list,
+                         [mock.call(f"unmute 4 (400:{START}) failed: Failure: No such entity")])
+        self.assertEqual(self._muted(), {"4": f"400:{START}"})
+        os.environ.pop("DS_PACTL_STUCK")
+        m.tick(now=50.0 + hold.RELEASE_RETRY)
+        self.assertEqual(self._streams(), {"4": False})
+        self.assertIsNone(self._muted())
+
+    def test_mute_and_release_write_one_log_line_each(self):
+        self.streams.write_text(json.dumps([stream(3, "Telegram Desktop", "telegram-desktop", 100)]))
+        m = hold.Mute()
+        with mock.patch.object(hold, "_log") as log:
+            m.sync(True, self.table)
+            m.sync(True, self.table)
+            m.sync(False, self.table)
+        self.assertEqual(log.call_args_list, [
+            mock.call(f"mute 3 (100:{START}): Telegram"),
+            mock.call(f"unmute 3 (100:{START}): hold ended"),
+        ])
+
+    def test_dropped_records_are_logged_and_a_reused_index_is_swept_like_any_other(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        write_json(self.box.state_dir / "muted.json", {
+            "3": f"100:{START}", "7": "555:1", "8": "556:1", "9": f"201:{START}", "11": f"300:{START}",
+        })
+        self.streams.write_text(json.dumps([
+            stream(3, "Telegram Desktop", "telegram-desktop", 100, muted=True),
+            stream(7, "Chromium", "chrome", 100, muted=True),
+            stream(8, "Chromium", "chrome", 400, muted=True),
+            stream(9, "Chromium", "chrome", 201, muted=False),
+        ]))
+        m = hold.Mute()
+        with mock.patch.object(hold, "_log") as log:
+            m.sync(False, self.table)
+        self.assertEqual(log.call_args_list, [
+            mock.call(f"unmute 3 (100:{START}): hold ended"),
+            mock.call("drop 7 (555:1): identity changed"),
+            mock.call("drop 8 (556:1): identity changed"),
+            mock.call(f"unmute 8 (400:{START}): orphaned in the slice"),
+            mock.call(f"drop 9 (201:{START}): unmuted by hand"),
+            mock.call(f"drop 11 (300:{START}): stream gone"),
+        ])
+        self.assertEqual(self._streams(), {"3": False, "7": True, "8": False, "9": False})
+        self.assertIsNone(self._muted())
 
 
 class MuteListenerTests(_Env):
