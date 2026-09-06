@@ -811,11 +811,33 @@ class BrowserPulseEnvTests(unittest.TestCase):
         self.assertEqual(os.environ["PULSE_PROP"], "application.id=keep")
         self.assertEqual(os.environ["PULSE_SINK"], "null-sink")
 
+    def test_strip_identity_reads_the_line_as_libpulse_does(self):
+        ident = launch._PULSE_APPLICATION_ID
+        cases = (
+            ("bare pair between others", f"a=1 application.id={ident} b=2", "a=1 b=2"),
+            ("double-quoted value keeps its inner whitespace", f'media.name="foo  bar" application.id={ident}', 'media.name="foo  bar"'),
+            ("ticked value keeps its inner whitespace", f"x='t  v' application.id={ident}", "x='t  v'"),
+            ("escaped quote inside a value", f'x="es\\"c" application.id={ident}', 'x="es\\"c"'),
+            ("quoted identity", f'application.id="{ident}" b=2', "b=2"),
+            ("ticked identity followed directly by the next key", f"application.id='{ident}'b=2", "b=2"),
+            ("whitespace around =", f"a = 1 application.id = {ident}", "a = 1"),
+            ("identity twice", f"application.id={ident} b=2 application.id={ident}", "b=2"),
+            ("only the identity", f"application.id={ident}", ""),
+            ("another application.id stays", "application.id=keep", "application.id=keep"),
+            ("a longer id is not the plugin's", f"application.id={ident}x keep=1", f"application.id={ident}x keep=1"),
+            ("a line libpulse refuses carries no identity", f'x="open application.id={ident}', f'x="open application.id={ident}'),
+            ("empty", "", ""),
+        )
+        for label, prop, want in cases:
+            with self.subTest(label=label):
+                self.assertEqual(launch._strip_identity(prop), want)
+
     def test_forward_env_strips_the_identity_on_both_paths(self):
         identity = _PULSE_APP_ID_ASSIGNMENT
         cases = (
-            ('media.name="foo bar" custom.x=1 ' + identity + " after=1",
-             'media.name="foo bar" custom.x=1 after=1'),
+            ('media.name="foo  bar" custom.x=1 ' + identity + " after=1",
+             'media.name="foo  bar" custom.x=1 after=1'),
+            ('application.id="' + launch._PULSE_APPLICATION_ID + '" b=2', "b=2"),
             (identity, None),
             ("", ""),
             (None, None),

@@ -723,6 +723,11 @@ class Mute:
         if rescan and self.active:
             self.scan()
 
+    def stop(self, now=None):
+        """The listener is stopping: the hold ends with it, so the key goes, then the streams are released."""
+        self._hold_key(False)
+        self.release(now)
+
     def release(self, now=None):
         """Hold ended, or the listener started with it off: unmute what the record names and what the slice holds.
 
@@ -732,12 +737,11 @@ class Mute:
         outside the slice is left alone. A stream whose unmute failed stays in
         the file, and a failed list keeps the whole sweep owed; both are retried
         from `tick` every RELEASE_RETRY seconds. The file clears once nothing is
-        left. The key is deleted so it never outlives a listener that stopped
-        on purpose.
+        left. The hold key is not this method's: `sync` reaches here with the
+        hold still on when pactl is missing, and the key must stay set then.
         """
         self.active = False
         self.tail.stop()
-        self._hold_key(False)
         owned = self.owned or self._load()
         self.owned = {}
         streams = self._list()
