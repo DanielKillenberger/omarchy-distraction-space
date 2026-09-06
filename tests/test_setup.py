@@ -12,6 +12,7 @@ import os
 import pwd
 import shutil
 import stat
+import subprocess
 import sys
 import threading
 import time
@@ -219,8 +220,9 @@ class SetupTests(unittest.TestCase):
         self.sudoers.parent.mkdir(parents=True)
         os.chmod(self.sudoers.parent, 0o750)
         os.chmod(self.prefix, 0o555)
-        os.environ["DS_WRAPPER_DEST"] = str(self.wrapper)
-        os.environ["DS_SUDOERS_DEST"] = str(self.sudoers)
+        # The destinations are module constants with no environment override;
+        # the sandbox reaches them the only way there is, by patching the module.
+        self._point_destinations(self.wrapper, self.sudoers)
         self.sudo_log = self.box.runtime / "sudo.log"
         self.rescan_log = self.box.runtime / "rescan.log"
         self.visudo_log = self.box.runtime / "visudo.log"
@@ -301,6 +303,12 @@ class SetupTests(unittest.TestCase):
 
         os.access = fake_access
         self.addCleanup(setattr, os, "access", real_access)
+
+    def _point_destinations(self, wrapper: Path, sudoers: Path) -> None:
+        for name, path in (("WRAPPER_DEFAULT", wrapper), ("SUDOERS_DEFAULT", sudoers)):
+            patcher = patch.object(setup, name, str(path))
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _sudo_lines(self):
         if not self.sudo_log.exists():
@@ -968,14 +976,78 @@ class SetupTests(unittest.TestCase):
     def test_refuses_user_writable_destination_chain(self):
         writable = self.box.state / "open" / "distractions-nft"
         writable.parent.mkdir(parents=True)
-        os.environ["DS_WRAPPER_DEST"] = str(writable)
-        os.environ["DS_SUDOERS_DEST"] = str(self.box.state / "open" / "sudoers")
+        sudoers = self.box.state / "open" / "sudoers"
+        self._point_destinations(writable, sudoers)
         rc = setup.install()
         self.assertEqual(rc, 1)
         self.assertFalse(writable.exists())
-        self.assertFalse(Path(os.environ["DS_SUDOERS_DEST"]).exists())
+        self.assertFalse(sudoers.exists())
         self.assertEqual(self._sudo_lines(), [])
         self.assertEqual(self._rescan_text(), "")
+
+    def test_environment_never_moves_the_destinations(self):
+        with patch.dict(os.environ, {"DS_WRAPPER_DEST": "/etc/shadow", "DS_SUDOERS_DEST": "/etc/sudoers"}):
+            self.assertEqual(setup.wrapper_dest(), self.wrapper)
+            self.assertEqual(setup._sudoers_dest(), self.sudoers)
+            self.assertEqual(setup.install(), 0)
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self.sudoers.is_file())
+        self.assertEqual(self._sudo_lines(), [f"python3 -c <transaction> {self.wrapper} {self.sudoers}"])
+
+    def test_a_destination_that_is_not_canonical_stops_setup_before_sudo(self):
+        elsewhere = Path("/etc/shadow")
+        for name in ("wrapper_dest", "_sudoers_dest"):
+            with self.subTest(name), patch.object(setup, name, lambda: elsewhere):
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    self.assertEqual(setup.install(), 1)
+                self.assertIn("refused: /etc/shadow is not the canonical destination", err.getvalue())
+                self.assertEqual(self._sudo_lines(), [])
+                self.assertFalse(self.wrapper.exists())
+                self.assertFalse(self.sudoers.exists())
+        self.assertEqual(setup.install(), 0)
+        self.sudo_log.write_text("", encoding="utf-8")
+        with patch.object(setup, "wrapper_dest", lambda: elsewhere):
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(setup.remove(), 1)
+        self.assertIn("refused: /etc/shadow is not the canonical destination", err.getvalue())
+        self.assertEqual(self._sudo_lines(), [])
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self.sudoers.is_file())
+
+    def test_root_transaction_refuses_a_non_canonical_path_before_touching_anything(self):
+        # Writable for real, so only the refusal can stop the directory from appearing.
+        os.chmod(self.prefix, 0o755)
+        self.addCleanup(os.chmod, self.prefix, 0o555)
+        decoy_wrapper = self.box.state / "elsewhere" / "distractions-nft"
+        decoy_dir = self.box.state / "open"
+        decoy_dir.mkdir()
+        decoy_sudoers = decoy_dir / "sudoers"
+        wrapper = (ROOT / "distractions-nft").read_bytes()
+        grant = b"user ALL=(root) NOPASSWD: /x\n"
+        payload = f"{setup.PAYLOAD_MAGIC}\n{len(wrapper)}\n{len(grant)}\n".encode("ascii") + wrapper + grant
+        cases = {
+            "wrapper": [str(decoy_wrapper), str(self.sudoers)],
+            "sudoers": [str(self.wrapper), str(decoy_sudoers)],
+            "missing": [str(self.wrapper)],
+        }
+        for name, argv in cases.items():
+            with self.subTest(name):
+                proc = subprocess.run(
+                    [sys.executable, "-c", setup._transaction_script(), *argv],
+                    input=payload, capture_output=True, timeout=30,
+                )
+                self.assertNotEqual(proc.returncode, 0)
+                self.assertTrue(proc.stderr.startswith(b"refused: "), proc.stderr)
+                if name != "missing":
+                    self.assertIn(argv[0 if name == "wrapper" else 1].encode(), proc.stderr)
+                    self.assertIn(b"is not the canonical destination", proc.stderr)
+                self.assertFalse(decoy_wrapper.parent.exists())
+                self.assertFalse(self.wrapper.parent.exists())
+                self.assertEqual(sorted(p.name for p in decoy_dir.iterdir()), [])
+                self.assertEqual(self._staged(), [])
+                self.assertFalse(self.sudoers.exists())
 
     def test_denied_sudo_leaves_no_partial_grant(self):
         os.environ["DS_SUDO_DENY"] = "1"
@@ -1171,6 +1243,20 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(self._ident(self.sudoers), ident)
         self.assertEqual(self._staged(), [])
 
+    def test_cli_ignores_destination_environment_variables(self):
+        decoy_wrapper = self.box.state / "open" / "distractions-nft"
+        decoy_sudoers = self.box.state / "open" / "sudoers"
+        decoy_wrapper.parent.mkdir(parents=True)
+        extra = self._cli_site()
+        extra.update(DS_WRAPPER_DEST=str(decoy_wrapper), DS_SUDOERS_DEST=str(decoy_sudoers))
+        r = self._cli_setup(extra)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self.sudoers.is_file())
+        self.assertFalse(decoy_wrapper.exists())
+        self.assertFalse(decoy_sudoers.exists())
+        self.assertEqual(self._sudo_lines(), [f"python3 -c <transaction> {self.wrapper} {self.sudoers}"])
+
     def test_wrapper_source_is_pinned_against_symlinks_and_irregular_files(self):
         src = self.box.runtime / "src"
         src.mkdir()
@@ -1201,13 +1287,20 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.sudoers.exists())
         self.assertEqual(self._rescan_text(), "")
 
-    def test_cli_setup_and_remove(self):
+    def _cli_site(self) -> dict[str, str]:
+        """Environment for the real CLI: the sandbox destinations patched into the
+        module in-process, since the CLI's environment cannot move them, and the
+        prefix made to look root-owned to `os.access`."""
         site = self.box.runtime / "pysite"
         site.mkdir()
         prefix = str(self.prefix.resolve())
         (site / "sitecustomize.py").write_text(
-            "import os\n"
+            "import os, sys\n"
             "from pathlib import Path\n"
+            f"sys.path.insert(0, {str(ROOT)!r})\n"
+            "from ds import setup\n"
+            f"setup.WRAPPER_DEFAULT = {str(self.wrapper)!r}\n"
+            f"setup.SUDOERS_DEFAULT = {str(self.sudoers)!r}\n"
             f"_prefix = Path({prefix!r})\n"
             "_real = os.access\n"
             "def _access(path, mode, **kwargs):\n"
@@ -1226,22 +1319,26 @@ class SetupTests(unittest.TestCase):
             "os.access = _access\n",
             encoding="utf-8",
         )
-        extra = {
+        return {
             "PYTHONPATH": str(site),
-            "DS_WRAPPER_DEST": str(self.wrapper),
-            "DS_SUDOERS_DEST": str(self.sudoers),
             "DS_SETUP_SUDO_LOG": str(self.sudo_log),
             "DS_RESCAN_LOG": str(self.rescan_log),
             "DS_LOCK_PREFIX": str(self.prefix),
         }
+
+    def _cli_setup(self, extra: dict[str, str]) -> subprocess.CompletedProcess:
         # A real terminal on stdin: the CLI path decides about `sudo -n` the way
         # a person's shell would, and the fake sudo refuses -n for the transaction.
         master, slave = os.openpty()
         self.addCleanup(os.close, master)
         try:
-            r = self.box.run("setup", extra_env=extra, stdin=slave)
+            return self.box.run("setup", extra_env=extra, stdin=slave)
         finally:
             os.close(slave)
+
+    def test_cli_setup_and_remove(self):
+        extra = self._cli_site()
+        r = self._cli_setup(extra)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertTrue(self.wrapper.is_file())
         self.assertTrue(self.sudoers.is_file())

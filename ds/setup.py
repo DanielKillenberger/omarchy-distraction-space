@@ -37,12 +37,29 @@ METHOD_MARK = "function silencedSenders("
 
 
 def wrapper_dest() -> Path:
-    """Installed wrapper path; the sudoers grant names exactly this path."""
-    return Path(os.environ.get("DS_WRAPPER_DEST", WRAPPER_DEFAULT))
+    """Installed wrapper path; the sudoers grant names exactly this path, and
+    nothing in the environment moves it."""
+    return Path(WRAPPER_DEFAULT)
 
 
 def _sudoers_dest() -> Path:
-    return Path(os.environ.get("DS_SUDOERS_DEST", SUDOERS_DEFAULT))
+    return Path(SUDOERS_DEFAULT)
+
+
+def _canonical_destinations() -> tuple[Path, Path] | None:
+    """The two root destinations, or None after a refusal naming the odd one out.
+
+    Both are compared against the module constants before sudo is invoked, and
+    the transaction compares its arguments against the same constants again on
+    the root side, so a destination that is not exactly canonical never reaches
+    a privileged write however it came to differ.
+    """
+    wrapper, sudoers = wrapper_dest(), _sudoers_dest()
+    for path, canonical in ((wrapper, WRAPPER_DEFAULT), (sudoers, SUDOERS_DEFAULT)):
+        if str(path) != canonical:
+            print(f"refused: {path} is not the canonical destination {canonical}", file=sys.stderr)
+            return None
+    return wrapper, sudoers
 
 
 def _principal() -> str | None:
@@ -80,7 +97,10 @@ RECORD_NAME = ".installed.sha256"
 # The root half of `setup`, run once through one `sudo`. The wrapper and the grant
 # arrive as bytes on stdin, so root never re-opens a pathname the installing account
 # can write: the bytes root validates are the bytes root activates, and there is no
-# window between the two for a same-UID process to substitute anything.
+# window between the two for a same-UID process to substitute anything. The two
+# destinations are rendered into the script from the module constants, and root
+# refuses an argument that is not exactly one of them before it touches anything:
+# the unprivileged side chooses nothing about where root writes.
 ROOT_TRANSACTION = r'''
 import hashlib
 import os
@@ -93,6 +113,8 @@ import tempfile
 MAGIC = "@MAGIC@"
 MAX_PAYLOAD = @MAX_PAYLOAD@
 RECORD_NAME = "@RECORD_NAME@"
+WRAPPER_DEST = @WRAPPER_DEST@
+SUDOERS_DEST = @SUDOERS_DEST@
 
 
 def fail(message):
@@ -178,7 +200,14 @@ def activate(fd, tmp, data, dest, mode):
 
 
 def main():
-    wrapper_dest, sudoers_dest = sys.argv[1], sys.argv[2]
+    # Exact equality against the paths this script was rendered with, before the
+    # payload is read and before any directory, staged file, or rename exists.
+    if len(sys.argv) != 3:
+        fail("expected the wrapper and sudoers destinations, got %d arguments" % (len(sys.argv) - 1))
+    for given, canonical in ((sys.argv[1], WRAPPER_DEST), (sys.argv[2], SUDOERS_DEST)):
+        if given != canonical:
+            fail("%s is not the canonical destination %s" % (given, canonical))
+    wrapper_dest, sudoers_dest = WRAPPER_DEST, SUDOERS_DEST
     record_dest = os.path.join(os.path.dirname(wrapper_dest), RECORD_NAME)
     if read_line() != MAGIC:
         fail("bad payload header")
@@ -257,9 +286,22 @@ def main():
 
 
 raise SystemExit(main())
-'''.replace("@MAGIC@", PAYLOAD_MAGIC).replace("@MAX_PAYLOAD@", str(MAX_PAYLOAD)).replace(
-    "@RECORD_NAME@", RECORD_NAME
-)
+'''
+
+
+def _transaction_script() -> str:
+    """The root transaction with the canonical destinations rendered in.
+
+    Rendered at call time, so what root runs carries the same constants the
+    unprivileged side just validated its paths against.
+    """
+    return (
+        ROOT_TRANSACTION.replace("@MAGIC@", PAYLOAD_MAGIC)
+        .replace("@MAX_PAYLOAD@", str(MAX_PAYLOAD))
+        .replace("@RECORD_NAME@", RECORD_NAME)
+        .replace("@WRAPPER_DEST@", repr(WRAPPER_DEFAULT))
+        .replace("@SUDOERS_DEST@", repr(SUDOERS_DEFAULT))
+    )
 
 
 def _pinned_source(path: Path) -> bytes | None:
@@ -337,7 +379,7 @@ def _root_transaction(wrapper: bytes, grant: bytes, wrapper_path: Path, sudoers_
     """
     header = f"{PAYLOAD_MAGIC}\n{len(wrapper)}\n{len(grant)}\n".encode("ascii")
     proc = subprocess.run(
-        ["sudo", *([] if prompt else ["-n"]), "python3", "-c", ROOT_TRANSACTION, str(wrapper_path), str(sudoers_path)],
+        ["sudo", *([] if prompt else ["-n"]), "python3", "-c", _transaction_script(), str(wrapper_path), str(sudoers_path)],
         input=header + wrapper + grant,
         check=False,
     )
@@ -1438,8 +1480,12 @@ def ask_links(cfg: dict, assume_yes: bool) -> dict | None:
 
 
 def install(assume_yes: bool = False):
-    wrapper = wrapper_dest()
-    sudoers = _sudoers_dest()
+    destinations = _canonical_destinations()
+    if destinations is None:
+        return 1
+    wrapper, sudoers = destinations
+    # Defence in depth behind the exact-path check: the canonical directories
+    # are root-only on any system where the grant means anything.
     if _writable_ancestor(wrapper) or _writable_ancestor(sudoers):
         print("refusing user-writable destination chain", file=sys.stderr)
         return 1
@@ -1479,12 +1525,14 @@ def install(assume_yes: bool = False):
 
 
 def remove():
+    destinations = _canonical_destinations()
+    if destinations is None:
+        return 1
+    wrapper, sudoers = destinations
     # The user-level half first, in reverse of install: nothing here needs root,
     # so a person whose grant is already gone still gets their launcher back.
     if remove_entries() != 0:
         return 1
-    wrapper = wrapper_dest()
-    sudoers = _sudoers_dest()
     # The root half is installed and removed as one set: wrapper, grant, and the
     # record beside the wrapper. The grant's directory cannot be read from here,
     # so the two files next to each other stand for the set. When both are gone

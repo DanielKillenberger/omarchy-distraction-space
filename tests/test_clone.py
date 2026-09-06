@@ -85,7 +85,7 @@ Path(os.environ["DS_NOTIFY_LOG"]).open("a").write(" ".join(sys.argv[1:]) + "\n")
 """
 
 _ENV = ("DS_NOTIFICATIONS_SOURCE", "DS_SHELL_LOG", "DS_NOTIFY_LOG", "USER", "DS_CLONE_FAIL",
-        "DS_CLONE_CORRUPT", "DS_SHELL_DOWN", "DS_WRAPPER_DEST", "DS_SUDOERS_DEST", "DS_SETUP_SUDO_LOG",
+        "DS_CLONE_CORRUPT", "DS_SHELL_DOWN", "DS_SETUP_SUDO_LOG",
         "DS_LOCK_PREFIX", "DS_SUDO_DENY", "DS_FLUSH_RC", "DS_FLUSH_ERR", "XDG_DATA_HOME")
 
 
@@ -399,9 +399,12 @@ class CloneTests(unittest.TestCase):
         os.chmod(prefix, 0o555)
         self.addCleanup(os.chmod, prefix, 0o755)
         self.wrapper = prefix / "libexec" / "omarchy-distraction-space" / "distractions-nft"
+        # The destinations are module constants with no environment override.
+        for name, path in (("WRAPPER_DEFAULT", self.wrapper), ("SUDOERS_DEFAULT", sudoers)):
+            patcher = mock.patch.object(setup, name, str(path))
+            patcher.start()
+            self.addCleanup(patcher.stop)
         os.environ.update(
-            DS_WRAPPER_DEST=str(self.wrapper),
-            DS_SUDOERS_DEST=str(sudoers),
             DS_SETUP_SUDO_LOG=str(self.box.runtime / "sudo.log"),
             DS_LOCK_PREFIX=str(prefix),
         )
