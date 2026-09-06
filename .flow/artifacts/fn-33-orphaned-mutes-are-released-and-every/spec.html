@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fn-33 · Orphaned mutes are released and every mute is logged</title>
+<style>
+:root {
+  --bg: #0c0b09; --panel: #14120e; --panel-2: #1a1712;
+  --line: #2c2719; --line-soft: #211d14;
+  --ink: #e8e2d4; --dim: #9a917c; --faint: #645d4c;
+  --amber: #ffb454; --amber-deep: #cc8b33;
+  --green: #87d96c; --red: #f07178; --cyan: #5ccfe6; --violet: #c9a7f5;
+  --mono: "Berkeley Mono", "JetBrains Mono", "SF Mono", ui-monospace, "Cascadia Code", Menlo, Consolas, monospace;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--ink); font-family: var(--mono); font-size: 14px; line-height: 1.65; }
+body::before { content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 999;
+  background: repeating-linear-gradient(0deg, transparent 0 2px, rgba(255,180,84,0.012) 2px 4px),
+              radial-gradient(ellipse 120% 60% at 50% -10%, rgba(255,180,84,0.05), transparent 60%); }
+a { color: var(--cyan); text-decoration: none; } a:hover { text-decoration: underline; }
+code { color: var(--cyan); font-size: 13px; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 28px 32px 64px; }
+.kicker { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--amber); }
+.kicker .sep { color: var(--faint); margin: 0 8px; }
+h1 { font-size: 26px; line-height: 1.25; margin: 10px 0 18px; font-weight: 700; } h1 .id { color: var(--amber); margin-right: 10px; }
+.dials { display: flex; border: 1px solid var(--line); background: var(--panel); margin-bottom: 28px; }
+.dial { flex: 1; padding: 12px 16px; border-right: 1px solid var(--line-soft); } .dial:last-child { border-right: 0; }
+.dial .v { font-size: 19px; font-weight: 700; } .dial .c { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--faint); margin-top: 2px; }
+nav.rail { position: sticky; top: 0; z-index: 50; background: rgba(12,11,9,.85); backdrop-filter: blur(6px); border-bottom: 1px solid var(--line); margin: 0 -32px 26px; padding: 8px 32px; display: flex; gap: 18px; flex-wrap: wrap; }
+nav.rail a { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--dim); } nav.rail a:hover { color: var(--amber); text-decoration: none; }
+section { margin-bottom: 36px; opacity: 0; animation: rise .5s ease forwards; }
+section:nth-of-type(1) { animation-delay: .05s; } section:nth-of-type(2) { animation-delay: .10s; } section:nth-of-type(3) { animation-delay: .15s; }
+section:nth-of-type(4) { animation-delay: .20s; } section:nth-of-type(5) { animation-delay: .25s; } section:nth-of-type(6) { animation-delay: .30s; }
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.shead { display: flex; align-items: baseline; gap: 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; margin-bottom: 14px; }
+.shead .n { color: var(--amber); font-weight: 700; } .shead .t { font-size: 17px; text-transform: uppercase; letter-spacing: .06em; font-weight: 700; }
+.shead .note { margin-left: auto; font-size: 10px; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); }
+.tldr { font-family: var(--serif); font-size: 20px; line-height: 1.6; max-width: 920px; margin: 0 0 16px; } .tldr strong { color: var(--amber); font-weight: 600; } .tldr em { color: var(--cyan); }
+.thesis { border: 1px solid var(--line); border-left: 3px solid var(--amber); background: var(--panel); padding: 12px 16px; color: var(--dim); } .thesis b { color: var(--ink); }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--faint); padding: 8px 10px; border-bottom: 1px solid var(--line); }
+td { padding: 10px; border-bottom: 1px solid var(--line-soft); vertical-align: top; color: var(--dim); } tr:hover td { color: var(--ink); background: #1c170d; }
+td.rid { color: var(--amber); font-weight: 700; white-space: nowrap; width: 56px; } td.err { font-size: 12.5px; }
+.tagchip { display: inline-block; border: 1px solid; padding: 0 6px; font-size: 10px; letter-spacing: .12em; text-transform: uppercase; line-height: 18px; }
+.tagchip.inferred { color: var(--red); border-color: var(--red); } .tagchip.paraphrase { color: var(--cyan); border-color: var(--cyan); }
+.cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+.card { border: 1px solid var(--line); border-left: 3px solid var(--cyan); background: var(--panel); padding: 12px 14px; color: var(--dim); font-size: 13px; }
+.card.red { border-left-color: var(--red); } .card.green { border-left-color: var(--green); } .card.violet { border-left-color: var(--violet); }
+.card .lbl { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
+.bounds { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .box { border: 1px solid var(--line); background: var(--panel); padding: 12px 14px; }
+.box .lbl { font-size: 10px; letter-spacing: .18em; text-transform: uppercase; color: var(--faint); margin-bottom: 4px; }
+.bounds .box ul { margin: 6px 0 0; padding-left: 20px; } .bounds .is li::marker { content: "✓ "; color: var(--green); } .bounds .isnot li::marker { content: "✕ "; color: var(--red); }
+.bounds li { color: var(--dim); font-size: 13px; margin: 4px 0; }
+.dec { border: 1px solid var(--line); background: var(--panel); padding: 12px 14px; margin-bottom: 10px; }
+.dec .dn { color: var(--amber); font-weight: 700; font-size: 11px; letter-spacing: .14em; margin-right: 8px; } .dec .chosen { color: var(--ink); }
+.dec .rej { color: var(--red); font-size: 13px; margin-top: 4px; } .dec .why { color: var(--dim); font-size: 13px; margin-top: 4px; }
+.evidence { border: 1px solid var(--line); background: var(--panel); padding: 10px 16px; } .evidence p { margin: 4px 0; color: var(--green); font-style: italic; }
+.evidence .who { color: var(--faint); font-style: normal; font-size: 11px; letter-spacing: .14em; text-transform: uppercase; margin-right: 8px; }
+footer { border-top: 1px solid var(--line); margin-top: 40px; padding-top: 14px; color: var(--faint); font-size: 12px; }
+.stamp { display: inline-block; border: 1px solid var(--line); padding: 4px 10px; margin-top: 8px; font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+@media (max-width: 760px) { .wrap { padding: 18px 16px 48px; } nav.rail { margin: 0 -16px 20px; padding: 8px 16px; } .dials { flex-wrap: wrap; } .dial { flex: 1 1 45%; } .cards, .bounds { grid-template-columns: 1fr; } }
+@media print {
+  :root { --bg:#fff; --panel:#fafaf7; --panel-2:#f2f0ea; --line:#ccc7ba; --line-soft:#e2ded2; --ink:#1a1812; --dim:#4a463c; --faint:#8a8678; --amber:#9a6a10; --amber-deep:#9a6a10; --green:#2e7d32; --red:#b3261e; --cyan:#0a6e8a; --violet:#6a3fae; }
+  body::before { display: none; } nav.rail, .progress { display: none; } section { break-inside: avoid-page; animation: none; opacity: 1; } @page { size: A4; margin: 1.2cm; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="kicker">spec lens<span class="sep">·</span>flow-next capture<span class="sep">·</span>2026-09-06</div>
+  <h1><span class="id">fn-33</span>Orphaned mutes are released and every mute is logged</h1>
+  <div class="dials">
+    <div class="dial"><div class="v">open</div><div class="c">status</div></div>
+    <div class="dial"><div class="v">draft</div><div class="c">readiness</div></div>
+    <div class="dial"><div class="v">3</div><div class="c">R-IDs</div></div>
+    <div class="dial"><div class="v">0</div><div class="c">tasks (pre-plan)</div></div>
+    <div class="dial"><div class="v">slice</div><div class="c">release boundary</div></div>
+  </div>
+  <nav class="rail"><a href="#thesis">Thesis</a><a href="#criteria">Acceptance</a><a href="#edges">Edge cases</a><a href="#bounds">Boundaries</a><a href="#decisions">Decisions</a><a href="#evidence">Evidence</a></nav>
+
+  <section id="thesis">
+    <div class="shead"><span class="n">01</span><span class="t">Thesis</span><span class="note">goal &amp; context</span></div>
+    <p class="tldr">Sound from a listed app must not stay muted while the person is on the space. A mute that outlives its record is never released today, because the plugin only unmutes what its record names. A muted stream inside the <strong>distraction slice</strong> while the hold is off is far more likely an <em>orphan</em> than a choice.</p>
+    <div class="thesis"><b>Two additions to the mute module.</b> Every mute, unmute, dropped record, and failed pactl call writes one log line. When the hold ends, and once at listener start while the hold is off, the release pass also unmutes any muted stream whose process is inside the slice, record or no record. Streams outside the slice keep the record-only rule.</div>
+  </section>
+
+  <section id="criteria">
+    <div class="shead"><span class="n">02</span><span class="t">Acceptance criteria</span><span class="note">3 rows</span></div>
+    <table><thead><tr><th>R-ID</th><th>Criterion</th><th>Errors / bounds</th><th>Source</th></tr></thead><tbody>
+      <tr><td class="rid">R1</td><td>When the hold ends, and once at listener start while the hold is off, every muted audio stream whose process is inside the distraction slice is unmuted, record or no record.</td><td class="err">A pactl failure leaves the stream for the next retry and writes one log line; streams outside the slice follow today's record-only rule unchanged.</td><td><span class="tagchip inferred">inferred</span></td></tr>
+      <tr><td class="rid">R2</td><td>Each mute, unmute, dropped record, and failed pactl call writes one log line with the stream index, the process identity, and the reason.</td><td class="err">A rescan that changes nothing writes nothing; log write failures are ignored as today.</td><td><span class="tagchip inferred">inferred</span></td></tr>
+      <tr><td class="rid">R3</td><td>Tests cover an orphaned slice mute released at hold end and at listener start, a muted stream outside the slice left alone, and the log lines for a mute and its release.</td><td class="err">No error surface beyond the paths named.</td><td><span class="tagchip inferred">inferred</span></td></tr>
+    </tbody></table>
+  </section>
+
+  <section id="edges">
+    <div class="shead"><span class="n">03</span><span class="t">Edge cases &amp; constraints</span><span class="note">4 items</span></div>
+    <div class="cards">
+      <div class="card red"><div class="lbl">accepted trade-off</div>A mute the person set on a distraction stream while on the space is released at the next hold end.</div>
+      <div class="card"><div class="lbl">membership</div>The slice check reuses the cgroup test the plugin already applies when it decides what to mute.</div>
+      <div class="card green"><div class="lbl">exit</div>A listener that stops while the hold is on still releases on exit; the sweep covers the case where that did not happen.</div>
+      <div class="card violet"><div class="lbl">log volume</div>One line per action; a rescan that changes nothing writes nothing.</div>
+    </div>
+  </section>
+
+  <section id="bounds">
+    <div class="shead"><span class="n">04</span><span class="t">Boundaries</span></div>
+    <div class="bounds">
+      <div class="box is"><div class="lbl">this spec is</div><ul><li>A slice-wide sweep at release time</li><li>A log line per mute action</li><li>Tests for both</li></ul></div>
+      <div class="box isnot"><div class="lbl">this spec is not</div><ul><li>A change to what gets muted, when the hold applies, or the identity check</li><li>Adoption of orphaned mutes outside the slice</li></ul></div>
+    </div>
+  </section>
+
+  <section id="decisions">
+    <div class="shead"><span class="n">05</span><span class="t">Decision context</span></div>
+    <div class="dec"><span class="dn">D1</span><span class="chosen">Sweep the slice at release time.</span><div class="why">Fixes the orphan without weakening the promise that the plugin never touches a mute outside its own boundary; the slice is that boundary.</div><div class="rej"><b>Rejected:</b> claiming every pre-muted slice stream into the record at start (same effect, more state); logging alone (diagnosable but still stuck).</div></div>
+  </section>
+
+  <section id="evidence">
+    <div class="shead"><span class="n">06</span><span class="t">Conversation evidence</span></div>
+    <div class="evidence">
+      <p><span class="who">turn 1</span>"is sound muted on dspaces?"</p>
+      <p><span class="who">turn 2</span>"but it's muted on x while i'm on dspace?"</p>
+      <p><span class="who">turn 3</span>"yes /capture that"</p>
+    </div>
+  </section>
+
+  <footer>Render lens, not record. Source: <code>.flow/specs/fn-33-orphaned-mutes-are-released-and-every.md</code><br>
+    <span class="stamp">staleness stamp · spec updated_at 2026-09-06T15:25:16Z · repo commit e31ef37 · rendered 2026-09-06</span></footer>
+</div>
+</body>
+</html>
