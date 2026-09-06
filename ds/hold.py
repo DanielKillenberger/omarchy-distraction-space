@@ -507,6 +507,12 @@ def _is_browser(app, binary) -> bool:
     return any(mark in app or mark in binary for mark in _CHROMIUM)
 
 
+def slice_member(item, proc=None) -> bool:
+    """Whether the sink-input's process is in the slice: the one test scan and release share."""
+    pid = stream_pid(item)
+    return pid is not None and cgroup.in_slice(pid, proc or PROC)
+
+
 def attribute_stream(item, table, proc=None):
     """The list entry name a sink-input belongs to, `cgroup.SLICE` for a stream whose process is in the slice, or None.
 
@@ -517,8 +523,7 @@ def attribute_stream(item, table, proc=None):
     props = item.get("properties") if isinstance(item, dict) else None
     if not isinstance(props, dict):
         return None
-    pid = stream_pid(item)
-    if pid is not None and cgroup.in_slice(pid, proc or PROC):
+    if slice_member(item, proc):
         return cgroup.SLICE
     app = normalize(props.get("application.name"))
     binary = normalize(os.path.basename(str(props.get("application.process.binary") or "")))
@@ -528,7 +533,7 @@ def attribute_stream(item, table, proc=None):
             name = table["binaries"].get(binary)
         if name is not None:
             return name
-    return pwa_name(pid, table["hosts"], proc)
+    return pwa_name(stream_pid(item), table["hosts"], proc)
 
 
 def muted_path():
@@ -536,12 +541,14 @@ def muted_path():
 
 
 class Mute:
-    """Mute the listed apps' streams while hold is on; unmute only what this plugin muted, by identity."""
+    """Mute the listed apps' streams while hold is on; unmute what this plugin muted, by identity, and any muted stream still in the slice."""
 
     def __init__(self):
         self.active, self.table, self.owned = False, {"names": {}, "binaries": {}, "hosts": {}}, {}
         self.tail = _MuteTail(self)
         self.missing, self.fail_noted, self.retry_at = False, False, 0.0
+        # `started`: sync has run once; `sweep`: a release could not list the streams and is still owed.
+        self.started, self.sweep = False, False
 
     def fileno(self):
         return self.tail.fileno()
@@ -549,7 +556,7 @@ class Mute:
     def tick(self, now=None):
         now = time.monotonic() if now is None else now
         self.tail.tick(now)
-        if not self.active and self.owned and now >= self.retry_at:
+        if not self.active and (self.owned or self.sweep) and now >= self.retry_at:
             self.release(now)
 
     def _load(self) -> dict:
@@ -568,9 +575,9 @@ class Mute:
             _log(f"cannot write {muted_path()}: {e}")
 
     def _run(self, cmd):
-        """Run one pactl command; None when it failed. A missing binary disables the feature with one line."""
+        """Run one pactl command; `(text, "")` on success, `(None, why)` on failure. A missing binary disables the feature with one line."""
         if self.missing:
-            return None
+            return None, self.tail.MISSING
         try:
             proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True,
                                   check=False, timeout=IPC_TIMEOUT)
@@ -579,13 +586,13 @@ class Mute:
             self.tail.missing = True
             self.tail.stop()
             _log(self.tail.MISSING)
-            return None
+            return None, self.tail.MISSING
         except (OSError, subprocess.TimeoutExpired) as e:
-            return self._fail(f"{cmd[0]}: {e}")
+            return None, f"{cmd[0]}: {e}"
         if proc.returncode != 0:
-            return self._fail((proc.stderr or "").strip() or f"{' '.join(cmd)}: exit {proc.returncode}")
+            return None, (proc.stderr or "").strip() or f"{' '.join(cmd)}: exit {proc.returncode}"
         self.fail_noted = False
-        return proc.stdout or ""
+        return proc.stdout or "", ""
 
     def _fail(self, why):
         if not self.fail_noted:
@@ -594,28 +601,37 @@ class Mute:
         return None
 
     def _list(self):
-        out = self._run(PACTL_LIST)
+        out, why = self._run(PACTL_LIST)
         if out is None:
-            return None
+            return None if self.missing else self._fail(why)
         try:
             items = json.loads(out or "[]")
         except json.JSONDecodeError:
             return self._fail("unexpected list output")
         return [it for it in items if isinstance(it, dict)] if isinstance(items, list) else []
 
-    def _set(self, index, muted) -> bool:
-        return self._run(["pactl", "set-sink-input-mute", index, "1" if muted else "0"]) is not None
+    def _set(self, index, muted, ident, why) -> bool:
+        verb = "mute" if muted else "unmute"
+        out, err = self._run(["pactl", "set-sink-input-mute", index, "1" if muted else "0"])
+        if self.missing:
+            return False
+        if out is None:
+            _log(f"{verb} {index} ({ident}) failed: {err}")
+            return False
+        _log(f"{verb} {index} ({ident}): {why}")
+        return True
 
     def sync(self, on, table, now=None):
         """On every hold transition and list change: mute while on, release when off."""
         self.table = table
+        first, self.started = not self.started, True
         if on and not self.missing:
             if not self.active:
                 self.active = True
                 self.owned = self._load()
             self.scan()
             self.tick(now)
-        elif self.active or muted_path().exists():
+        elif self.active or first or muted_path().exists():
             self.release(now)
 
     def scan(self):
@@ -627,26 +643,38 @@ class Mute:
         streams = self._list()
         if streams is None:
             return
-        owned = {}
+        owned, seen = {}, set()
         for item in streams:
             index = str(item.get("index"))
             if not index.isdigit():
                 continue
             ident = identity(stream_pid(item))
-            if self.owned.get(index) == ident and ident is not None:
-                if item.get("mute") is True:
-                    owned[index] = ident
-                continue
+            recorded = self.owned.get(index)
+            if recorded is not None:
+                seen.add(index)
+                if recorded == ident:
+                    if item.get("mute") is True:
+                        owned[index] = ident
+                    else:
+                        _log(f"drop {index} ({recorded}): unmuted by hand")
+                    continue
+                _log(f"drop {index} ({recorded}): identity changed")
             if item.get("mute") is True or ident is None:
                 continue
-            if attribute_stream(item, self.table) is not None and self._set(index, True):
+            name = attribute_stream(item, self.table)
+            if name is not None and self._set(index, True, ident, name):
                 owned[index] = ident
+        for index, ident in self.owned.items():
+            if index not in seen:
+                _log(f"drop {index} ({ident}): stream gone")
         if owned != self.owned:
             self.owned = owned
             self._save()
 
     def forget(self, index):
-        if self.owned.pop(index, None) is not None:
+        ident = self.owned.pop(index, None)
+        if ident is not None:
+            _log(f"drop {index} ({ident}): stream removed")
             self._save()
 
     def pump(self):
@@ -664,27 +692,48 @@ class Mute:
             self.scan()
 
     def release(self, now=None):
-        """Hold ended or the listener exits: unmute recorded indexes whose identity still matches.
+        """Hold ended, or the listener started with it off: unmute what the record names and what the slice holds.
 
-        A record whose stream could not be listed or unmuted stays in the file
-        and is retried from `tick` every RELEASE_RETRY seconds; the file clears
-        once nothing is left.
+        A recorded index is unmuted while its identity still matches. Every other
+        muted stream whose process is in the slice is unmuted too, record or no
+        record, so a mute that outlived its record is not stuck; a muted stream
+        outside the slice is left alone. A stream whose unmute failed stays in
+        the file, and a failed list keeps the whole sweep owed; both are retried
+        from `tick` every RELEASE_RETRY seconds. The file clears once nothing is
+        left.
         """
         self.active = False
         self.tail.stop()
         owned = self.owned or self._load()
         self.owned = {}
-        streams = self._list() if owned else []
+        streams = self._list()
+        self.sweep = streams is None
         if streams is None:
             self.owned = owned
         else:
+            seen = set()
             for item in streams:
                 index = str(item.get("index"))
                 ident = owned.get(index)
-                if ident is not None and ident == identity(stream_pid(item)) and item.get("mute") is True \
-                        and not self._set(index, False):
+                if ident is not None:
+                    seen.add(index)
+                    if ident == identity(stream_pid(item)):
+                        if item.get("mute") is not True:
+                            _log(f"drop {index} ({ident}): unmuted by hand")
+                        elif not self._set(index, False, ident, "hold ended"):
+                            self.owned[index] = ident
+                        continue
+                    # The index now carries another stream; it is swept like any other.
+                    _log(f"drop {index} ({ident}): identity changed")
+                if not index.isdigit() or item.get("mute") is not True or not slice_member(item):
+                    continue
+                ident = identity(stream_pid(item))
+                if not self._set(index, False, ident, "orphaned in the slice") and ident is not None:
                     self.owned[index] = ident
-        if self.owned:
+            for index, ident in owned.items():
+                if index not in seen:
+                    _log(f"drop {index} ({ident}): stream gone")
+        if self.owned or self.sweep:
             self.retry_at = (time.monotonic() if now is None else now) + RELEASE_RETRY
         self._save()
 
