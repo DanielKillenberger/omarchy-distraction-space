@@ -543,8 +543,8 @@ def muted_path():
 class Mute:
     """Mute the listed apps' streams while hold is on; unmute what this plugin muted, by identity, and any muted stream still in the slice.
 
-    While hold is on, a flag file tells the WirePlumber hook to mute a new
-    distraction-browser stream at creation.
+    While hold is on, a key on the WirePlumber hook's metadata object tells it
+    to mute a new distraction-browser stream at creation.
     """
 
     def __init__(self):
@@ -553,7 +553,7 @@ class Mute:
         self.missing, self.fail_noted, self.retry_at = False, False, 0.0
         # `started`: sync has run once; `sweep`: a release could not list the streams and is still owed.
         self.started, self.sweep = False, False
-        self.flag_noted, self.hook_noted = False, False
+        self.key_state, self.hook_noted, self.key_noted = None, False, False
 
     def fileno(self):
         return self.tail.fileno()
@@ -626,50 +626,37 @@ class Mute:
         _log(f"{verb} {index} ({ident}): {why}")
         return True
 
-    def _flag(self, on):
-        path = wp.flag_path()
-        if on:
-            if not path.exists():
-                try:
-                    state.state_dir()
-                    path.write_text(state.now_iso() + "\n", encoding="utf-8")
-                    _log(f"flag written: {path}")
-                except OSError as e:
-                    if not self.flag_noted:
-                        _log(f"cannot write {path}: {e}")
-                    self.flag_noted = True
+    def _hold_key(self, on):
+        object_id, error = wp.hold(on)
+        verb = "set" if on else "deleted"
+        if error is not None:
+            if not self.key_noted:
+                _log(f"cannot {'set' if on else 'delete'} the hold key: {error}; streams are muted reactively")
+            self.key_noted = True
             return
-        try:
-            existed = path.exists()
-            path.unlink(missing_ok=True)
-            if existed:
-                _log(f"flag removed: {path}")
-        except OSError as e:
-            _log(f"cannot remove {path}: {e}")
-        self.flag_noted = False
+        self.key_noted = False
+        if object_id is None:
+            if not self.hook_noted:
+                if not wp.installed():
+                    _log("hold hook not installed; streams are muted reactively (run: distractions setup)")
+                else:
+                    _log("hold hook not loaded in WirePlumber; streams are muted reactively")
+            self.hook_noted = True
+            self.key_state = None
+            return
         self.hook_noted = False
-
-    def _note_hook(self):
-        if self.hook_noted:
-            return
-        self.hook_noted = True
-        if not wp.installed():
-            _log("hold hook not installed; streams are muted reactively (run: distractions setup)")
-        elif wp.loaded() is not True:
-            _log("hold hook not loaded in WirePlumber; streams are muted reactively")
+        if (on, object_id) != self.key_state:
+            _log(f"hold key {verb} (metadata {object_id})")
+        self.key_state = (on, object_id)
 
     def sync(self, on, table, now=None):
         """On every hold transition and list change: mute while on, release when off.
 
-        The hold flag is written while on and removed while off, even when pactl is missing.
+        The hold key is asserted on every sync, even when pactl is missing.
         """
         self.table = table
         first, self.started = not self.started, True
-        if on:
-            self._flag(True)
-            self._note_hook()
-        else:
-            self._flag(False)
+        self._hold_key(on)
         if on and not self.missing:
             if not self.active:
                 self.active = True
@@ -745,12 +732,12 @@ class Mute:
         outside the slice is left alone. A stream whose unmute failed stays in
         the file, and a failed list keeps the whole sweep owed; both are retried
         from `tick` every RELEASE_RETRY seconds. The file clears once nothing is
-        left. The flag is removed so it never outlives a listener that stopped
+        left. The key is deleted so it never outlives a listener that stopped
         on purpose.
         """
         self.active = False
         self.tail.stop()
-        self._flag(False)
+        self._hold_key(False)
         owned = self.owned or self._load()
         self.owned = {}
         streams = self._list()

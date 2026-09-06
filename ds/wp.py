@@ -1,4 +1,4 @@
-"""WirePlumber hold hook: the flag the listener writes, the script and fragment setup installs, and the loaded check."""
+"""WirePlumber hold hook: the hold key the listener asserts, the script and fragment setup installs, and the loaded check."""
 
 from __future__ import annotations
 
@@ -8,20 +8,16 @@ import subprocess
 import time
 from pathlib import Path
 
-from ds import hypr, launch, state
+from ds import launch
 
 ROOT = Path(__file__).resolve().parent.parent
 APP_ID = launch._PULSE_APPLICATION_ID
 SCRIPT_NAME = "distraction-space-hold-mute.lua"
 FRAGMENT_NAME = "distraction-space-hold-mute.conf"
-FLAG_NAME = "hold.flag"
+HOLD_KEY = "hold"
 METADATA_NAME = APP_ID
 PW_METADATA_TIMEOUT = 5
 LOAD_WAIT = 5.0
-
-
-def flag_path():
-    return state.state_path(FLAG_NAME)
 
 
 def config_dir():
@@ -30,20 +26,20 @@ def config_dir():
     return base / "wireplumber"
 
 
+def data_dir():
+    return launch.data_home() / "wireplumber"
+
+
 def script_path():
-    return config_dir() / "scripts" / SCRIPT_NAME
+    return data_dir() / "scripts" / SCRIPT_NAME
 
 
 def fragment_path():
     return config_dir() / "wireplumber.conf.d" / FRAGMENT_NAME
 
 
-def render_script(flag=None):
-    text = (ROOT / "install" / SCRIPT_NAME).read_text(encoding="utf-8")
-    if text.count("@HOLD_FLAG@") != 1:
-        raise ValueError(f"{SCRIPT_NAME} must contain @HOLD_FLAG@ exactly once")
-    path = flag if flag is not None else flag_path()
-    return text.replace("@HOLD_FLAG@", hypr.lua_string(str(path)))
+def script_text():
+    return (ROOT / "install" / SCRIPT_NAME).read_text(encoding="utf-8")
 
 
 def fragment_text():
@@ -59,23 +55,46 @@ def installed():
     return script_path().is_file() and fragment_path().is_file()
 
 
-def loaded():
-    """True when the hook's metadata is visible, False when it is not, None when that cannot be told."""
+def _pw_metadata(*args):
+    """Run `pw-metadata -n METADATA_NAME *args`. `(object_id, error)`: the PipeWire id, or None when the object is absent; `error` is a one-line string on failure."""
     try:
         proc = subprocess.run(
-            ["pw-metadata", "-n", METADATA_NAME],
+            ["pw-metadata", "-n", METADATA_NAME, *args],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, check=False,
             timeout=PW_METADATA_TIMEOUT,
         )
-    except (OSError, subprocess.TimeoutExpired):
-        return None
+    except FileNotFoundError:
+        return None, "pw-metadata not found"
+    except subprocess.TimeoutExpired:
+        return None, "pw-metadata timed out"
+    except OSError as e:
+        return None, f"pw-metadata: {e}"
     if proc.returncode != 0:
-        return None
-    marker = f'Found "{METADATA_NAME}" metadata'
+        first = next((ln for ln in (proc.stderr or "").splitlines() if ln), "")
+        return None, first or f"pw-metadata: exit {proc.returncode}"
+    prefix = f'Found "{METADATA_NAME}" metadata '
     for line in (proc.stdout or "").splitlines():
-        if line.startswith(marker):
-            return True
-    return False
+        if line.startswith(prefix):
+            rest = line[len(prefix):].split()
+            if rest and rest[0].isdigit():
+                return int(rest[0]), None
+            break
+    return None, None
+
+
+def loaded():
+    """True when the hook's metadata is visible, False when it is not, None when that cannot be told."""
+    object_id, error = _pw_metadata()
+    if error is not None:
+        return None
+    return object_id is not None
+
+
+def hold(on):
+    """Set or delete the hold key. `(object_id, error)` as `_pw_metadata`."""
+    if on:
+        return _pw_metadata("0", HOLD_KEY, '"on"', "Spa:String:JSON")
+    return _pw_metadata("0", HOLD_KEY, "-d")
 
 
 def wait_loaded(seconds=None):
