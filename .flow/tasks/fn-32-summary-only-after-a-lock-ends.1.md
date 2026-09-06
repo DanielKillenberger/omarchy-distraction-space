@@ -14,7 +14,7 @@ Every R-ID in the parent spec's ## Acceptance Criteria is satisfied; judge this 
 
 Implemented over a grok-4.6 bridge from a precise brief (config plumbing per the project's routing rule), diff reviewed on the session model, full suite green: 463 tests, 1 skipped.
 
-stage: impl-review - skipped(policy: config plumbing implemented over a grok bridge; diff reviewed by the session model, no external review requested)
+stage: impl-review - ran [2026-09-06T12:05Z..2026-09-06T12:07Z] (model: codex gpt-6-astra medium, fan-out x3, all SHIP, 0 findings; requested by the user after the first receipt)
 stage: plan-sync - skipped(config: planSync.enabled != true)
 ## Evidence
 - Commits: 4cd3b5f879e334405ab650cbacb5dac889995411
