@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 *.qmlc
 .DS_Store
+AGENTS.md
+CLAUDE.md
+.flow
