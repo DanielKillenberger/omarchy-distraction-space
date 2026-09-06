@@ -1,11 +1,134 @@
 {
   "branch_name": "fn-35-distraction-streams-start-muted-while",
+  "completion_review_status": "unknown",
+  "completion_reviewed_at": null,
   "created_at": "2026-09-06T16:19:33.159495Z",
+  "default_impl": null,
+  "default_review": null,
+  "default_sync": null,
   "depends_on_epics": [],
   "id": "fn-35-distraction-streams-start-muted-while",
+  "impl_review_rounds": {},
   "next_task": 1,
-  "plan_review_status": "unknown",
-  "plan_reviewed_at": null,
+  "plan_review_rounds": 0,
+  "plan_review_status": "ship",
+  "plan_reviewed_at": "2026-09-06T16:30:40.770322Z",
+  "review_attempts": [
+    {
+      "artifact_sha256": "b2435fde005ccf0a4e700fb6f7fc7cdcafb270980e2c994bf0576ffc9dad680d",
+      "backend": "codex",
+      "base_sha": "bcfc76afbb3907a593234cf2618c45e40124bad9",
+      "counter_kind": "plan",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-5fedc21489ec43a55f2dfba0d25bfed1",
+            "classification": "introduced",
+            "findingId": "finding-5fedc21489ec43a55f2dfba0d25bfed1",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          },
+          {
+            "chainRoot": "finding-bb312f301becad1abf5c21de140a381d",
+            "classification": "introduced",
+            "findingId": "finding-bb312f301becad1abf5c21de140a381d",
+            "firstSeenThisRound": true,
+            "severity": "P1",
+            "status": "open"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "7ec0320d6f4f92c88653e3d3c2d2a34293e91d6d",
+      "head_sha_observed": true,
+      "kind": "plan",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 170303,
+      "output_sha256": "9bd7d29ad4bae83a95abbca99718d0fd38c4f8308faa795e984d9c2e6fd6e7f0",
+      "reservation_id": "08e25253c0b9416cb4c8e785a807b5ed",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-06T16:28:34.706538Z",
+      "tool_calls": 4,
+      "verdict": "NEEDS_WORK"
+    },
+    {
+      "artifact_sha256": "5fc5062ff1c6643b44138c37e897952d9f3459dfcf112b9527a56d8d84265fd8",
+      "backend": "codex",
+      "base_sha": "bcfc76afbb3907a593234cf2618c45e40124bad9",
+      "counter_kind": "plan",
+      "effort": "medium",
+      "failure_class": null,
+      "finalized": {
+        "digest": "complete",
+        "receipt": "complete",
+        "status": "complete"
+      },
+      "findings_digest": {
+        "backend": "codex",
+        "digest_truncated": false,
+        "items": [
+          {
+            "chainRoot": "finding-5fedc21489ec43a55f2dfba0d25bfed1",
+            "classification": "introduced",
+            "findingId": "finding-5fedc21489ec43a55f2dfba0d25bfed1",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          },
+          {
+            "chainRoot": "finding-bb312f301becad1abf5c21de140a381d",
+            "classification": "introduced",
+            "findingId": "finding-bb312f301becad1abf5c21de140a381d",
+            "firstSeenThisRound": false,
+            "severity": "P1",
+            "status": "fixed"
+          }
+        ],
+        "reviewKind": "plan"
+      },
+      "forced": false,
+      "hash_epoch": 0,
+      "head_sha": "7ec0320d6f4f92c88653e3d3c2d2a34293e91d6d",
+      "head_sha_observed": true,
+      "kind": "plan",
+      "model": "gpt-6-astra",
+      "outcome": "verdict",
+      "output_bytes": 694,
+      "output_sha256": "3ef95a81b6d788693b3827fbeab82641a92664a3ec0bb16b0f6daaf1978029e7",
+      "reservation_id": "7ede077623e1451f9fd47bbd773253be",
+      "round_consumed": true,
+      "scope": "plan",
+      "superseded_by": null,
+      "task": null,
+      "timestamp": "2026-09-06T16:30:40.768217Z",
+      "verdict": "SHIP"
+    }
+  ],
+  "review_hash_epoch": {
+    "plan": 1,
+    "plan#completion": 0
+  },
+  "review_pending_rounds": {},
+  "review_reservations": {},
+  "review_transport_failures": {
+    "plan": 0
+  },
   "spec_path": ".flow/specs/fn-35-distraction-streams-start-muted-while.md",
   "status": "open",
   "title": "Distraction streams start muted while the hold is on",
@@ -20,5 +143,5 @@
     "mergeBaseTracker": null,
     "url": null
   },
-  "updated_at": "2026-09-06T16:19:33.616664Z"
+  "updated_at": "2026-09-06T16:30:40.770808Z"
 }
