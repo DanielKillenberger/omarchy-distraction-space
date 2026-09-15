@@ -797,6 +797,8 @@ class HyprTests(unittest.TestCase):
         proc = self._run_lua(hypr.set_rule_lua(name, NATIVE))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.splitlines(), [f"create {name} {NATIVE} {ws}"])
+
+    @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
     def test_lua_fragment_create_error_is_not_swallowed(self):
         proc = self._run_lua(hypr.set_rule_lua("omarchy-ds-telegram-0", NATIVE), fail_create=True)
         self.assertNotEqual(proc.returncode, 0)

@@ -184,9 +184,10 @@ class LaunchTests(unittest.TestCase):
         os.environ.pop("PULSE_PROP", None)
         os.environ.pop("PULSE_SINK", None)
         self.box.fake_bin("systemd-run", LOGGER % "DS_SYSTEMD_RUN_LOG")
-        # The browsers the desktop files and the config name: a launch checks the
-        # binary is on PATH, and the real machine's browsers must not stand in.
-        for binary in ("google-chrome-stable", "chromium", "brave"):
+        # The browsers the desktop files and the config name, and the native
+        # Telegram target: a launch checks the binary is on PATH, and the real
+        # machine's binaries must not stand in.
+        for binary in ("google-chrome-stable", "chromium", "brave", "Telegram"):
             self.box.fake_bin(binary, NOOP)
         os.environ["DS_LAUNCH_SETTLE"] = "0.2"
         self.box.fake_bin("omarchy-launch-browser", FALLBACK)
