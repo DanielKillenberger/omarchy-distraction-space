@@ -25,7 +25,7 @@ from harness import ROOT, ClosedTty, Sandbox, Tty
 from test_wp import PW_METADATA
 
 sys.path.insert(0, str(ROOT))
-from ds import launch, setup, wp
+from ds import launch, setup, wp, state
 from ds.config import DEFAULTS
 
 SUDO = r"""
@@ -419,7 +419,8 @@ class SetupTests(unittest.TestCase):
         lines = [ln for ln in err.getvalue().splitlines()
                  if not ln.startswith("notification hold unavailable")
                  and not ln.startswith("wireplumber not found")
-                 and not ln.startswith("hyprland:")]
+                 and not ln.startswith("hyprland: skipped --")
+                 and not ln.startswith("hyprland: pasted snippets")]
         return rc, "".join(ln + "\n" for ln in lines)
 
     def test_setup_asks_about_links_once_naming_the_browser_before_sudo_and_a_rerun_prints_the_choice(self):
@@ -1494,7 +1495,7 @@ class SetupTests(unittest.TestCase):
     def _stock_hypr(self) -> Path:
         hypr = self.box.config / "hypr"
         hypr.mkdir(parents=True, exist_ok=True)
-        for leftover in ("bindings.lua", "autostart.lua", "distraction-space.lua"):
+        for leftover in ("bindings.lua", "autostart.lua", "windows.lua", "distraction-space.lua"):
             path = hypr / leftover
             if path.exists():
                 path.unlink()
@@ -1510,8 +1511,7 @@ class SetupTests(unittest.TestCase):
         return hypr
 
     def _hypr_record(self):
-        path = self.box.state_dir / "hypr.json"
-        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+        return setup._read_hypr_record()
 
     def _hyprctl_cmds(self):
         if not getattr(self, "hyprctl_log", None) or not self.hyprctl_log.exists():
@@ -1620,13 +1620,19 @@ class SetupTests(unittest.TestCase):
             'os.getenv("HOME") .. "/.config/omarchy/plugins/'
             f'{setup.PLUGIN_ID}/distractions"'
         )
+        legacy = 'os.getenv("HOME") .. "/.config/omarchy/plugins/distraction-space/distractions"'
         cases = (
             ("bindings.lua", helper + "\n", None),
             ("autostart.lua", f"o.exec_on_start({helper} .. \" listen\")\n", None),
             ("hyprland.lua", None, STOCK_HYPRLAND + f"\n{setup.HYPR_WORKSPACE_MARK}, persistent = true }})\n"),
+            # The 3.x README allowed the workspace rule in "your windows file"; a pre-2.1.0
+            # install pasted the old plugin id; some people pasted the binds into hyprland.lua.
+            ("windows.lua", f"{setup.HYPR_WORKSPACE_MARK}, persistent = true }})\n", None),
+            ("autostart.lua", f"o.exec_on_start({legacy} .. \" listen\")\n", None),
+            ("hyprland.lua", None, STOCK_HYPRLAND + f'o.bind("SUPER + ALT + D", "x", {helper} .. " toggle")\n'),
         )
         for name, extra, hyprland_text in cases:
-            with self.subTest(name=name):
+            with self.subTest(name=name, extra=extra, hyprland_text=hyprland_text):
                 hypr = self._stock_hypr()
                 if extra is not None:
                     (hypr / name).write_text(extra, encoding="utf-8")
@@ -1724,6 +1730,97 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("reload Hyprland or log out and back in", raw_err.getvalue())
         self.assertEqual(self._hyprctl_cmds(), [["reload"]])
+
+    def test_setup_rerun_leaves_an_edited_hypr_file_alone(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        lua = hypr / "distraction-space.lua"
+        shipped_digest = self._hypr_record()["digest"]
+        edited = lua.read_text(encoding="utf-8") + "-- my own keys\n"
+        lua.write_text(edited, encoding="utf-8")
+        hyprland_before = (hypr / "hyprland.lua").read_bytes()
+        self.hyprctl_log.write_text("", encoding="utf-8")
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertIn(f"hyprland: {lua} was edited; leaving it as it is", err)
+        self.assertEqual(lua.read_text(encoding="utf-8"), edited)
+        self.assertEqual((hypr / "hyprland.lua").read_bytes(), hyprland_before)
+        self.assertEqual(self._hypr_record()["digest"], shipped_digest)
+        self.assertEqual(self._hyprctl_cmds(), [])
+        # A newer snippet set does not win over the edit either; remove then moves the edit aside.
+        with patch.object(setup, "_plugin_lua_bytes", return_value=b"-- newer\n"):
+            self.assertEqual(self._install()[0], 0)
+        self.assertEqual(lua.read_text(encoding="utf-8"), edited)
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(setup.remove(), 0)
+        backup = self.box.state_dir / "hypr-backup" / "distraction-space.lua"
+        self.assertEqual(backup.read_text(encoding="utf-8"), edited)
+
+    def test_setup_and_remove_keep_the_mode_of_hyprland(self):
+        hypr = self._stock_hypr()
+        hyprland = hypr / "hyprland.lua"
+        hyprland.chmod(0o640)
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(stat.S_IMODE(hyprland.stat().st_mode), 0o640)
+        self.assertEqual(stat.S_IMODE((hypr / "distraction-space.lua").stat().st_mode), 0o644)
+        self.assertEqual(setup.remove(), 0)
+        self.assertEqual(stat.S_IMODE(hyprland.stat().st_mode), 0o640)
+
+    def test_symlinked_hyprland_is_named_and_left_alone(self):
+        hypr = self._stock_hypr()
+        hyprland = hypr / "hyprland.lua"
+        real = self.box.runtime / "dotfiles-hyprland.lua"
+        real.write_text(STOCK_HYPRLAND, encoding="utf-8")
+        hyprland.unlink()
+        hyprland.symlink_to(real)
+        rc, _err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertTrue(hyprland.is_symlink())
+        self.assertEqual(real.read_text(encoding="utf-8"), STOCK_HYPRLAND)
+        self.assertFalse((hypr / "distraction-space.lua").exists())
+        raw = io.StringIO()
+        with contextlib.redirect_stderr(raw):
+            setup.sync_hypr()
+        self.assertIn("is a symlink", raw.getvalue())
+        self.assertIn(setup.HYPR_REQUIRE_LINE.strip(), raw.getvalue())
+
+    def test_remove_restores_a_config_without_a_trailing_newline(self):
+        hypr = self._stock_hypr()
+        hyprland = hypr / "hyprland.lua"
+        before = STOCK_HYPRLAND.rstrip("\n").encode("utf-8")
+        hyprland.write_bytes(before)
+        self.assertEqual(self._install(), (0, ""))
+        self.assertTrue(self._hypr_record()["newline_added"])
+        self.assertEqual(hyprland.read_bytes(), before + b"\n" + setup.HYPR_REQUIRE_LINE.encode("utf-8"))
+        self.assertEqual(setup.remove(), 0)
+        self.assertEqual(hyprland.read_bytes(), before)
+
+    def test_status_reflects_a_skipped_or_pasted_hypr_write(self):
+        hypr = self._stock_hypr()
+        (hypr / "hyprland.lua").write_text('require("hypr.bindings")\n', encoding="utf-8")
+        self.assertEqual(self._install()[0], 0)
+        health = state._health({}, None, "stopped", None, False)
+        self.assertEqual(health["services"]["hyprland"]["state"], "pending")
+        self.assertTrue(any(r.startswith("Hyprland config: Not written:") for r in health["reasons"]))
+        self.assertEqual(health["state"], "degraded")
+        (hypr / "bindings.lua").write_text(setup.HYPR_HELPER_MARK + "\n", encoding="utf-8")
+        self.assertEqual(self._install()[0], 0)
+        health = state._health({}, None, "stopped", None, False)
+        self.assertIn("Pasted 3.x snippets still in", health["services"]["hyprland"]["reason"])
+        self.assertIn(str(hypr / "bindings.lua"), health["services"]["hyprland"]["reason"])
+        self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        health = state._health({}, None, "stopped", None, False)
+        self.assertNotIn("hyprland", health["services"])
+        self.assertEqual(setup.remove(), 0)
+        self.assertNotIn("hyprland", state._health({}, None, "stopped", None, False)["services"])
+
+    def test_first_write_says_how_to_start_the_listener(self):
+        self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        self.assertIn("run `distractions listen`, to start the listener", self.stdout)
+        self.assertEqual(self._install(), (0, ""))
+        self.assertNotIn("start the listener", self.stdout)
 
     @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
     def test_written_hypr_file_and_optional_require_evaluate_in_lua(self):

@@ -311,6 +311,15 @@ def _health(st, cfg, listener, on_space, locked):
                          "age_seconds": round(age, 1) if age is not None else None}
         if kind not in ("healthy", "disabled"):
             reasons.append(f"{label}: {reason}")
+    sync = read_json(state_path("hypr.json"), None)
+    sync = sync.get("sync") if isinstance(sync, dict) else None
+    if isinstance(sync, dict) and sync.get("state") in ("pasted", "skipped") and isinstance(sync.get("detail"), str):
+        reason = (f"Pasted 3.x snippets still in {sync['detail']}; delete them and run distractions setup."
+                  if sync["state"] == "pasted"
+                  else f"Not written: {sync['detail']}. Run distractions setup once that is fixed.")
+        services["hyprland"] = {"state": "pending", "enabled": True, "reason": reason,
+                                "observed_at": None, "age_seconds": None}
+        reasons.append(f"Hyprland config: {reason}")
     kinds = {item["state"] for item in services.values()}
     overall = ("degraded" if listener != "responsive" or kinds & {"pending", "unavailable", "displaced"}
                else "unknown" if kinds & {"unknown", "stale"} else "healthy")
