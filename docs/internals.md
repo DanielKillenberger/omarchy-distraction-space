@@ -1,6 +1,6 @@
 # Internals
 
-The [README](../README.md) covers installing and operating the plugin. This page is for reading or changing the code: the listener loop, the state file shapes, how the static network table is kept, what the URL handler and the launcher entries write, and the lifecycle of the patched notification-service clone.
+The [README](../README.md) and the [reference](reference.md) cover installing and operating the plugin. This page is for reading or changing the code: the listener loop, the state file shapes, how the static network table is kept, what the URL handler and the launcher entries write, and the lifecycle of the patched notification-service clone.
 
 ## Layout
 
