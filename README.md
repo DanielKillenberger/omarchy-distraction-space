@@ -1,20 +1,19 @@
 # Omarchy distraction space
 
-One Hyprland workspace for the apps and sites that take your attention, and an Omarchy plugin that keeps them there.
+An Omarchy plugin that makes your distractions hard to reach: the apps and sites that take your attention get one Hyprland workspace, the distraction space, and a lock can keep it shut.
 
-![The distraction workspace with listed apps tiled on it](docs/images/workspace.png)
-
-- **Your distractions get one workspace.** Telegram, X, YouTube, and whatever else you list open there, and a window that lands anywhere else is moved back.
-- **Listed sites load only from there.** Netflix typed into your work browser out of habit gets a block page, or a closed connection and a banner over HTTPS; chat apps are only moved, so messages still arrive.\
+- **Listed sites load only from the distraction space.** Netflix typed into your work browser out of habit gets a block page, or a closed connection and a banner over HTTPS; chat apps are only moved, so messages still arrive.\
   ![A browser window showing the block page: "Can't open www.netflix.com on this workspace", with "Super+Ctrl+Shift+D opens the distraction space" below](docs/images/block-page.png)
+- **A lock keeps the space shut for a set time.** Leaving early takes a written reason, 50 characters by default, and the plugin logs it.\
+  ![The lock prompt asking what the time is for, with "Finish the chapter draft" typed](docs/images/lock-prompt.png)\
+  ![The unlock prompt asking for a reason, with "Checking whether the parcel due this morning has shipped, then straight back to work" typed](docs/images/unlock-prompt.png)
+- **Everything you list lives on the space.** Telegram, X, YouTube, and whatever else you list open there, and a window that lands anywhere else is moved back.\
+  ![The distraction space with X, WhatsApp, Telegram, and Signal tiled beside YouTube, all showing made-up chats, posts, and videos](docs/images/distraction-space.jpg)
 - **Links open there, not in your work browser.** Say yes when setup asks, and a listed link clicked in any app lands on the space while you stay where you are, with a banner saying so.\
   ![A notification reading "Twitch opened in the distraction space" and "Super+Ctrl+Shift+D enters."](docs/images/opened-banner.png)
 - **Notifications wait, with a count in the bar.** By default, listed apps pop no banners while you are off the space, and the bar shows how many are waiting.\
   ![The Omarchy bar showing the distraction-space eye glyph with three held notifications, and the "While you were away" notice listing the per-app count](docs/images/held-count.png)
 - **Their sounds stay muted** for as long as their notifications are held.
-- **A lock keeps the space shut for a set time.** Leaving early takes a written reason, 50 characters by default, and the plugin logs it.\
-  ![The lock prompt asking what the time is for, with "Finish the chapter draft" typed](docs/images/lock-prompt.png)\
-  ![The unlock prompt asking for a reason, with "Checking whether the parcel due this morning has shipped, then straight back to work" typed](docs/images/unlock-prompt.png)
 - **One line when you come back.** A single notice says what was held, per app, or, if you turn it on, one line from your own agent saying whether any of it needed you.
 
 **How it works.** Every listed app and site the plugin opens runs in one process group, the systemd slice `app-distraction.slice`, and their windows belong to one workspace; listed web products get a browser profile of their own. A firewall rule keyed on that process group lets it reach the listed sites and refuses them to every other process, so a window left open on the space keeps syncing while your work browser is blocked. Windows, network, and sound follow which process group a program is in, never which workspace you happen to be looking at.
