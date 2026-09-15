@@ -1536,7 +1536,8 @@ class ExpansionTests(unittest.TestCase):
 class HoldRetryTests(unittest.TestCase):
     def test_unavailable_retries_once_per_period_with_one_notice(self):
         clock = [1000.0]
-        push = mock.Mock(side_effect=["unavailable", "unavailable", "on"])
+        answered = listener.hold.Push("unavailable", listener.hold.ANSWERED)
+        push = mock.Mock(side_effect=[answered, answered, listener.hold.Push("on", "")])
         notify = mock.Mock()
         with mock.patch.object(listener.hold, "push", push), \
              mock.patch.object(listener.hold, "effective_hold", return_value=True), \
@@ -1550,6 +1551,8 @@ class HoldRetryTests(unittest.TestCase):
             self.assertEqual(push.call_count, 1)
             self.assertEqual(notify.call_count, 1)
             self.assertEqual(ctx.hold_ipc, "unavailable")
+            self.assertEqual(ctx.hold_outage_until, 1000.0,
+                             "a shell that answered gets no window, and the outage stays marked spent")
             clock[0] = 1000.0 + 1.0
             ctx.sync_hold()
             self.assertEqual(push.call_count, 1)
