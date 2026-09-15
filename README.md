@@ -2,8 +2,8 @@
 
 An Omarchy plugin that makes your distractions hard to reach: the apps and sites that take your attention get one Hyprland workspace, the distraction space, and a lock can keep it shut.
 
-- **Listed sites load only from the distraction space.** Netflix typed into your work browser out of habit gets a block page, or a closed connection and a banner over HTTPS; chat apps are only moved, so messages still arrive.\
-  ![A browser window showing the block page: "Can't open www.netflix.com on this workspace", with "Super+Ctrl+Shift+D opens the distraction space" below](docs/images/block-page.png)
+- **Listed sites load only from the distraction space.** Netflix typed into your work browser out of habit fails to load, and a "Blocked here" banner offers to open it in the space; chat apps are only moved, so messages still arrive.\
+  ![A notification titled "Blocked here" reading "Netflix opens in the distraction space." and "Super+Ctrl+Shift+D enters."](docs/images/blocked-banner.png)
 - **A lock keeps the space shut for a set time.** Leaving early takes a written reason, 50 characters by default, and the plugin logs it.\
   ![The lock prompt asking what the time is for, with "Finish the chapter draft" typed](docs/images/lock-prompt.png)\
   ![The unlock prompt asking for a reason, with "Checking whether the parcel due this morning has shipped, then straight back to work" typed](docs/images/unlock-prompt.png)
@@ -18,7 +18,7 @@ An Omarchy plugin that makes your distractions hard to reach: the apps and sites
 
 **How it works.** Every listed app and site the plugin opens runs in one process group, the systemd slice `app-distraction.slice`, and their windows belong to one workspace; listed web products get a browser profile of their own. A firewall rule keyed on that process group lets it reach the listed sites and refuses them to every other process, so a window left open on the space keeps syncing while your work browser is blocked. Windows, network, and sound follow which process group a program is in, never which workspace you happen to be looking at.
 
-It is an attention aid with known gaps: web products need a Chromium-family browser, HTTPS never shows the block page, and a site served behind Encrypted Client Hello passes through. The [limits](docs/reference.md#limits) list them all.
+It is an attention aid with known gaps: web products need a Chromium-family browser, a blocked site explains itself only through the banner, and a site served behind Encrypted Client Hello passes through. The [limits](docs/reference.md#limits) list them all.
 
 ## Install
 
