@@ -1,0 +1,41 @@
+name: version
+
+# A pull request that changes what the plugin does must also move
+# manifest.json past the last released version. The check is simple: the
+# version the pull request declares must not already have a `v<version>`
+# tag. Documentation-only and workflow-only changes are exempt, so a README
+# fix does not need a release. Several stacked pull requests may share one
+# unreleased version; the tag is what closes it.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Runtime changes need an unreleased manifest version
+        run: |
+          base="${{ github.event.pull_request.base.sha }}"
+          runtime="$(git diff --name-only "$base" "$GITHUB_SHA" -- . ':(exclude)docs' ':(exclude)README.md' ':(exclude).github' ':(exclude)preview.png' ':(exclude).gitignore')"
+          if [ -z "$runtime" ]; then
+            echo "no runtime files changed; no version bump required"
+            exit 0
+          fi
+          version="$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')"
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "manifest.json declares $version, but v$version is already tagged." >&2
+            echo "Runtime files changed in this pull request:" >&2
+            echo "$runtime" | sed 's/^/  /' >&2
+            echo "Bump the version in manifest.json so the next release carries this change." >&2
+            exit 1
+          fi
+          echo "manifest.json declares $version, which is not yet tagged"

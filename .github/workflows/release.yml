@@ -1,0 +1,125 @@
+name: release
+
+# A release is a tag `v<version>` on a commit of main whose manifest.json
+# declares that same version. This workflow turns the tag into a GitHub
+# Release whose notes are the squash commits since the previous tag, and
+# files the marketplace's "Verify and publish a newer upstream commit"
+# request for the tagged commit, so the listing can move to it.
+#
+# Filing on omacom/omarchy-plugin-marketplace needs a token that can open
+# issues there. GITHUB_TOKEN cannot; it is scoped to this repository. Store
+# a classic personal access token with the `public_repo` scope as the
+# repository secret MARKETPLACE_TOKEN. Without it, the job writes the
+# ready-to-paste issue body into the run summary and exits successfully.
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: The tag names the manifest version and sits on main
+        id: check
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          manifest="$(python3 -c 'import json; print(json.load(open("manifest.json"))["version"])')"
+          if [ "$tag" != "$manifest" ]; then
+            echo "tag v$tag does not match manifest.json version $manifest" >&2
+            exit 1
+          fi
+          git fetch -q origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "tagged commit $GITHUB_SHA is not on main" >&2
+            exit 1
+          fi
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Release notes from the squash commits since the previous tag
+        id: notes
+        run: |
+          prev="$(git describe --tags --abbrev=0 "${GITHUB_SHA}^" 2>/dev/null || true)"
+          {
+            if [ -n "$prev" ]; then
+              echo "Changes since $prev, one line per merged pull request:"
+              echo
+              git log --first-parent --format='- %s' "$prev..$GITHUB_SHA"
+            else
+              echo "First tagged release."
+            fi
+            echo
+            echo "Commit: $GITHUB_SHA"
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Create the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            --verify-tag
+
+      - name: Marketplace verification request body
+        run: |
+          cat > verify-body.md <<EOF
+          ### Verification action
+
+          Verify and publish a newer upstream commit
+
+          ### Plugin ID
+
+          io.github.danielkillenberger.distraction-space
+
+          ### Repository URL
+
+          https://github.com/${GITHUB_REPOSITORY}
+
+          ### Target commit
+
+          ${GITHUB_SHA}
+
+          ### Verification acknowledgment
+
+          - [X] I understand that only the exact target commit can become a verified marketplace snapshot and that verification is not a security audit.
+
+          ### Standard installation acknowledgment
+
+          - [ ] I confirm that this listed root plugin supports the standard Omarchy installation path and does not require manual setup.
+          EOF
+
+      - name: File the marketplace verification request
+        env:
+          GH_TOKEN: ${{ secrets.MARKETPLACE_TOKEN }}
+          VERSION: ${{ steps.check.outputs.version }}
+        run: |
+          title="[Verify]: io.github.danielkillenberger.distraction-space — publish newer upstream commit ${GITHUB_SHA:0:7} (v${VERSION})"
+          if [ -z "$GH_TOKEN" ]; then
+            {
+              echo "## Marketplace verification request not filed"
+              echo
+              echo "No MARKETPLACE_TOKEN secret is set. File it by hand at"
+              echo "https://github.com/omacom/omarchy-plugin-marketplace/issues/new?template=verify-plugin.yml"
+              echo "with this title and body:"
+              echo
+              echo '```'
+              echo "$title"
+              echo '```'
+              echo
+              cat verify-body.md
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          url="$(gh issue create --repo omacom/omarchy-plugin-marketplace --title "$title" --body-file verify-body.md)"
+          echo "Filed $url" | tee -a "$GITHUB_STEP_SUMMARY"
