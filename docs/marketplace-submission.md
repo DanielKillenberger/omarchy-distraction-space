@@ -38,6 +38,10 @@ The plugin owns its configuration and state directories. Agent summaries remain 
 
 `distractions setup --remove` reverses setup: firewall/helper/grant/install-record removal, user slice cleanup, owned notification-clone cleanup, launcher restoration and previous-browser restoration. The owner removes their Hyprland snippets and then removes the plugin through Omarchy. User data such as profiles is not described as automatically erased.
 
+## Releasing
+
+A release is a tag. The version moves inside the pull request that changes the plugin: `.github/workflows/version-check.yml` fails a pull request that touches runtime files while `manifest.json` still declares a version that already has a `v<version>` tag, and leaves documentation-only changes alone. Pull requests squash-merge onto `main`, which requires the test checks and refuses direct pushes. When `main` holds the version to ship, tag that commit `v<version>` and push the tag. `.github/workflows/release.yml` checks that the tag matches the manifest and sits on `main`, creates the GitHub Release with one line per merged pull request since the previous tag, and files the marketplace verification request for that exact commit. Filing needs the repository secret `MARKETPLACE_TOKEN`, a classic personal access token with the `public_repo` scope, because the workflow token cannot open issues on another repository; without the secret the run prints the title and body to paste into the form instead. The first release handled this way is v3.1.0.
+
 ## Review surface and validation
 
 The v3 submission should disclose `installer`, `privilege`, `sudoers-modification`, and now `service-management` (the user slice and `systemctl`/`systemd-run`). These are disclosures of shipped behavior, not a claim about the scanner's eventual verdict. Do not predeclare a clean baseline or maintainer acceptance.
