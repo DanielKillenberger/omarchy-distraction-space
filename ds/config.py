@@ -31,7 +31,7 @@ DEFAULTS = {
     "hold_notifications": "off-space",
     "mute_sounds": True,
     "lock": {"default_minutes": 25, "ask_purpose": True, "reason_min_chars": 50},
-    "summary": {"command": "off", "timeout_seconds": 60},
+    "summary": {"command": "off", "timeout_seconds": 60, "after": "any"},
     "hooks": {"lock": [], "unlock": [], "enter": [], "leave": []},
     "log": "~/.local/state/omarchy/distraction-space/log",
 }
@@ -183,6 +183,7 @@ def validate(cfg):
     cmd = summary.get("command")
     _need(cmd in ("auto", "off") or _argv(cmd), "summary.command")
     _need(_nat(summary.get("timeout_seconds")), "summary.timeout_seconds")
+    _need(summary.get("after") in ("any", "unlock"), "summary.after")
     hooks = cfg.get("hooks")
     _need(isinstance(hooks, dict), "hooks")
     for name in HOOK_NAMES:
