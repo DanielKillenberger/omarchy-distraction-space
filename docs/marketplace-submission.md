@@ -34,7 +34,7 @@ Browser profile import is optional and explicit (`distractions profile import`).
 
 Notification holding still uses a clone of the installed first-party notification plugin, patched in the user's plugin directory. No packaged file under `/usr/share` is edited. Ownership records control cleanup of the clone and launcher entries. State reads retain no-follow, regular-file and size limits before data enters the bar; claimed summary records are bounded too.
 
-The plugin owns its configuration and state directories. Agent summaries remain off by default; enabling them explicitly sends held notification records to the selected agent CLI. Dependencies and the complete setup/removal commands are listed in the [README](../README.md).
+The plugin owns its configuration and state directories. Agent summaries remain off by default; enabling them explicitly sends held notification records to the selected agent CLI. Dependencies and the complete setup/removal commands are listed in the [reference](reference.md).
 
 `distractions setup --remove` reverses setup: firewall/helper/grant/install-record removal, user slice cleanup, owned notification-clone cleanup, launcher restoration and previous-browser restoration, and removal of the marked Hyprland line and the file setup wrote (an edited file is moved into the state directory's backup). The owner then removes the plugin through Omarchy. User data such as profiles is not described as automatically erased.
 
