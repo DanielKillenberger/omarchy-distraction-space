@@ -198,6 +198,8 @@ ln -s ../omarchy-distraction-space-flow/CLAUDE.md CLAUDE.md
 ln -s ../omarchy-distraction-space-flow/AGENTS.md AGENTS.md
 ```
 
+`.github/workflows/tests.yml` runs that suite on every push to `main` and every pull request, on Ubuntu, with Python 3.11 and the newest 3.x the runner offers. The command is `python3 -m unittest discover -s tests`. The local `PATH=/usr/bin:$PATH` prefix is omitted there because the runner has no interpreter shim, and the prefix would hide the matrix interpreter behind Ubuntu's system `/usr/bin/python3`. An apt step installs `lua5.4` first, so the Lua fragment tests in `tests/test_hypr.py` run there instead of skipping.
+
 Lint the bar widget with `qmllint` from `qt6-declarative`; it is not on `PATH`. Quickshell maps `qs.*` onto the shell root, so a bare `-I "$OMARCHY_PATH/shell"` cannot resolve `qs.Commons` or `qs.Ui`. Give it an import directory whose `qs` entry links to the shell instead.
 
 ```bash
