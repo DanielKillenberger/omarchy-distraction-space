@@ -869,13 +869,14 @@ def _hypr_text(path: Path) -> tuple[bytes | None, str | None]:
 
 
 def _user_lua_text(path: Path) -> str | None:
-    """A person's own Lua config, read through a symlink: dotfiles repos link these files."""
+    """A person's own Lua config, read through a symlink because dotfiles repositories link
+    these files; bounded and checked exactly like every other read."""
+    data = state.read_bounded(path, follow=True)
+    if data is None:
+        return None
     try:
-        st = path.stat()
-        if not stat.S_ISREG(st.st_mode) or st.st_size > state.READ_CAP:
-            return None
-        return path.read_bytes().decode("utf-8")
-    except (OSError, UnicodeDecodeError):
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
         return None
 
 
@@ -899,13 +900,13 @@ def _pasted_hypr_files() -> list[Path]:
     return found
 
 
-def _unrecognised_hyprland(data: bytes | None, text: str | None, path: Path) -> str | None:
+def _unrecognised_hyprland(text: str | None, path: Path) -> str | None:
     """Why this hyprland.lua is not the stock Omarchy layout this write is for, or None."""
     if path.is_symlink():
         return f"{path} is a symlink, which setup never replaces; add this line to it yourself: {HYPR_REQUIRE_LINE.strip()}"
     if not path.exists():
         return f"{path} is missing"
-    if data is None or text is None:
+    if text is None:
         return f"{path} is unreadable"
     if HYPR_DEFAULTS_MARK not in text:
         return f"{path} does not load Omarchy's defaults"
@@ -935,7 +936,9 @@ def _write_hypr_record(record: dict) -> None:
 
 
 def _note_hypr_sync(outcome: str, detail: str) -> None:
-    """Record how the last sync ended so `status` can show it; a note that has not changed is not rewritten."""
+    """Record how the last sync ended so `status` can show it (`state.hypr_sync` reads it back);
+    a note that has not changed is not rewritten."""
+    assert outcome in state.HYPR_SYNC_STATES, outcome
     raw = _hypr_json()
     note = {"state": outcome, "detail": detail}
     if raw.get("sync") == note:
@@ -998,21 +1001,27 @@ def sync_hypr() -> int:
     alone and reported. The marked line is never added twice. hyprland.lua is rewritten last, through a
     temp file, so a failed write leaves it byte-identical.
     """
+    dest, hyprland = _hypr_plugin_path(), _hyprland_path()
     pasted = _pasted_hypr_files()
     if pasted:
         for path in pasted:
             print(f"hyprland: pasted snippets still in {path}; delete them and rerun setup", file=sys.stderr)
+        if _read_hypr_record() is not None:
+            print(f"hyprland: setup's own {dest} and its line in {hyprland} are still active too; "
+                  "delete the pasted lines so only those remain", file=sys.stderr)
         _note_hypr_sync("pasted", ", ".join(str(p) for p in pasted))
         return 0
-    dest, hyprland = _hypr_plugin_path(), _hyprland_path()
-    # A symlinked hyprland.lua that already loads the module had the line added by hand;
-    # the file is still written, the linked config is never touched.
+    # A symlinked hyprland.lua that already carries setup's line, or loads the module through
+    # the optional helper, had it added by hand: the file is still written, the linked config
+    # is never touched. A plain require of the module is the unrecognised case, as for a
+    # regular file, because remove could then leave a require that has nothing to load.
     linked_text = _user_lua_text(hyprland) if hyprland.is_symlink() else None
-    manual = bool(linked_text and HYPR_MODULE in linked_text)
+    manual = bool(linked_text and (HYPR_MARKER in linked_text
+                                   or ("require_optional" in linked_text and HYPR_MODULE in linked_text)))
     data = b""
     if not manual:
         data, text = _hypr_text(hyprland)
-        why = _unrecognised_hyprland(data, text, hyprland)
+        why = _unrecognised_hyprland(text, hyprland)
         if why:
             print(f"hyprland: skipped -- {why}", file=sys.stderr)
             _note_hypr_sync("skipped", why)
@@ -1024,8 +1033,10 @@ def sync_hypr() -> int:
     current = state.read_bounded(dest)
     record = _read_hypr_record()
     first = record is None and current is None
+    # read_bounded never follows a link, so `current` is None for a symlinked owned file and
+    # the symlink check below is the one place the link has to be named.
     linked = dest.is_symlink()
-    edited = (not linked and current is not None and current != want
+    edited = (current is not None and current != want
               and (record is None or hashlib.sha256(current).hexdigest() != record["digest"]))
     if linked:
         print(f"hyprland: {dest} is a symlink, which setup never replaces; leaving it as it is", file=sys.stderr)
@@ -1036,13 +1047,15 @@ def sync_hypr() -> int:
     new_hyprland = data if manual else _append_marked_line(data)
     line_changed = new_hyprland != data
     newline_added = line_changed and data != b"" and not data.endswith(b"\n")
-    if file_changed or (record is None and current == want and not linked):
+    if file_changed or (record is None and current == want):
         new_record = {"path": str(dest), "digest": digest,
                       "newline_added": bool(record and record["newline_added"])}
     else:
         new_record = dict(record) if record is not None else None
-    if new_record is not None and newline_added:
-        new_record["newline_added"] = True
+    # The run that appends the line is the one that knows whether a newline went in first;
+    # a rerun that finds the line already there keeps what was recorded.
+    if new_record is not None and line_changed:
+        new_record["newline_added"] = newline_added
     record_changed = new_record is not None and new_record != record
     target = dest
     try:
@@ -1070,6 +1083,11 @@ def remove_hypr() -> int:
     hyprland = _hyprland_path()
     record = _read_hypr_record()
     changed = False
+    if hyprland.is_symlink():
+        linked_text = _user_lua_text(hyprland)
+        if linked_text and HYPR_MARKER in linked_text:
+            print(f"hyprland: {hyprland} is a symlink, which setup never edits; "
+                  f"delete this line from it yourself: {HYPR_REQUIRE_LINE.strip()}")
     data, _text = _hypr_text(hyprland)
     if data is not None:
         stripped = _drop_marked_line(data, bool(record and record["newline_added"]))
@@ -1082,8 +1100,9 @@ def remove_hypr() -> int:
                 return 1
     if record is not None:
         path = Path(record["path"])
-        present = path.is_file() or path.is_symlink()
-        if present:
+        if path.is_symlink():
+            print(f"hyprland: left the symlinked {path} in place; remove it yourself if you want it gone")
+        elif path.is_file():
             current = state.read_bounded(path)
             digest = hashlib.sha256(current).hexdigest() if current is not None else ""
             if current is not None and digest == record["digest"]:

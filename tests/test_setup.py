@@ -1850,14 +1850,15 @@ class SetupTests(unittest.TestCase):
         (hypr / "hyprland.lua").write_text('require("hypr.bindings")\n', encoding="utf-8")
         self.assertEqual(self._install()[0], 0)
         health = state._health({}, None, "responsive", None, False)
-        self.assertNotIn("hyprland", health["services"])
+        self.assertEqual(health["services"]["hyprland"]["state"], "unknown")
         self.assertTrue(any(r.startswith("Hyprland config: Not written:") for r in health["reasons"]))
         self.assertNotEqual(health["state"], "degraded")
+        self.assertNotEqual(health["state"], "healthy")
         (hypr / "bindings.lua").write_text(setup.HYPR_HELPER_MARK + "\n", encoding="utf-8")
         self.assertEqual(self._install()[0], 0)
         health = state._health({}, None, "responsive", None, False)
         self.assertEqual(health["services"]["hyprland"]["state"], "pending")
-        self.assertIn("Pasted 3.x snippets still in", health["services"]["hyprland"]["reason"])
+        self.assertIn("Pasted snippets still in", health["services"]["hyprland"]["reason"])
         self.assertIn(str(hypr / "bindings.lua"), health["services"]["hyprland"]["reason"])
         self.assertEqual(health["state"], "degraded")
         self._stock_hypr()
@@ -1866,6 +1867,92 @@ class SetupTests(unittest.TestCase):
         self.assertNotIn("hyprland", health["services"])
         self.assertEqual(setup.remove(), 0)
         self.assertNotIn("hyprland", state._health({}, None, "stopped", None, False)["services"])
+
+    def test_pasted_report_names_setups_own_file_when_one_is_installed(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        (hypr / "bindings.lua").write_text(setup.HYPR_HELPER_MARK + "\n", encoding="utf-8")
+        raw = io.StringIO()
+        with contextlib.redirect_stderr(raw):
+            self.assertEqual(setup.sync_hypr(), 0)
+        self.assertIn(f"pasted snippets still in {hypr / 'bindings.lua'}", raw.getvalue())
+        self.assertIn(f"setup's own {hypr / 'distraction-space.lua'} and its line in {hypr / 'hyprland.lua'} are still active",
+                      raw.getvalue())
+        self.assertTrue((hypr / "distraction-space.lua").is_file())
+
+    def test_symlinked_hyprland_with_a_plain_require_is_a_skip(self):
+        hypr = self._stock_hypr()
+        hyprland = hypr / "hyprland.lua"
+        real = self.box.runtime / "dotfiles-hyprland.lua"
+        real.write_text(STOCK_HYPRLAND + f'require("{setup.HYPR_MODULE}")\n', encoding="utf-8")
+        hyprland.unlink()
+        hyprland.symlink_to(real)
+        self.assertEqual(self._install()[0], 0)
+        self.assertFalse((hypr / "distraction-space.lua").exists())
+        self.assertIsNone(self._hypr_record())
+        raw = io.StringIO()
+        with contextlib.redirect_stderr(raw):
+            setup.sync_hypr()
+        self.assertIn("skipped --", raw.getvalue())
+        self.assertIn("is a symlink", raw.getvalue())
+
+    def test_newline_flag_follows_the_run_that_appended_the_line(self):
+        hypr = self._stock_hypr()
+        hyprland = hypr / "hyprland.lua"
+        hyprland.write_bytes(STOCK_HYPRLAND.rstrip("\n").encode("utf-8"))
+        self.assertEqual(self._install(), (0, ""))
+        self.assertTrue(self._hypr_record()["newline_added"])
+        # The person removes the marked line by hand and leaves the file newline-terminated.
+        hyprland.write_text(STOCK_HYPRLAND, encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        self.assertFalse(self._hypr_record()["newline_added"])
+        self.assertEqual(setup.remove(), 0)
+        self.assertEqual(hyprland.read_text(encoding="utf-8"), STOCK_HYPRLAND)
+
+    def test_deleting_the_owned_file_and_rerunning_restores_the_shipped_snippets(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        lua = hypr / "distraction-space.lua"
+        shipped, digest = lua.read_bytes(), self._hypr_record()["digest"]
+        lua.unlink()
+        self.hyprctl_log.write_text("", encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(lua.read_bytes(), shipped)
+        self.assertEqual(self._hypr_record()["digest"], digest)
+        self.assertEqual(self._hyprctl_cmds(), [["reload"]])
+
+    def test_remove_leaves_a_symlinked_owned_file_in_place(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        lua = hypr / "distraction-space.lua"
+        real = self.box.runtime / "dotfiles-distraction-space.lua"
+        real.write_text("-- linked\n", encoding="utf-8")
+        lua.unlink()
+        lua.symlink_to(real)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(setup.remove(), 0)
+        self.assertTrue(lua.is_symlink())
+        self.assertEqual(real.read_text(encoding="utf-8"), "-- linked\n")
+        self.assertIn(f"left the symlinked {lua} in place", out.getvalue())
+        self.assertIsNone(self._hypr_record())
+        self.assertFalse((self.box.state_dir / "hypr-backup" / "distraction-space.lua").exists())
+
+    def test_remove_names_the_hand_added_line_in_a_symlinked_hyprland(self):
+        hypr = self._stock_hypr()
+        hyprland = hypr / "hyprland.lua"
+        real = self.box.runtime / "dotfiles-hyprland.lua"
+        real.write_text(STOCK_HYPRLAND + setup.HYPR_REQUIRE_LINE, encoding="utf-8")
+        hyprland.unlink()
+        hyprland.symlink_to(real)
+        self.assertEqual(self._install(), (0, ""))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(setup.remove(), 0)
+        self.assertFalse((hypr / "distraction-space.lua").exists())
+        self.assertEqual(real.read_text(encoding="utf-8"), STOCK_HYPRLAND + setup.HYPR_REQUIRE_LINE)
+        self.assertIn("delete this line from it yourself", out.getvalue())
+        self.assertIn(setup.HYPR_REQUIRE_LINE.strip(), out.getvalue())
 
     def test_first_write_says_how_to_start_the_listener(self):
         self._stock_hypr()

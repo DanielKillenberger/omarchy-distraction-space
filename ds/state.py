@@ -40,8 +40,11 @@ def now_iso():
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
 
-def read_bounded(path, cap=READ_CAP):
+def read_bounded(path, cap=READ_CAP, follow=False):
     """The file's bytes, or None when it is missing, irregular, unreadable, or over `cap`.
+
+    `follow=True` is for a person's own config files, which dotfiles repositories
+    keep as symlinks; the descriptor is still checked and bounded the same way.
 
     Every path read here is small state this plugin wrote, and each one is
     predictable and sits in a directory the account can write. The descriptor is
@@ -55,8 +58,9 @@ def read_bounded(path, cap=READ_CAP):
     head of one, and JSON that parses after truncation would be believed. One
     byte over is enough to refuse, so `cap` bytes exactly still read clean.
     """
+    flags = os.O_RDONLY | os.O_NONBLOCK | (0 if follow else os.O_NOFOLLOW)
     try:
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+        fd = os.open(path, flags)
     except OSError:
         return None
     try:
@@ -83,6 +87,18 @@ def read_json(path, default=None):
         return json.loads(data.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError):
         return default
+
+
+HYPR_SYNC_STATES = ("written", "edited", "linked", "pasted", "skipped")
+
+
+def hypr_sync():
+    """The `sync` note setup leaves in hypr.json, `{"state": <HYPR_SYNC_STATES>, "detail": str}`, or None."""
+    raw = read_json(state_path("hypr.json"), None)
+    note = raw.get("sync") if isinstance(raw, dict) else None
+    if isinstance(note, dict) and note.get("state") in HYPR_SYNC_STATES and isinstance(note.get("detail"), str):
+        return {"state": note["state"], "detail": note["detail"]}
+    return None
 
 
 def write_json(path, obj):
@@ -311,18 +327,20 @@ def _health(st, cfg, listener, on_space, locked):
                          "age_seconds": round(age, 1) if age is not None else None}
         if kind not in ("healthy", "disabled"):
             reasons.append(f"{label}: {reason}")
-    sync = read_json(state_path("hypr.json"), None)
-    sync = sync.get("sync") if isinstance(sync, dict) else None
-    if isinstance(sync, dict) and sync.get("state") in ("pasted", "skipped") and isinstance(sync.get("detail"), str):
+    sync = hypr_sync()
+    if sync is not None and sync["state"] in ("pasted", "skipped"):
         if sync["state"] == "pasted":
             # Setup still has work to do here, so the service is pending and health degraded.
-            reason = f"Pasted 3.x snippets still in {sync['detail']}; delete them and run distractions setup."
-            services["hyprland"] = {"state": "pending", "enabled": True, "reason": reason,
-                                    "observed_at": None, "age_seconds": None}
+            kind = "pending"
+            reason = f"Pasted snippets still in {sync['detail']}; delete them and run distractions setup."
         else:
             # A config setup declines to touch, such as a symlinked hyprland.lua, may be the
-            # person's choice; say so without turning the whole badge red for good.
+            # person's choice: unknown keeps the badge off green without pinning it red for good,
+            # and a reason never appears beside a healthy state.
+            kind = "unknown"
             reason = f"Not written: {sync['detail']}. Run distractions setup once that is fixed."
+        services["hyprland"] = {"state": kind, "enabled": True, "reason": reason,
+                                "observed_at": None, "age_seconds": None}
         reasons.append(f"Hyprland config: {reason}")
     kinds = {item["state"] for item in services.values()}
     overall = ("degraded" if listener != "responsive" or kinds & {"pending", "unavailable", "displaced"}
