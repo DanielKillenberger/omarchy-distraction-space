@@ -2,7 +2,7 @@
 
 One Hyprland workspace for the apps and sites that take your attention, and an Omarchy plugin that keeps them there.
 
-![The distraction workspace with listed apps tiled on it](docs/images/workspace.png)
+![The distraction workspace with X, Telegram, and Discord tiled on it, each on its logged-out front page](docs/images/workspace.png)
 
 - **Your distractions get one workspace.** Telegram, X, YouTube, and whatever else you list open there, and a window that lands anywhere else is moved back.
 - **Listed sites load only from there.** Netflix typed into your work browser out of habit gets a block page, or a closed connection and a banner over HTTPS; chat apps are only moved, so messages still arrive.\
@@ -13,8 +13,8 @@ One Hyprland workspace for the apps and sites that take your attention, and an O
   ![The Omarchy bar showing the distraction-space eye glyph with three held notifications, and the "While you were away" notice listing the per-app count](docs/images/held-count.png)
 - **Their sounds stay muted** for as long as their notifications are held.
 - **A lock keeps the space shut for a set time.** Leaving early takes a written reason, 50 characters by default, and the plugin logs it.\
-  ![The lock prompt asking for minutes, with 25 as the example and 0 meaning until unlock](docs/images/lock-prompt.png)\
-  ![The unlock prompt asking for a reason of at least 50 characters](docs/images/unlock-prompt.png)
+  ![The lock prompt asking what the time is for, with "Finish the chapter draft" typed](docs/images/lock-prompt.png)\
+  ![The unlock prompt asking for a reason, with "Checking whether the parcel due this morning has shipped, then straight back to work" typed](docs/images/unlock-prompt.png)
 - **One line when you come back.** A single notice says what was held, per app, or, if you turn it on, one line from your own agent saying whether any of it needed you.
 
 **How it works.** Every listed app and site the plugin opens runs in one process group, the systemd slice `app-distraction.slice`, and their windows belong to one workspace; listed web products get a browser profile of their own. A firewall rule keyed on that process group lets it reach the listed sites and refuses them to every other process, so a window left open on the space keeps syncing while your work browser is blocked. Windows, network, and sound follow which process group a program is in, never which workspace you happen to be looking at.
