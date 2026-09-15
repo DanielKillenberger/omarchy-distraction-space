@@ -8,7 +8,7 @@ The marketplace's [submission format](https://github.com/omacom/omarchy-plugin-m
 
 Version 3 makes `app-distraction.slice` under the user's systemd manager the network boundary. Listed programs launch inside it; listed web products use a separate Chromium-family browser profile. Listed windows stay on the distraction workspace, but the firewall no longer switches off when the person enters that workspace. The fixed nft policy accepts sockets in the installing user's distraction slice before applying the listed-address block elsewhere. Existing distraction windows can keep syncing while the work browser remains blocked.
 
-Installation remains manual setup. `omarchy plugin add` installs the bar plugin. The owner copies the three `hypr/` snippets into their Hyprland configuration and runs `distractions setup`; the plugin does not edit `~/.config/hypr` itself.
+Installation remains manual setup. `omarchy plugin add` installs the bar plugin. The owner runs `distractions setup`, which writes one file into the user's Hyprland config (`~/.config/hypr/distraction-space.lua`, the three shipped snippets) and one marked optional-require line into `hyprland.lua`. That replaces the earlier claim that the plugin does not edit `~/.config/hypr`. The standard-installation acknowledgment stays unticked because setup still runs by hand and still asks for sudo.
 
 ### Privileged setup and firewall helper
 
@@ -26,7 +26,7 @@ The table retains IPv4/IPv6 sets, output filtering and HTTP/HTTPS redirects to t
 
 ### User-level setup and data
 
-Setup installs and starts `install/app-distraction.slice` in the user's systemd manager. Launches use `systemd-run --user`. The listener is still started through the user's Hyprland autostart snippet; there is no privileged listener service.
+Setup installs and starts `install/app-distraction.slice` in the user's systemd manager. Launches use `systemd-run --user`. The listener is still started through the user's Hyprland autostart, now as part of the file setup writes; there is no privileged listener service.
 
 Setup creates launcher entries and a URL-handler desktop entry under the user's applications directory, recording its files and backing up entries it replaces. It asks whether to route links through the space. With consent, it records the previous browser and registers the router with `xdg-settings`: listed URLs go to the distraction profile, while other URLs and ordinary browser launches go to the previous browser. The saved answer controls later noninteractive runs. `setup --yes` does not prompt, including for sudo; it fails if required privilege is unavailable.
 
@@ -36,7 +36,7 @@ Notification holding still uses a clone of the installed first-party notificatio
 
 The plugin owns its configuration and state directories. Agent summaries remain off by default; enabling them explicitly sends held notification records to the selected agent CLI. Dependencies and the complete setup/removal commands are listed in the [README](../README.md).
 
-`distractions setup --remove` reverses setup: firewall/helper/grant/install-record removal, user slice cleanup, owned notification-clone cleanup, launcher restoration and previous-browser restoration. The owner removes their Hyprland snippets and then removes the plugin through Omarchy. User data such as profiles is not described as automatically erased.
+`distractions setup --remove` reverses setup: firewall/helper/grant/install-record removal, user slice cleanup, owned notification-clone cleanup, launcher restoration and previous-browser restoration, and removal of the marked Hyprland line and the file setup wrote (an edited file is moved into the state directory's backup). The owner then removes the plugin through Omarchy. User data such as profiles is not described as automatically erased.
 
 ## Releasing
 
