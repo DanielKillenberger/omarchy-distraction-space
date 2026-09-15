@@ -2,7 +2,7 @@
 
 One Hyprland workspace for the apps and sites that take your attention, and an Omarchy plugin that keeps them there.
 
-![The distraction workspace with X, Telegram, and Discord tiled on it, each on its logged-out front page](docs/images/workspace.png)
+![The distraction workspace with listed apps tiled on it](docs/images/workspace.png)
 
 - **Your distractions get one workspace.** Telegram, X, YouTube, and whatever else you list open there, and a window that lands anywhere else is moved back.
 - **Listed sites load only from there.** Netflix typed into your work browser out of habit gets a block page, or a closed connection and a banner over HTTPS; chat apps are only moved, so messages still arrive.\
