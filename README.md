@@ -18,7 +18,7 @@ An Omarchy plugin that makes your distractions hard to reach: the apps and sites
 
 **How it works.** Every listed app and site the plugin opens runs in one process group, the systemd slice `app-distraction.slice`, and their windows belong to one workspace; listed web products get a browser profile of their own. A firewall rule keyed on that process group lets it reach the listed sites and refuses them to every other process, so a window left open on the space keeps syncing while your work browser is blocked. Windows, network, and sound follow which process group a program is in, never which workspace you happen to be looking at.
 
-It is an attention aid with known gaps: web products need a Chromium-family browser, a blocked site explains itself only through the banner, and a site served behind Encrypted Client Hello passes through. The [limits](docs/reference.md#limits) list them all.
+It is an attention aid with known gaps: web products need a Chromium-family browser, a blocked HTTPS site explains itself only through the banner, and a site served behind Encrypted Client Hello passes through. The [limits](docs/reference.md#limits) list them all.
 
 ## Install
 
