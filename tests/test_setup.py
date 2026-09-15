@@ -200,6 +200,27 @@ OMARCHY_BASECAMP = (
     "Terminal=false\nType=Application\nIcon=basecamp\nStartupNotify=true\n"
 )
 
+STOCK_HYPRLAND = (
+    '-- Learn how to configure Hyprland.\n'
+    'dofile((os.getenv("OMARCHY_PATH") or "/usr/share/omarchy") .. "/default/hypr/bootstrap.lua")\n'
+    'require("default.hypr.omarchy")\n'
+    'require("hypr.bindings")\n'
+    'require("hypr.autostart")\n'
+)
+
+HYPRCTL_RELOAD = r"""
+import json, os, sys
+from pathlib import Path
+log = Path(os.environ["DS_HYPRCTL_LOG"])
+log.parent.mkdir(parents=True, exist_ok=True)
+log.open("a").write(json.dumps(sys.argv[1:]) + "\n")
+if os.environ.get("DS_HYPRCTL_FAIL"):
+    sys.stderr.write("couldn't connect to Hyprland\n")
+    sys.exit(1)
+"""
+
+LUA = shutil.which("lua5.4") or shutil.which("lua") or shutil.which("luajit")
+
 
 class SetupTests(unittest.TestCase):
     def setUp(self):
@@ -397,7 +418,8 @@ class SetupTests(unittest.TestCase):
         self.stdout = out.getvalue()
         lines = [ln for ln in err.getvalue().splitlines()
                  if not ln.startswith("notification hold unavailable")
-                 and not ln.startswith("wireplumber not found")]
+                 and not ln.startswith("wireplumber not found")
+                 and not ln.startswith("hyprland:")]
         return rc, "".join(ln + "\n" for ln in lines)
 
     def test_setup_asks_about_links_once_naming_the_browser_before_sudo_and_a_rerun_prints_the_choice(self):
@@ -1468,6 +1490,289 @@ class SetupTests(unittest.TestCase):
         self.systemctl_log.write_text("", encoding="utf-8")
         self.assertEqual(setup.remove(), 0)
         self.assertEqual(self._wp_restarts(), [])
+
+    def _stock_hypr(self) -> Path:
+        hypr = self.box.config / "hypr"
+        hypr.mkdir(parents=True, exist_ok=True)
+        for leftover in ("bindings.lua", "autostart.lua", "distraction-space.lua"):
+            path = hypr / leftover
+            if path.exists():
+                path.unlink()
+        rec = self.box.state_dir / "hypr.json"
+        if rec.exists():
+            rec.unlink()
+        (hypr / "hyprland.lua").write_text(STOCK_HYPRLAND, encoding="utf-8")
+        self.hyprctl_log = self.box.runtime / "hyprctl.log"
+        os.environ["DS_HYPRCTL_LOG"] = str(self.hyprctl_log)
+        self.addCleanup(os.environ.pop, "DS_HYPRCTL_LOG", None)
+        os.environ.pop("DS_HYPRCTL_FAIL", None)
+        self.box.fake_bin("hyprctl", HYPRCTL_RELOAD)
+        return hypr
+
+    def _hypr_record(self):
+        path = self.box.state_dir / "hypr.json"
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+
+    def _hyprctl_cmds(self):
+        if not getattr(self, "hyprctl_log", None) or not self.hyprctl_log.exists():
+            return []
+        return [json.loads(ln) for ln in self.hyprctl_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
+
+    def test_first_setup_writes_the_hypr_file_and_one_marked_line(self):
+        hypr = self._stock_hypr()
+        hyprland = hypr / "hyprland.lua"
+        before = hyprland.read_bytes()
+        self.assertEqual(self._install(), (0, ""))
+        lua = hypr / "distraction-space.lua"
+        text = lua.read_text(encoding="utf-8")
+        self.assertTrue(text.startswith(f"-- {setup.PLUGIN_ID}\n"))
+        self.assertIn("owned by distractions setup", text)
+        snippets = [(ROOT / "hypr" / name).read_text(encoding="utf-8").strip() for name in setup.HYPR_SNIPPETS]
+        for snippet in snippets:
+            self.assertIn(snippet, text)
+        self.assertLess(text.find(snippets[0]), text.find(snippets[1]))
+        self.assertLess(text.find(snippets[1]), text.find(snippets[2]))
+        after = hyprland.read_bytes()
+        self.assertTrue(after.startswith(before if before.endswith(b"\n") else before + b"\n"))
+        self.assertEqual(after[len(before if before.endswith(b"\n") else before + b"\n"):],
+                         setup.HYPR_REQUIRE_LINE.encode("utf-8"))
+        self.assertEqual(after.decode("utf-8").count(setup.HYPR_MARKER), 1)
+        rec = self._hypr_record()
+        self.assertEqual(rec["path"], str(lua))
+        self.assertEqual(rec["digest"], hashlib.sha256(lua.read_bytes()).hexdigest())
+        self.assertEqual(self._hyprctl_cmds(), [["reload"]])
+
+    def test_second_setup_on_that_config_changes_nothing(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        lua = hypr / "distraction-space.lua"
+        hyprland = hypr / "hyprland.lua"
+        rec = (self.box.state_dir / "hypr.json").read_bytes()
+        files = (lua.read_bytes(), hyprland.read_bytes(), rec)
+        inodes = (lua.stat().st_ino, hyprland.stat().st_ino)
+        self.hyprctl_log.write_text("", encoding="utf-8")
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual((lua.read_bytes(), hyprland.read_bytes(),
+                          (self.box.state_dir / "hypr.json").read_bytes()), files)
+        self.assertEqual((lua.stat().st_ino, hyprland.stat().st_ino), inodes)
+        self.assertEqual(hyprland.read_text(encoding="utf-8").count(setup.HYPR_MARKER), 1)
+        self.assertEqual(self._hyprctl_cmds(), [])
+
+    def test_setup_rewrites_the_hypr_file_when_the_shipped_snippets_change(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        hyprland = hypr / "hyprland.lua"
+        marked = hyprland.read_bytes()
+        self.hyprctl_log.write_text("", encoding="utf-8")
+        changed = b"-- rewritten by a newer snippet set\n"
+        with patch.object(setup, "_plugin_lua_bytes", return_value=changed):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertEqual((hypr / "distraction-space.lua").read_bytes(), changed)
+        self.assertEqual(hyprland.read_bytes(), marked)
+        self.assertEqual(self._hypr_record()["digest"], hashlib.sha256(changed).hexdigest())
+        self.assertEqual(self._hyprctl_cmds(), [["reload"]])
+
+    def test_remove_deletes_the_marked_line_and_matching_file(self):
+        hypr = self._stock_hypr()
+        hyprland = hypr / "hyprland.lua"
+        before = hyprland.read_bytes()
+        self.assertEqual(self._install(), (0, ""))
+        self.hyprctl_log.write_text("", encoding="utf-8")
+        self.assertEqual(setup.remove(), 0)
+        self.assertEqual(hyprland.read_bytes(), before)
+        self.assertFalse((hypr / "distraction-space.lua").exists())
+        self.assertIsNone(self._hypr_record())
+        self.assertEqual(self._hyprctl_cmds(), [["reload"]])
+
+    def test_remove_moves_an_edited_hypr_file_aside(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        lua = hypr / "distraction-space.lua"
+        lua.write_text(lua.read_text(encoding="utf-8") + "-- edited keys\n", encoding="utf-8")
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            self.assertEqual(setup.remove(), 0)
+        self.assertFalse(lua.exists())
+        backup = self.box.state_dir / "hypr-backup" / "distraction-space.lua"
+        self.assertTrue(backup.is_file())
+        self.assertIn("-- edited keys", backup.read_text(encoding="utf-8"))
+        self.assertIn(str(backup), out.getvalue())
+        self.assertNotIn(setup.HYPR_MARKER, (hypr / "hyprland.lua").read_text(encoding="utf-8"))
+        self.assertIsNone(self._hypr_record())
+
+    def test_remove_with_a_missing_file_or_line_still_succeeds(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        (hypr / "distraction-space.lua").unlink()
+        self.assertEqual(setup.remove(), 0)
+        self.assertIsNone(self._hypr_record())
+        self.assertNotIn(setup.HYPR_MARKER, (hypr / "hyprland.lua").read_text(encoding="utf-8"))
+        self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        hyprland = hypr / "hyprland.lua"
+        hyprland.write_bytes(STOCK_HYPRLAND.encode("utf-8"))
+        self.assertEqual(setup.remove(), 0)
+        self.assertFalse((hypr / "distraction-space.lua").exists())
+        self.assertIsNone(self._hypr_record())
+
+    def test_pasted_snippets_skip_the_write(self):
+        helper = (
+            'os.getenv("HOME") .. "/.config/omarchy/plugins/'
+            f'{setup.PLUGIN_ID}/distractions"'
+        )
+        cases = (
+            ("bindings.lua", helper + "\n", None),
+            ("autostart.lua", f"o.exec_on_start({helper} .. \" listen\")\n", None),
+            ("hyprland.lua", None, STOCK_HYPRLAND + f"\n{setup.HYPR_WORKSPACE_MARK}, persistent = true }})\n"),
+        )
+        for name, extra, hyprland_text in cases:
+            with self.subTest(name=name):
+                hypr = self._stock_hypr()
+                if extra is not None:
+                    (hypr / name).write_text(extra, encoding="utf-8")
+                if hyprland_text is not None:
+                    (hypr / "hyprland.lua").write_text(hyprland_text, encoding="utf-8")
+                before = (hypr / "hyprland.lua").read_bytes()
+                rc, err = self._install()
+                self.assertEqual(rc, 0)
+                self.assertFalse((hypr / "distraction-space.lua").exists())
+                self.assertEqual((hypr / "hyprland.lua").read_bytes(), before)
+                self.assertIsNone(self._hypr_record())
+                self.assertEqual(self._hyprctl_cmds(), [])
+                # `_install` filters the hyprland: report; the rest of setup still ran.
+                self.assertTrue(self.wrapper.is_file())
+                raw = io.StringIO()
+                with contextlib.redirect_stderr(raw):
+                    setup.sync_hypr()
+                self.assertIn(str(hypr / name), raw.getvalue())
+                self.assertIn("pasted snippets still in", raw.getvalue())
+
+    def test_unrecognised_hyprland_is_left_untouched(self):
+        cases = (
+            "missing",
+            "unreadable",
+            "module-without-marker",
+            "no-defaults",
+        )
+        for kind in cases:
+            with self.subTest(kind=kind):
+                hypr = self.box.config / "hypr"
+                hypr.mkdir(parents=True, exist_ok=True)
+                hyprland = hypr / "hyprland.lua"
+                if hyprland.exists():
+                    hyprland.unlink()
+                lua = hypr / "distraction-space.lua"
+                if lua.exists():
+                    lua.unlink()
+                rec = self.box.state_dir / "hypr.json"
+                if rec.exists():
+                    rec.unlink()
+                if kind == "missing":
+                    pass
+                elif kind == "unreadable":
+                    hyprland.write_text(STOCK_HYPRLAND, encoding="utf-8")
+                    hyprland.chmod(0o000)
+                    self.addCleanup(hyprland.chmod, 0o644)
+                elif kind == "module-without-marker":
+                    hyprland.write_text(
+                        STOCK_HYPRLAND + f'require("{setup.HYPR_MODULE}")\n', encoding="utf-8")
+                else:
+                    hyprland.write_text('require("hypr.bindings")\n', encoding="utf-8")
+                before = hyprland.read_bytes() if hyprland.exists() and kind != "unreadable" else None
+                rc, _err = self._install()
+                self.assertEqual(rc, 0)
+                self.assertFalse(lua.exists())
+                self.assertIsNone(self._hypr_record())
+                self.assertTrue(self.wrapper.is_file())
+                if kind == "missing":
+                    self.assertFalse(hyprland.exists())
+                elif kind != "unreadable":
+                    self.assertEqual(hyprland.read_bytes(), before)
+                raw = io.StringIO()
+                with contextlib.redirect_stderr(raw):
+                    setup.sync_hypr()
+                self.assertIn("hyprland: skipped --", raw.getvalue())
+
+    def test_failed_hypr_write_leaves_hyprland_byte_identical(self):
+        hypr = self._stock_hypr()
+        hyprland = hypr / "hyprland.lua"
+        before = hyprland.read_bytes()
+        real = setup._replace_bytes
+
+        def boom(path, data):
+            if path.name == "hyprland.lua":
+                raise OSError("disk full")
+            return real(path, data)
+
+        with patch.object(setup, "_replace_bytes", boom):
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                rc = setup.install()
+        self.assertEqual(rc, 1)
+        self.assertIn("cannot write", err.getvalue())
+        self.assertEqual(hyprland.read_bytes(), before)
+        self.assertNotIn(setup.HYPR_MARKER, hyprland.read_text(encoding="utf-8"))
+        self.assertTrue(self.wrapper.is_file())
+
+    def test_setup_reloads_hyprland_and_reports_when_unreachable(self):
+        self._stock_hypr()
+        os.environ["DS_HYPRCTL_FAIL"] = "1"
+        self.addCleanup(os.environ.pop, "DS_HYPRCTL_FAIL", None)
+        raw_err = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(raw_err):
+            rc = setup.install()
+        self.assertEqual(rc, 0)
+        self.assertIn("reload Hyprland or log out and back in", raw_err.getvalue())
+        self.assertEqual(self._hyprctl_cmds(), [["reload"]])
+
+    @unittest.skipUnless(LUA, "no Lua interpreter on PATH")
+    def test_written_hypr_file_and_optional_require_evaluate_in_lua(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        lua_file = hypr / "distraction-space.lua"
+        helpers = self.box.runtime / "omarchy-helpers.lua"
+        helpers.write_text(
+            "hl = { dsp = { window = { move = function(spec) return 'move' end } } }\n"
+            "function hl.workspace_rule(spec) io.write('workspace_rule ', spec.workspace, '\\n') end\n"
+            "function hl.unbind(key) io.write('unbind ', key, '\\n') end\n"
+            "o = {}\n"
+            "function o.bind(key, label, cmd) io.write('bind ', key, '\\n') end\n"
+            "function o.exec_on_start(cmd) io.write('exec\\n') end\n",
+            encoding="utf-8",
+        )
+        proc = subprocess.run(
+            [LUA, "-e", f'dofile({json.dumps(str(helpers))}); dofile({json.dumps(str(lua_file))})'],
+            capture_output=True, text=True,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("workspace_rule name:distraction", proc.stdout)
+        self.assertIn("bind SUPER + CTRL + SHIFT + D", proc.stdout)
+        self.assertIn("exec", proc.stdout)
+
+        absent = self.box.runtime / "absent-config"
+        (absent / "hypr").mkdir(parents=True)
+        optional = self.box.runtime / "require_optional.lua"
+        optional.write_text(
+            "local M = {}\n"
+            "function M.module(module)\n"
+            "  if package.searchpath(module, package.path) then\n"
+            "    return require(module)\n"
+            "  end\n"
+            "end\n"
+            "return M\n",
+            encoding="utf-8",
+        )
+        harness = self.box.runtime / "optional-require.lua"
+        harness.write_text(
+            f"package.path = {json.dumps(str(absent) + '/?.lua')}\n"
+            f"package.preload['default.hypr.require_optional'] = function() return dofile({json.dumps(str(optional))}) end\n"
+            + setup.HYPR_REQUIRE_LINE
+            + "io.write('ok\\n')\n",
+            encoding="utf-8",
+        )
+        proc = subprocess.run([LUA, str(harness)], capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout, "ok\n")
 
 
 if __name__ == "__main__":

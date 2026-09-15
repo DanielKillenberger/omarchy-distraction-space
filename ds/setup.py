@@ -1,4 +1,4 @@
-"""Privileged wrapper install and removal, the slice unit, launcher entries and the URL handler, the notification-service clone, then plugin rescan."""
+"""Privileged wrapper install and removal, the slice unit, the Hyprland config file, launcher entries and the URL handler, the notification-service clone, then plugin rescan."""
 
 from __future__ import annotations
 
@@ -34,6 +34,22 @@ HANDLER_MIME = "x-scheme-handler/http;x-scheme-handler/https;"
 # The IPC method the shipped patch adds; its presence in the first-party
 # Service.qml means Omarchy carries the change and the clone is redundant.
 METHOD_MARK = "function silencedSenders("
+# One file plus one marked optional-require line. The marker is the identity:
+# setup never parses Lua, and a missing module must not stop Hyprland.
+HYPR_MODULE = "hypr.distraction-space"
+HYPR_MARKER = "distraction-space:setup"
+HYPR_REQUIRE_LINE = (
+    f'require("default.hypr.require_optional").module("{HYPR_MODULE}") -- {HYPR_MARKER}\n'
+)
+HYPR_HELPER_MARK = f"{PLUGIN_ID}/distractions"
+HYPR_WORKSPACE_MARK = 'hl.workspace_rule({ workspace = "name:distraction"'
+HYPR_DEFAULTS_MARK = 'require("default.hypr.omarchy")'
+HYPR_SNIPPETS = ("windows.lua", "bindings.lua", "autostart.lua")
+HYPR_HEADER = (
+    f"-- {PLUGIN_ID}\n"
+    "-- Written and owned by distractions setup. A matching rerun rewrites this file.\n"
+    "\n"
+)
 
 
 def wrapper_dest() -> Path:
@@ -767,6 +783,254 @@ def remove_hook() -> int:
         rc, err = cgroup.systemctl_user("restart", "wireplumber")
         if rc != 0:
             print(err or "systemctl --user restart wireplumber failed", file=sys.stderr)
+    return 0
+
+
+def _hypr_dir() -> Path:
+    raw = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(raw) if raw else Path.home() / ".config"
+    return base / "hypr"
+
+
+def _hyprland_path() -> Path:
+    return _hypr_dir() / "hyprland.lua"
+
+
+def _hypr_plugin_path() -> Path:
+    return _hypr_dir() / "distraction-space.lua"
+
+
+def _hypr_record_path() -> Path:
+    return state.state_path("hypr.json")
+
+
+def _hypr_backup_dir() -> Path:
+    return state.state_path("hypr-backup")
+
+
+def _replace_bytes(path: Path, data: bytes) -> None:
+    """Whole-file replace through a sibling temp file, so a reader sees the old bytes or the new ones."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        written = 0
+        while written < len(data):
+            written += os.write(fd, data[written:])
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        os.replace(tmp, path)
+    except OSError:
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+        _unlink(Path(tmp))
+        raise
+
+
+def _plugin_lua_bytes() -> bytes | None:
+    """The owned Hyprland file: a header plus the three shipped snippets, in that order."""
+    parts = [HYPR_HEADER]
+    try:
+        for name in HYPR_SNIPPETS:
+            text = (ROOT / "hypr" / name).read_text(encoding="utf-8")
+            if not text.endswith("\n"):
+                text += "\n"
+            parts.append(text)
+            parts.append("\n")
+    except OSError as e:
+        print(f"hyprland: cannot read the shipped snippets: {e}", file=sys.stderr)
+        return None
+    return ("".join(parts).rstrip() + "\n").encode("utf-8")
+
+
+def _hypr_text(path: Path) -> tuple[bytes | None, str | None]:
+    """`(bytes, text)` for a regular readable file, `(None, None)` when it is missing, irregular, or unreadable."""
+    data = state.read_bounded(path)
+    if data is None:
+        return None, None
+    try:
+        return data, data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data, None
+
+
+def _contains(path: Path, mark: str) -> bool:
+    _data, text = _hypr_text(path)
+    return bool(text and mark in text)
+
+
+def _pasted_hypr_files() -> list[Path]:
+    """Bindings or autostart that still name the helper, or a hyprland.lua that still has the workspace rule."""
+    hypr = _hypr_dir()
+    found = []
+    if _contains(hypr / "bindings.lua", HYPR_HELPER_MARK):
+        found.append(hypr / "bindings.lua")
+    if _contains(hypr / "autostart.lua", HYPR_HELPER_MARK):
+        found.append(hypr / "autostart.lua")
+    if _contains(_hyprland_path(), HYPR_WORKSPACE_MARK):
+        found.append(_hyprland_path())
+    return found
+
+
+def _unrecognised_hyprland(data: bytes | None, text: str | None, path: Path) -> str | None:
+    """Why this hyprland.lua is not the stock Omarchy layout this write is for, or None."""
+    if not path.exists():
+        return f"{path} is missing"
+    if data is None or text is None:
+        return f"{path} is unreadable"
+    if HYPR_DEFAULTS_MARK not in text:
+        return f"{path} does not load Omarchy's defaults"
+    if HYPR_MARKER not in text and HYPR_MODULE in text:
+        return f"{path} already loads {HYPR_MODULE} without setup's marker"
+    return None
+
+
+def _read_hypr_record() -> dict | None:
+    """The write record, only when it names this plugin's Hyprland file."""
+    record, path = state.read_json(_hypr_record_path(), None), _hypr_plugin_path()
+    if (
+        isinstance(record, dict)
+        and record.get("path") == str(path)
+        and isinstance(record.get("digest"), str)
+        and record["digest"]
+    ):
+        return record
+    return None
+
+
+def _write_hypr_record(path: Path, digest: str) -> None:
+    state.write_json(_hypr_record_path(), {"path": str(path), "digest": digest})
+
+
+def _append_marked_line(data: bytes) -> bytes:
+    """`data` plus the one marked line when it is not already there; every other byte stays as it was."""
+    if HYPR_MARKER.encode("utf-8") in data:
+        return data
+    suffix = b"" if data.endswith(b"\n") or data == b"" else b"\n"
+    return data + suffix + HYPR_REQUIRE_LINE.encode("utf-8")
+
+
+def _drop_marked_line(data: bytes) -> bytes:
+    """`data` with every marked line removed; the rest is byte-identical."""
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data
+    lines = text.splitlines(keepends=True)
+    kept = [ln for ln in lines if HYPR_MARKER not in ln]
+    return "".join(kept).encode("utf-8")
+
+
+def _reload_hypr() -> None:
+    """Ask Hyprland to pick up the write. A miss is a report, never a failed setup."""
+    try:
+        proc = subprocess.run(
+            ["hyprctl", "reload"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as e:
+        print(f"hyprland: reload Hyprland or log out and back in ({e})", file=sys.stderr)
+        return
+    if proc.returncode != 0:
+        print("hyprland: reload Hyprland or log out and back in", file=sys.stderr)
+
+
+def sync_hypr() -> int:
+    """Write the owned Hyprland file and one marked optional-require line, or leave a config we cannot vouch for.
+
+    Pasted 3.x snippets and an unrecognised hyprland.lua are reported and skipped so
+    the rest of setup still runs. A matching rerun rewrites the file only when the
+    shipped snippets changed and never adds a second line. hyprland.lua is rewritten
+    last, through a temp file, so a failed write leaves it byte-identical.
+    """
+    pasted = _pasted_hypr_files()
+    if pasted:
+        for path in pasted:
+            print(f"hyprland: pasted snippets still in {path}; delete them and rerun setup", file=sys.stderr)
+        return 0
+    dest, hyprland = _hypr_plugin_path(), _hyprland_path()
+    data, text = _hypr_text(hyprland)
+    why = _unrecognised_hyprland(data, text, hyprland)
+    if why:
+        print(f"hyprland: skipped -- {why}", file=sys.stderr)
+        return 0
+    want = _plugin_lua_bytes()
+    if want is None:
+        return 1
+    digest = hashlib.sha256(want).hexdigest()
+    current = state.read_bounded(dest)
+    record = _read_hypr_record()
+    marked = data if data is not None else b""
+    new_hyprland = _append_marked_line(marked)
+    file_changed = current != want
+    line_changed = new_hyprland != marked
+    record_changed = record is None or record.get("digest") != digest or record.get("path") != str(dest)
+    if not (file_changed or line_changed or record_changed):
+        return 0
+    try:
+        if file_changed:
+            _replace_bytes(dest, want)
+        if record_changed:
+            _write_hypr_record(dest, digest)
+        if line_changed:
+            _replace_bytes(hyprland, new_hyprland)
+    except OSError as e:
+        print(f"hyprland: cannot write {e}", file=sys.stderr)
+        return 1
+    if file_changed or line_changed:
+        _reload_hypr()
+    return 0
+
+
+def remove_hypr() -> int:
+    """`setup --remove`: drop the marked line and the recorded file; an edited file is moved aside."""
+    hyprland = _hyprland_path()
+    record = _read_hypr_record()
+    changed = False
+    data, _text = _hypr_text(hyprland)
+    if data is not None:
+        stripped = _drop_marked_line(data)
+        if stripped != data:
+            try:
+                _replace_bytes(hyprland, stripped)
+                changed = True
+            except OSError as e:
+                print(f"hyprland: cannot write {hyprland}: {e}", file=sys.stderr)
+                return 1
+    if record is not None:
+        path = Path(record["path"])
+        present = path.is_file() or path.is_symlink()
+        if present:
+            current = state.read_bounded(path)
+            digest = hashlib.sha256(current).hexdigest() if current is not None else ""
+            if current is not None and digest == record["digest"]:
+                try:
+                    path.unlink()
+                    changed = True
+                except OSError as e:
+                    print(f"hyprland: cannot remove {path}: {e}", file=sys.stderr)
+                    return 1
+            else:
+                backups = _hypr_backup_dir()
+                try:
+                    backups.mkdir(parents=True, exist_ok=True)
+                    backup = backups / path.name
+                    _unlink(backup)
+                    shutil.move(str(path), str(backup))
+                    print(f"hyprland: moved edited {path} to {backup}")
+                    changed = True
+                except OSError as e:
+                    print(f"hyprland: cannot move {path}: {e}", file=sys.stderr)
+                    return 1
+        _unlink(_hypr_record_path())
+    if changed:
+        _reload_hypr()
     return 0
 
 
@@ -1567,12 +1831,13 @@ def install(assume_yes: bool = False):
             return 1
     slice_rc = sync_slice()
     hook_rc = sync_hook()
+    hypr_rc = sync_hypr()
     entries_rc = sync_entries({"list": catalog.expand(cfg)}, cfg) if cfg is not None else 1
     clone_rc = sync_clone()
     rescan_rc = _rescan()
     if rescan_rc == 0:
         _settle_service()
-    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 or entries_rc != 0 or hook_rc != 0 else 0
+    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 or entries_rc != 0 or hook_rc != 0 or hypr_rc != 0 else 0
 
 
 def remove():
@@ -1607,6 +1872,8 @@ def remove():
     if remove_slice() != 0:
         return 1
     if remove_hook() != 0:
+        return 1
+    if remove_hypr() != 0:
         return 1
     if root_half:
         proc = subprocess.run(
