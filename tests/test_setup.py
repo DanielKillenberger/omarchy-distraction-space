@@ -1792,22 +1792,74 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(self._install(), (0, ""))
         self.assertTrue(self._hypr_record()["newline_added"])
         self.assertEqual(hyprland.read_bytes(), before + b"\n" + setup.HYPR_REQUIRE_LINE.encode("utf-8"))
+        # A newer snippet set rewrites the owned file; the flag survives, and remove still restores the bytes.
+        with patch.object(setup, "_plugin_lua_bytes", return_value=b"-- newer\n"):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertTrue(self._hypr_record()["newline_added"])
         self.assertEqual(setup.remove(), 0)
         self.assertEqual(hyprland.read_bytes(), before)
+
+    def test_symlinked_sibling_config_still_counts_as_pasted(self):
+        hypr = self._stock_hypr()
+        real = self.box.runtime / "dotfiles-autostart.lua"
+        real.write_text(f'o.exec_on_start(os.getenv("HOME") .. "/.config/omarchy/plugins/{setup.PLUGIN_ID}/distractions listen")\n',
+                        encoding="utf-8")
+        (hypr / "autostart.lua").symlink_to(real)
+        rc, _err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertFalse((hypr / "distraction-space.lua").exists())
+        self.assertNotIn(setup.HYPR_MARKER, (hypr / "hyprland.lua").read_text(encoding="utf-8"))
+        raw = io.StringIO()
+        with contextlib.redirect_stderr(raw):
+            setup.sync_hypr()
+        self.assertIn(f"pasted snippets still in {hypr / 'autostart.lua'}", raw.getvalue())
+
+    def test_symlinked_owned_file_is_left_alone(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        lua = hypr / "distraction-space.lua"
+        real = self.box.runtime / "dotfiles-distraction-space.lua"
+        real.write_text("-- linked from my dotfiles\n", encoding="utf-8")
+        lua.unlink()
+        lua.symlink_to(real)
+        record = self._hypr_record()
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertIn(f"hyprland: {lua} is a symlink, which setup never replaces", err)
+        self.assertTrue(lua.is_symlink())
+        self.assertEqual(real.read_text(encoding="utf-8"), "-- linked from my dotfiles\n")
+        self.assertEqual(self._hypr_record(), record)
+
+    def test_symlinked_hyprland_with_the_line_added_by_hand_is_not_a_skip(self):
+        hypr = self._stock_hypr()
+        hyprland = hypr / "hyprland.lua"
+        real = self.box.runtime / "dotfiles-hyprland.lua"
+        real.write_text(STOCK_HYPRLAND + setup.HYPR_REQUIRE_LINE, encoding="utf-8")
+        hyprland.unlink()
+        hyprland.symlink_to(real)
+        self.assertEqual(self._install(), (0, ""))
+        self.assertTrue((hypr / "distraction-space.lua").is_file())
+        self.assertIsNotNone(self._hypr_record())
+        self.assertEqual(real.read_text(encoding="utf-8"), STOCK_HYPRLAND + setup.HYPR_REQUIRE_LINE)
+        health = state._health({}, None, "stopped", None, False)
+        self.assertNotIn("hyprland", health["services"])
+        self.assertFalse(any(r.startswith("Hyprland config") for r in health["reasons"]))
 
     def test_status_reflects_a_skipped_or_pasted_hypr_write(self):
         hypr = self._stock_hypr()
         (hypr / "hyprland.lua").write_text('require("hypr.bindings")\n', encoding="utf-8")
         self.assertEqual(self._install()[0], 0)
-        health = state._health({}, None, "stopped", None, False)
-        self.assertEqual(health["services"]["hyprland"]["state"], "pending")
+        health = state._health({}, None, "responsive", None, False)
+        self.assertNotIn("hyprland", health["services"])
         self.assertTrue(any(r.startswith("Hyprland config: Not written:") for r in health["reasons"]))
-        self.assertEqual(health["state"], "degraded")
+        self.assertNotEqual(health["state"], "degraded")
         (hypr / "bindings.lua").write_text(setup.HYPR_HELPER_MARK + "\n", encoding="utf-8")
         self.assertEqual(self._install()[0], 0)
-        health = state._health({}, None, "stopped", None, False)
+        health = state._health({}, None, "responsive", None, False)
+        self.assertEqual(health["services"]["hyprland"]["state"], "pending")
         self.assertIn("Pasted 3.x snippets still in", health["services"]["hyprland"]["reason"])
         self.assertIn(str(hypr / "bindings.lua"), health["services"]["hyprland"]["reason"])
+        self.assertEqual(health["state"], "degraded")
         self._stock_hypr()
         self.assertEqual(self._install(), (0, ""))
         health = state._health({}, None, "stopped", None, False)

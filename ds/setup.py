@@ -868,8 +868,19 @@ def _hypr_text(path: Path) -> tuple[bytes | None, str | None]:
         return data, None
 
 
+def _user_lua_text(path: Path) -> str | None:
+    """A person's own Lua config, read through a symlink: dotfiles repos link these files."""
+    try:
+        st = path.stat()
+        if not stat.S_ISREG(st.st_mode) or st.st_size > state.READ_CAP:
+            return None
+        return path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
 def _contains(path: Path, *marks: str) -> bool:
-    _data, text = _hypr_text(path)
+    text = _user_lua_text(path)
     return bool(text) and any(mark in text for mark in marks)
 
 
@@ -983,8 +994,8 @@ def sync_hypr() -> int:
 
     Pasted 3.x snippets and an unrecognised hyprland.lua are reported and skipped so
     the rest of setup still runs. A rerun rewrites the file only when the shipped
-    snippets changed; a file the person edited is left alone and reported. The
-    marked line is never added twice. hyprland.lua is rewritten last, through a
+    snippets changed; a file the person edited, or replaced with a symlink, is left
+    alone and reported. The marked line is never added twice. hyprland.lua is rewritten last, through a
     temp file, so a failed write leaves it byte-identical.
     """
     pasted = _pasted_hypr_files()
@@ -994,12 +1005,18 @@ def sync_hypr() -> int:
         _note_hypr_sync("pasted", ", ".join(str(p) for p in pasted))
         return 0
     dest, hyprland = _hypr_plugin_path(), _hyprland_path()
-    data, text = _hypr_text(hyprland)
-    why = _unrecognised_hyprland(data, text, hyprland)
-    if why:
-        print(f"hyprland: skipped -- {why}", file=sys.stderr)
-        _note_hypr_sync("skipped", why)
-        return 0
+    # A symlinked hyprland.lua that already loads the module had the line added by hand;
+    # the file is still written, the linked config is never touched.
+    linked_text = _user_lua_text(hyprland) if hyprland.is_symlink() else None
+    manual = bool(linked_text and HYPR_MODULE in linked_text)
+    data = b""
+    if not manual:
+        data, text = _hypr_text(hyprland)
+        why = _unrecognised_hyprland(data, text, hyprland)
+        if why:
+            print(f"hyprland: skipped -- {why}", file=sys.stderr)
+            _note_hypr_sync("skipped", why)
+            return 0
     want = _plugin_lua_bytes()
     if want is None:
         return 1
@@ -1007,17 +1024,21 @@ def sync_hypr() -> int:
     current = state.read_bounded(dest)
     record = _read_hypr_record()
     first = record is None and current is None
-    edited = (current is not None and current != want
+    linked = dest.is_symlink()
+    edited = (not linked and current is not None and current != want
               and (record is None or hashlib.sha256(current).hexdigest() != record["digest"]))
-    if edited:
+    if linked:
+        print(f"hyprland: {dest} is a symlink, which setup never replaces; leaving it as it is", file=sys.stderr)
+    elif edited:
         print(f"hyprland: {dest} was edited; leaving it as it is (delete it to get the shipped snippets)",
               file=sys.stderr)
-    file_changed = current != want and not edited
-    new_hyprland = _append_marked_line(data)
+    file_changed = current != want and not (edited or linked)
+    new_hyprland = data if manual else _append_marked_line(data)
     line_changed = new_hyprland != data
     newline_added = line_changed and data != b"" and not data.endswith(b"\n")
-    if file_changed or (record is None and current == want):
-        new_record = {"path": str(dest), "digest": digest, "newline_added": False}
+    if file_changed or (record is None and current == want and not linked):
+        new_record = {"path": str(dest), "digest": digest,
+                      "newline_added": bool(record and record["newline_added"])}
     else:
         new_record = dict(record) if record is not None else None
     if new_record is not None and newline_added:
@@ -1036,7 +1057,7 @@ def sync_hypr() -> int:
     except OSError as e:
         print(f"hyprland: cannot write {target}: {e}", file=sys.stderr)
         return 1
-    _note_hypr_sync("edited" if edited else "written", str(dest))
+    _note_hypr_sync("linked" if linked else "edited" if edited else "written", str(dest))
     if file_changed or line_changed:
         _reload_hypr()
     if first and (file_changed or line_changed):

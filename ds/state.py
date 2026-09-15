@@ -314,11 +314,15 @@ def _health(st, cfg, listener, on_space, locked):
     sync = read_json(state_path("hypr.json"), None)
     sync = sync.get("sync") if isinstance(sync, dict) else None
     if isinstance(sync, dict) and sync.get("state") in ("pasted", "skipped") and isinstance(sync.get("detail"), str):
-        reason = (f"Pasted 3.x snippets still in {sync['detail']}; delete them and run distractions setup."
-                  if sync["state"] == "pasted"
-                  else f"Not written: {sync['detail']}. Run distractions setup once that is fixed.")
-        services["hyprland"] = {"state": "pending", "enabled": True, "reason": reason,
-                                "observed_at": None, "age_seconds": None}
+        if sync["state"] == "pasted":
+            # Setup still has work to do here, so the service is pending and health degraded.
+            reason = f"Pasted 3.x snippets still in {sync['detail']}; delete them and run distractions setup."
+            services["hyprland"] = {"state": "pending", "enabled": True, "reason": reason,
+                                    "observed_at": None, "age_seconds": None}
+        else:
+            # A config setup declines to touch, such as a symlinked hyprland.lua, may be the
+            # person's choice; say so without turning the whole badge red for good.
+            reason = f"Not written: {sync['detail']}. Run distractions setup once that is fixed."
         reasons.append(f"Hyprland config: {reason}")
     kinds = {item["state"] for item in services.values()}
     overall = ("degraded" if listener != "responsive" or kinds & {"pending", "unavailable", "displaced"}
