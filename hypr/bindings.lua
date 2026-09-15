@@ -1,4 +1,4 @@
--- Add to ~/.config/hypr/bindings.lua
+-- Bindings. Setup writes this file into ~/.config/hypr/distraction-space.lua.
 -- Super+Ctrl+Shift+F is unbound in stock Omarchy.
 
 local helper = os.getenv("HOME") .. "/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions"
