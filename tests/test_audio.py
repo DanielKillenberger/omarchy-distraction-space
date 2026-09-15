@@ -16,9 +16,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
 from test_hold import BUSCTL, LIST, SHELL
 from test_listener import GETENT, HYPRCTL, NOTIFY, SUDO, _wait
+from test_wp import PW_METADATA
 
 sys.path.insert(0, str(ROOT))
-from ds import catalog, cgroup, hold
+from ds import catalog, cgroup, hold, wp
 from ds.config import DEFAULTS
 from ds.state import write_json
 
@@ -57,7 +58,11 @@ else:
 
 _ENV_KEYS = ("DS_PACTL_LOG", "DS_PACTL_STREAMS", "DS_PACTL_EVENTS", "DS_PACTL_FAIL", "DS_PACTL_STUCK", "DS_SHELL_LOG", "DS_SHELL_STATE",
              "DS_SHELL_MISSING", "DS_BUS_LOG", "DS_BUS_LINES", "DS_BUS_EXIT", "DS_HYPR_LOG", "DS_HYPR_STATE",
-             "DS_NOTIFY_LOG", "DS_NFT_LOG", "DS_SOCKET2", "GETENT_MAP", "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT")
+             "DS_NOTIFY_LOG", "DS_NFT_LOG", "DS_SOCKET2", "GETENT_MAP", "DS_FEEDBACK_HTTP_PORT", "DS_FEEDBACK_TLS_PORT",
+             "DS_PW_METADATA_LOADED", "DS_PW_METADATA_LOG", "DS_PW_METADATA_FAIL", "DS_PW_METADATA_ID")
+
+HOLD_SET = '-n io.github.danielkillenberger.distraction-space 0 hold "on" Spa:String:JSON'
+HOLD_DEL = "-n io.github.danielkillenberger.distraction-space 0 hold -d"
 CUSTOM = {"name": "Foo", "hosts": ["foo.org"], "audio": {"name": ["Chromium"], "binary": ["chrome"]}}
 START = "4242"
 
@@ -102,7 +107,13 @@ class _Env(unittest.TestCase):
         os.environ.update(DS_PACTL_LOG=str(self.pactl_log), DS_PACTL_STREAMS=str(self.streams),
                           DS_PACTL_EVENTS=str(self.events), DS_PACTL_FAIL=str(rt / "pactl.fail"))
         os.environ.pop("DS_PACTL_STUCK", None)
+        self.pw_log, self.pw_marker = rt / "pw-metadata.log", rt / "pw-metadata.loaded"
+        os.environ["DS_PW_METADATA_LOG"] = str(self.pw_log)
+        os.environ["DS_PW_METADATA_LOADED"] = str(self.pw_marker)
+        os.environ.pop("DS_PW_METADATA_FAIL", None)
+        os.environ.pop("DS_PW_METADATA_ID", None)
         self.box.fake_bin("pactl", PACTL)
+        self.box.fake_bin("pw-metadata", PW_METADATA)
 
     def tearDown(self):
         for k, v in self._orig.items():
@@ -121,6 +132,9 @@ class _Env(unittest.TestCase):
     def _muted(self):
         path = self.box.state_dir / "muted.json"
         return json.loads(path.read_text()) if path.exists() else None
+
+    def _pw_lines(self):
+        return self.pw_log.read_text(encoding="utf-8").splitlines() if self.pw_log.exists() else []
 
 
 class AudioUnitTests(_Env):
@@ -281,7 +295,8 @@ class AudioUnitTests(_Env):
 
     def test_missing_pactl_disables_once(self):
         m = hold.Mute()
-        with mock.patch.object(hold.subprocess, "run", side_effect=FileNotFoundError("pactl")), \
+        with mock.patch.object(wp, "hold", return_value=(None, None)), \
+                mock.patch.object(hold.subprocess, "run", side_effect=FileNotFoundError("pactl")), \
                 mock.patch.object(hold.subprocess, "Popen", side_effect=FileNotFoundError("pactl")), \
                 mock.patch.object(hold, "_log") as log:
             m.sync(True, self.table)
@@ -289,7 +304,10 @@ class AudioUnitTests(_Env):
             m.sync(True, self.table)
             m.sync(False, self.table)
         self.assertTrue(m.missing)
-        self.assertEqual(log.call_args_list, [mock.call("pactl missing; sound mute is off")])
+        self.assertEqual(log.call_args_list, [
+            mock.call("hold hook not installed; streams are muted reactively (run: distractions setup)"),
+            mock.call("pactl missing; sound mute is off"),
+        ])
         self.assertIsNone(m.tail.proc)
         m2 = hold.Mute()
         m2.active = True
@@ -309,7 +327,10 @@ class AudioUnitTests(_Env):
             m.sync(True, self.table)
             m.sync(False, self.table, now=100.0)
             m.tick(now=100.0 + hold.RELEASE_RETRY - 0.5)
-        self.assertEqual(log.call_count, 1)
+        self.assertEqual(log.call_args_list, [
+            mock.call("hold hook not installed; streams are muted reactively (run: distractions setup)"),
+            mock.call("pactl: Connection failure: Connection refused"),
+        ])
         self.assertFalse(m.missing)
         self.assertEqual(self._muted(), {"3": f"100:{START}"})
         self.assertEqual(self._streams(), {"3": True})
@@ -374,8 +395,10 @@ class AudioUnitTests(_Env):
         m = hold.Mute()
         with mock.patch.object(hold, "_log") as log:
             m.sync(False, self.table, now=50.0)
-        self.assertEqual(log.call_args_list,
-                         [mock.call(f"unmute 4 (400:{START}) failed: Failure: No such entity")])
+        self.assertEqual(log.call_args_list, [
+            mock.call("hold hook not installed; streams are muted reactively (run: distractions setup)"),
+            mock.call(f"unmute 4 (400:{START}) failed: Failure: No such entity"),
+        ])
         self.assertEqual(self._muted(), {"4": f"400:{START}"})
         os.environ.pop("DS_PACTL_STUCK")
         m.tick(now=50.0 + hold.RELEASE_RETRY)
@@ -390,7 +413,10 @@ class AudioUnitTests(_Env):
         with mock.patch.object(hold, "_log") as log:
             m.sync(False, self.table, now=100.0)
             m.tick(now=100.0 + hold.RELEASE_RETRY - 0.5)
-        self.assertEqual(log.call_args_list, [mock.call("pactl: Connection failure: Connection refused")])
+        self.assertEqual(log.call_args_list, [
+            mock.call("hold hook not installed; streams are muted reactively (run: distractions setup)"),
+            mock.call("pactl: Connection failure: Connection refused"),
+        ])
         self.assertEqual(len(self._calls("-f json list")), 1)
         self.assertEqual(self._streams(), {"4": True})
         self.assertIsNone(self._muted())
@@ -409,6 +435,7 @@ class AudioUnitTests(_Env):
             m.sync(True, self.table)
             m.sync(False, self.table)
         self.assertEqual(log.call_args_list, [
+            mock.call("hold hook not installed; streams are muted reactively (run: distractions setup)"),
             mock.call(f"mute 3 (100:{START}): Telegram"),
             mock.call(f"unmute 3 (100:{START}): hold ended"),
         ])
@@ -428,6 +455,7 @@ class AudioUnitTests(_Env):
         with mock.patch.object(hold, "_log") as log:
             m.sync(False, self.table)
         self.assertEqual(log.call_args_list, [
+            mock.call("hold hook not installed; streams are muted reactively (run: distractions setup)"),
             mock.call(f"unmute 3 (100:{START}): hold ended"),
             mock.call("drop 7 (555:1): identity changed"),
             mock.call("drop 8 (556:1): identity changed"),
@@ -437,6 +465,122 @@ class AudioUnitTests(_Env):
         ])
         self.assertEqual(self._streams(), {"3": False, "7": True, "8": False, "9": False})
         self.assertIsNone(self._muted())
+
+    def _hold_log(self):
+        path = self.box.state_dir / "log"
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+    def _hold_log_count(self, needle):
+        return sum(1 for ln in self._hold_log().splitlines() if needle in ln)
+
+    def test_sync_sets_and_deletes_the_hold_key_and_reasserts_it_per_period(self):
+        self.pw_marker.write_text("1", encoding="utf-8")
+        os.environ["DS_PW_METADATA_ID"] = "7"
+        self.streams.write_text("[]")
+        m = hold.Mute()
+        with mock.patch.object(hold, "_log") as log:
+            m.sync(True, self.table)
+            self.assertEqual(self._pw_lines()[-1], HOLD_SET)
+            self.assertEqual(log.call_args_list, [mock.call("hold key set (metadata 7)")])
+            m.sync(True, self.table)
+            self.assertEqual(self._pw_lines().count(HOLD_SET), 2)
+            self.assertEqual(log.call_args_list, [mock.call("hold key set (metadata 7)")])
+            m.sync(False, self.table)
+            self.assertEqual(self._pw_lines()[-1], HOLD_DEL)
+            self.assertEqual(log.call_args_list, [
+                mock.call("hold key set (metadata 7)"),
+                mock.call("hold key deleted (metadata 7)"),
+            ])
+            deleted = self._pw_lines().count(HOLD_DEL)
+            self.assertGreaterEqual(deleted, 1)
+            m.sync(False, self.table)
+            self.assertGreater(self._pw_lines().count(HOLD_DEL), deleted)
+            self.assertEqual(log.call_args_list, [
+                mock.call("hold key set (metadata 7)"),
+                mock.call("hold key deleted (metadata 7)"),
+            ])
+            os.environ["DS_PW_METADATA_ID"] = "8"
+            m.sync(False, self.table)
+            self.assertEqual(log.call_args_list, [
+                mock.call("hold key set (metadata 7)"),
+                mock.call("hold key deleted (metadata 7)"),
+                mock.call("hold key deleted (metadata 8)"),
+            ])
+            deleted = self._pw_lines().count(HOLD_DEL)
+            m.stop()
+            self.assertEqual(self._pw_lines().count(HOLD_DEL), deleted + 1)
+            self.assertEqual(self._pw_lines()[-1], HOLD_DEL)
+
+    def test_a_missing_pactl_never_deletes_an_active_hold_key(self):
+        self.pw_marker.write_text("1", encoding="utf-8")
+        self.streams.write_text("[]")
+        m = hold.Mute()
+        m.sync(True, self.table)
+        self.assertTrue(m.active)
+        asserted = []
+        with mock.patch.object(wp, "hold", side_effect=lambda on: (asserted.append(on), (7, None))[1]), \
+                mock.patch.object(hold.subprocess, "run", side_effect=FileNotFoundError("pactl")), \
+                mock.patch.object(hold.subprocess, "Popen", side_effect=FileNotFoundError("pactl")):
+            m.sync(True, self.table)
+            self.assertTrue(m.missing)
+            m.sync(True, self.table)
+            m.tick(now=hold.RELEASE_RETRY * 2)
+            self.assertEqual(asserted, [True, True])
+            self.assertEqual(m.key_state, (True, 7))
+            m.sync(False, self.table)
+            self.assertEqual(asserted, [True, True, False])
+
+    def test_listener_start_asserts_the_current_state(self):
+        self.pw_marker.write_text("1", encoding="utf-8")
+        with mock.patch.object(hold, "_log") as log:
+            hold.Mute().sync(False, self.table)
+        self.assertEqual(self._pw_lines()[-1], HOLD_DEL)
+        self.assertTrue(any(ln == HOLD_DEL for ln in self._pw_lines()))
+        self.assertEqual(log.call_args_list, [mock.call("hold key deleted (metadata 7)")])
+
+    def test_pw_metadata_failure_is_logged_once_per_streak_and_the_scan_still_mutes(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        self.streams.write_text(json.dumps([stream(4, "Chromium", "chrome", 400)]))
+        self.pw_marker.write_text("1", encoding="utf-8")
+        os.environ["DS_PW_METADATA_FAIL"] = "1"
+        m = hold.Mute()
+        m.sync(True, self.table)
+        m.sync(True, self.table)
+        self.assertEqual(self._streams()["4"], True)
+        self.assertEqual(self._hold_log_count("cannot set the hold key"), 1)
+        os.environ.pop("DS_PW_METADATA_FAIL", None)
+        m.sync(True, self.table)
+        self.assertEqual(self._hold_log_count("hold key set (metadata 7)"), 1)
+        os.environ["DS_PW_METADATA_FAIL"] = "1"
+        m.sync(True, self.table)
+        self.assertEqual(self._hold_log_count("cannot set the hold key"), 2)
+
+    def test_absent_hook_is_logged_once_per_streak_and_the_reactive_scan_still_mutes(self):
+        fake_cgroup(self.proc, 400, SLICE_CGROUP)
+        self.streams.write_text(json.dumps([stream(4, "Chromium", "chrome", 400)]))
+        m = hold.Mute()
+        m.sync(True, self.table)
+        m.sync(True, self.table)
+        self.assertEqual(self._hold_log_count("hold hook not installed"), 1)
+        self.assertEqual(self._streams()["4"], True)
+        m.sync(False, self.table)
+        m.sync(True, self.table)
+        self.assertEqual(self._hold_log_count("hold hook not installed"), 1)
+
+        wp.script_path().parent.mkdir(parents=True, exist_ok=True)
+        wp.fragment_path().parent.mkdir(parents=True, exist_ok=True)
+        wp.script_path().write_text("-- hook\n", encoding="utf-8")
+        wp.fragment_path().write_text("# fragment\n", encoding="utf-8")
+        before = self._hold_log_count("hold hook not loaded")
+        hooked = hold.Mute()
+        hooked.sync(True, self.table)
+        hooked.sync(True, self.table)
+        self.assertEqual(self._hold_log_count("hold hook not loaded"), before + 1)
+        self.pw_marker.write_text("1", encoding="utf-8")
+        hold.Mute().sync(True, self.table)
+        self.assertEqual(self._hold_log_count("hold hook not loaded"), before + 1)
+        self.assertEqual(self._hold_log_count("hold hook not installed"), 1)
+        self.assertEqual(self._streams()["4"], True)
 
 
 class MuteListenerTests(_Env):
@@ -456,6 +600,7 @@ class MuteListenerTests(_Env):
         for name, src in (("omarchy-shell", SHELL), ("busctl", BUSCTL), ("hyprctl", HYPRCTL),
                           ("getent", GETENT), ("sudo", SUDO), ("omarchy-notification-send", NOTIFY)):
             self.box.fake_bin(name, src)
+        self.pw_marker.write_text("1", encoding="utf-8")
         cfg = json.loads(json.dumps(DEFAULTS))
         cfg["list"], cfg["nudges"] = LIST, {"app_banner": False, "block_page": False}
         self.box.config_file.write_text(json.dumps(cfg), encoding="utf-8")
@@ -511,15 +656,19 @@ class MuteListenerTests(_Env):
             f.write("Event 'new' on sink-input #3\nEvent 'new' on sink-input #4\n")
         self.assertTrue(_wait(lambda: self._streams() == {"3": True, "4": False}, 5), self._streams())
         self.assertTrue(_wait(lambda: self._muted() == {"3": me}, 3), self._muted())
+        self.assertEqual(self._pw_lines()[-1], HOLD_SET)
         self._go("distraction", 5)
         self.assertTrue(_wait(lambda: self._streams() == {"3": False, "4": False}, 5), self._streams())
         self.assertTrue(_wait(lambda: self._muted() is None, 3))
+        self.assertTrue(_wait(lambda: self._pw_lines()[-1:] == [HOLD_DEL], 3), self._pw_lines())
         self.assertTrue(_wait(lambda: self.proc.poll() is None and all(
             (Path(f"/proc/{pid}/cmdline").read_bytes().find(b"subscribe") < 0) for pid in _kids(self.proc.pid)), 3))
         self._go("2", 2)
         self.assertTrue(_wait(lambda: self._streams() == {"3": True, "4": False}, 5), self._streams())
         self.assertTrue(_wait(lambda: self._muted() == {"3": me}, 3), self._muted())
+        self.assertTrue(_wait(lambda: self._pw_lines()[-1:] == [HOLD_SET], 3), self._pw_lines())
         err = self._stop()
+        self.assertEqual(self._pw_lines()[-1], HOLD_DEL)
         self.assertEqual(self._streams(), {"3": False, "4": False}, err)
         self.assertIsNone(self._muted())
         self.assertNotIn("pactl", err)

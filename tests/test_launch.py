@@ -628,6 +628,39 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(len(self._wait_lines(browser_log, 1)), 1)
         self.assertEqual(len(self._lines(self.notify_log)), 1)
 
+    def test_a_cold_forwarded_browser_never_inherits_the_identity(self):
+        self._desktop("envlog", "envlog-fake %u")
+        self.box.fake_bin("envlog-fake", BROWSER_PID_LOG)
+        state.write_entries({"files": [], "previous_handler": "envlog.desktop"})
+        log_path = self.box.runtime / "browser.log"
+        r = self.box.run(
+            "open", "https://example.com/",
+            extra_env={
+                "PULSE_PROP": 'media.name="foo bar" ' + _PULSE_APP_ID_ASSIGNMENT,
+                "PULSE_SINK": "null-sink",
+                "DS_BROWSER_LOG": str(log_path),
+            },
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        line = self._wait_lines(log_path, 1)[0]
+        self.assertEqual(line["env"], {"PULSE_PROP": 'media.name="foo bar"', "PULSE_SINK": "null-sink"})
+        self.assertEqual(line["argv"][-1], "https://example.com/")
+
+        self.box.fake_bin("omarchy-launch-browser", BROWSER_PID_LOG)
+        state.write_entries({"files": [], "previous_handler": None})
+        r = self.box.run(
+            "open", "https://example.com/",
+            extra_env={
+                "PULSE_PROP": _PULSE_APP_ID_ASSIGNMENT,
+                "PULSE_SINK": "null-sink",
+                "DS_BROWSER_LOG": str(log_path),
+            },
+        )
+        self.assertEqual(r.returncode, 0, r.stderr)
+        line = self._wait_lines(log_path, 2)[1]
+        self.assertIsNone(line["env"]["PULSE_PROP"])
+        self.assertEqual(line["env"]["PULSE_SINK"], "null-sink")
+
 
 class BrowserAppIdTests(unittest.TestCase):
     def setUp(self):
@@ -752,7 +785,7 @@ class BrowserPulseEnvTests(unittest.TestCase):
                 self.assertEqual(got["env"]["PULSE_PROP"], _PULSE_APP_ID_ASSIGNMENT)
                 self.assertEqual(os.environ.get("PULSE_PROP"), value)
 
-    def test_native_and_forward_leave_env_alone(self):
+    def test_native_leaves_env_alone_and_forward_strips_only_the_identity(self):
         os.environ["PULSE_PROP"] = "application.id=keep"
         os.environ["PULSE_SINK"] = "null-sink"
         native = self._capture(lambda: launch.launch_in_slice(["Telegram", "--"]))
@@ -771,9 +804,88 @@ class BrowserPulseEnvTests(unittest.TestCase):
                 with mock.patch.object(launch, "exec_argv", return_value=["firefox-fake", "https://example.com/"]):
                     self.assertEqual(launch.forward("https://example.com/"), 0)
         self.assertEqual(len(captured), 1)
-        self.assertIsNone(captured[0])
+        env = captured[0]
+        self.assertIsInstance(env, dict)
+        self.assertEqual(env["PULSE_PROP"], "application.id=keep")
+        self.assertEqual(env["PULSE_SINK"], "null-sink")
         self.assertEqual(os.environ["PULSE_PROP"], "application.id=keep")
         self.assertEqual(os.environ["PULSE_SINK"], "null-sink")
+
+    def test_strip_identity_reads_the_line_as_libpulse_does(self):
+        ident = launch._PULSE_APPLICATION_ID
+        cases = (
+            ("bare pair between others", f"a=1 application.id={ident} b=2", "a=1 b=2"),
+            ("double-quoted value keeps its inner whitespace", f'media.name="foo  bar" application.id={ident}', 'media.name="foo  bar"'),
+            ("ticked value keeps its inner whitespace", f"x='t  v' application.id={ident}", "x='t  v'"),
+            ("escaped quote inside a value", f'x="es\\"c" application.id={ident}', 'x="es\\"c"'),
+            ("quoted identity", f'application.id="{ident}" b=2', "b=2"),
+            ("ticked identity followed directly by the next key", f"application.id='{ident}'b=2", "b=2"),
+            ("whitespace around =", f"a = 1 application.id = {ident}", "a = 1"),
+            ("identity twice", f"application.id={ident} b=2 application.id={ident}", "b=2"),
+            ("only the identity", f"application.id={ident}", ""),
+            ("another application.id stays", "application.id=keep", "application.id=keep"),
+            ("a longer id is not the plugin's", f"application.id={ident}x keep=1", f"application.id={ident}x keep=1"),
+            ("a line libpulse refuses carries no identity", f'x="open application.id={ident}', f'x="open application.id={ident}'),
+            ("empty", "", ""),
+        )
+        for label, prop, want in cases:
+            with self.subTest(label=label):
+                self.assertEqual(launch._strip_identity(prop), want)
+
+    def test_forward_env_strips_the_identity_on_both_paths(self):
+        identity = _PULSE_APP_ID_ASSIGNMENT
+        cases = (
+            ('media.name="foo  bar" custom.x=1 ' + identity + " after=1",
+             'media.name="foo  bar" custom.x=1 after=1'),
+            ('application.id="' + launch._PULSE_APPLICATION_ID + '" b=2', "b=2"),
+            (identity, None),
+            ("", ""),
+            (None, None),
+        )
+        parent = os.environ.get("BROWSER")
+        self.addCleanup(lambda: os.environ.pop("BROWSER", None) if parent is None else os.environ.__setitem__("BROWSER", parent))
+
+        for pulse, want in cases:
+            if pulse is None:
+                os.environ.pop("PULSE_PROP", None)
+            else:
+                os.environ["PULSE_PROP"] = pulse
+            with self.subTest(pulse=pulse, path="handler"):
+                captured = []
+
+                def fake_detached(argv, program=None, env=None):
+                    captured.append(env)
+                    return True
+
+                with mock.patch.object(launch, "_detached", fake_detached):
+                    with mock.patch.object(launch.state, "read_entries",
+                                           return_value={"previous_handler": "firefox.desktop"}):
+                        with mock.patch.object(launch, "exec_argv",
+                                               return_value=["firefox-fake", "https://example.com/"]):
+                            self.assertEqual(launch.forward("https://example.com/"), 0)
+                self.assertEqual(len(captured), 1)
+                env = captured[0]
+                self.assertIsInstance(env, dict)
+                self.assertEqual(env.get("PULSE_PROP"), want)
+
+            with self.subTest(pulse=pulse, path="fallback"):
+                os.environ["BROWSER"] = "x"
+                captured = []
+
+                def fake_detached(argv, program=None, env=None):
+                    captured.append(env)
+                    return True
+
+                with mock.patch.object(launch, "_detached", fake_detached):
+                    with mock.patch.object(launch.state, "read_entries",
+                                           return_value={"previous_handler": None}):
+                        with mock.patch.object(launch, "_default_browser_id", return_value="firefox.desktop"):
+                            self.assertEqual(launch.forward("https://example.com/"), 0)
+                self.assertEqual(len(captured), 1)
+                env = captured[0]
+                self.assertIsInstance(env, dict)
+                self.assertEqual(env.get("PULSE_PROP"), want)
+                self.assertNotIn("BROWSER", env)
 
 
 class ExecParsingTests(unittest.TestCase):
