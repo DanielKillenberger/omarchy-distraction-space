@@ -1492,6 +1492,178 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(setup.remove(), 0)
         self.assertEqual(self._wp_restarts(), [])
 
+    # --- installs never follow a link ---------------------------------------
+
+    def _script(self) -> Path:
+        return self.box.data / "wireplumber" / "scripts" / "distraction-space-hold-mute.lua"
+
+    def _fragment(self) -> Path:
+        return self.box.config / "wireplumber" / "wireplumber.conf.d" / "distraction-space-hold-mute.conf"
+
+    def _plant_link(self, path: Path, text: str = "someone else's file\n") -> Path:
+        """A symlink at `path` pointing at a file of the person's somewhere else."""
+        target = self.box.runtime / f"target-{path.name}"
+        target.write_text(text, encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() or path.is_symlink():
+            path.unlink()
+        path.symlink_to(target)
+        return target
+
+    def _temps(self, *dirs: Path) -> list[str]:
+        return sorted(p.name for d in dirs if d.is_dir() for p in d.iterdir() if p.name.endswith(".tmp"))
+
+    def _remove(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = setup.remove()
+        return rc, out.getvalue() + err.getvalue()
+
+    def test_a_symlinked_hook_script_is_refused_and_its_target_is_untouched(self):
+        self._enable_wireplumber(loaded=True)
+        script = self._script()
+        target = self._plant_link(script)
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertEqual(target.read_text(encoding="utf-8"), "someone else's file\n")
+        self.assertTrue(script.is_symlink())
+        self.assertIn("is a symlink", err)
+        self.assertIn(str(script), err)
+        # The script goes first, so the fragment is never reached and nothing restarts.
+        self.assertFalse(self._fragment().exists())
+        self.assertEqual(self._wp_restarts(), [])
+        self.assertEqual(self._temps(script.parent), [])
+
+    def test_a_symlinked_fragment_is_refused_with_the_script_already_written(self):
+        self._enable_wireplumber(loaded=True)
+        fragment = self._fragment()
+        target = self._plant_link(fragment)
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertEqual(target.read_text(encoding="utf-8"), "someone else's file\n")
+        self.assertTrue(fragment.is_symlink())
+        self.assertIn("is a symlink", err)
+        self.assertEqual(self._script().read_text(encoding="utf-8"), wp.script_text())
+        self.assertEqual(self._wp_restarts(), [])
+        self.assertEqual(self._temps(fragment.parent), [])
+
+    def test_a_symlinked_slice_unit_is_refused_and_the_manager_is_not_touched(self):
+        target = self._plant_link(self.unit)
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertEqual(target.read_text(encoding="utf-8"), "someone else's file\n")
+        self.assertTrue(self.unit.is_symlink())
+        self.assertIn("is a symlink", err)
+        self.assertEqual(self._systemctl_lines(), [])
+        self.assertEqual(self._temps(self.unit.parent), [])
+
+    def test_a_symlinked_directory_under_the_xdg_base_is_refused(self):
+        for relative, base in (
+            (Path("wireplumber"), self.box.data),
+            (Path("wireplumber") / "scripts", self.box.data),
+            (Path("wireplumber"), self.box.config),
+            (Path("wireplumber") / "wireplumber.conf.d", self.box.config),
+            (Path("systemd"), self.box.config),
+            (Path("systemd") / "user", self.box.config),
+        ):
+            with self.subTest(component=str(base.name / relative)):
+                self._enable_wireplumber(loaded=True)
+                elsewhere = self.box.runtime / f"elsewhere-{base.name}-{relative.name}"
+                elsewhere.mkdir(exist_ok=True)
+                planted = base / relative
+                planted.parent.mkdir(parents=True, exist_ok=True)
+                if planted.is_dir() and not planted.is_symlink():
+                    shutil.rmtree(planted)
+                planted.symlink_to(elsewhere, target_is_directory=True)
+                try:
+                    rc, err = self._install()
+                    self.assertEqual(rc, 1)
+                    self.assertIn("is a symlink", err)
+                    self.assertIn(str(planted), err)
+                    self.assertEqual(sorted(p.name for p in elsewhere.iterdir()), [])
+                    self.assertTrue(planted.is_symlink())
+                finally:
+                    planted.unlink()
+                    shutil.rmtree(elsewhere)
+                    for leftover in (self._script(), self._fragment(), self.unit):
+                        if leftover.exists() or leftover.is_symlink():
+                            leftover.unlink()
+                    self.systemctl_log.write_text("", encoding="utf-8")
+
+    def test_a_fifo_where_the_hook_script_goes_is_refused(self):
+        self._enable_wireplumber(loaded=True)
+        script = self._script()
+        script.parent.mkdir(parents=True, exist_ok=True)
+        os.mkfifo(script)
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertIn("not a regular file", err)
+        self.assertTrue(stat.S_ISFIFO(script.lstat().st_mode))
+        self.assertEqual(self._wp_restarts(), [])
+
+    def test_a_directory_where_the_slice_unit_goes_is_refused(self):
+        self.unit.parent.mkdir(parents=True, exist_ok=True)
+        self.unit.mkdir()
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertIn("not a regular file", err)
+        self.assertTrue(self.unit.is_dir())
+
+    def test_a_link_whose_target_already_holds_the_shipped_bytes_is_still_refused(self):
+        self._enable_wireplumber(loaded=True)
+        script = self._script()
+        self._plant_link(script, wp.script_text())
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertIn("is a symlink", err)
+        self.assertTrue(script.is_symlink())
+
+    def test_the_installed_files_are_regular_and_mode_0644(self):
+        self._enable_wireplumber(loaded=True)
+        self.assertEqual(setup.install(), 0)
+        for path in (self._script(), self._fragment(), self.unit):
+            st = path.lstat()
+            self.assertTrue(stat.S_ISREG(st.st_mode), path)
+            self.assertEqual(stat.S_IMODE(st.st_mode), 0o644, path)
+            self.assertEqual(self._temps(path.parent), [])
+
+    def test_remove_leaves_a_symlink_where_the_hook_was_and_says_so(self):
+        self._enable_wireplumber(loaded=True)
+        self.assertEqual(setup.install(), 0)
+        script = self._script()
+        target = self._plant_link(script)
+        rc, text = self._remove()
+        self.assertEqual(rc, 0)
+        self.assertTrue(script.is_symlink())
+        self.assertTrue(target.is_file())
+        self.assertIn("left the symlinked", text)
+        # The rest of the remove still ran.
+        self.assertFalse(self._fragment().exists())
+        self.assertFalse(self.wrapper.exists())
+
+    def test_remove_leaves_a_dangling_symlinked_slice_unit_in_place(self):
+        self.assertEqual(setup.install(), 0)
+        self.unit.unlink()
+        self.unit.symlink_to(self.box.runtime / "gone")
+        rc, text = self._remove()
+        self.assertEqual(rc, 0)
+        self.assertTrue(self.unit.is_symlink())
+        self.assertIn("left the symlinked", text)
+        self.assertFalse(self.wrapper.exists())
+
+    def test_a_symlink_at_either_hook_path_reads_as_not_installed(self):
+        self._enable_wireplumber(loaded=True)
+        self.assertEqual(setup.install(), 0)
+        self.assertTrue(wp.installed())
+        for path in (self._script(), self._fragment()):
+            with self.subTest(path=path.name):
+                kept = path.read_bytes()
+                self._plant_link(path, kept.decode("utf-8"))
+                self.assertFalse(wp.installed())
+                path.unlink()
+                path.write_bytes(kept)
+        self.assertTrue(wp.installed())
+
     def _stock_hypr(self) -> Path:
         hypr = self.box.config / "hypr"
         hypr.mkdir(parents=True, exist_ok=True)

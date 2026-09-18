@@ -684,10 +684,175 @@ def clone_drift() -> str | None:
     return None
 
 
-def _user_unit_dir() -> Path:
+def _config_home() -> Path:
     raw = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(raw) if raw else Path.home() / ".config"
-    return base / "systemd" / "user"
+    return Path(raw) if raw else Path.home() / ".config"
+
+
+def _user_unit_dir() -> Path:
+    return _config_home() / "systemd" / "user"
+
+
+# `_install_user_file`'s two successful answers: the bytes were written, or the
+# destination already held them. A refusal is None, with the reason printed.
+INSTALLED = "installed"
+CURRENT = "current"
+
+
+def _open_dir(name: str, dir_fd: int) -> int:
+    """Open a directory component relative to `dir_fd`, never through a link."""
+    return os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
+
+
+def _what_is_there(name: str, dir_fd: int) -> str:
+    """Why a component relative to `dir_fd` is not a directory this plugin will write into."""
+    try:
+        mode = os.lstat(name, dir_fd=dir_fd).st_mode
+    except OSError:
+        return "could not be opened as a directory"
+    if stat.S_ISLNK(mode):
+        return "is a symlink, which setup never writes through"
+    if not stat.S_ISDIR(mode):
+        return "is not a directory"
+    return "could not be opened as a directory"
+
+
+def _read_at(name: str, dir_fd: int, cap: int) -> bytes | None:
+    """The bytes of a regular file relative to `dir_fd`, or None when it is not one,
+    is unreadable, or holds more than `cap`. Never followed through a symlink."""
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=dir_fd)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        data = b""
+        while len(data) <= cap:
+            chunk = os.read(fd, min(65536, cap + 1 - len(data)))
+            if not chunk:
+                return data
+            data += chunk
+        return None
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def _write_at(name: str, dir_fd: int, dest: Path, data: bytes) -> str | None:
+    """Replace `name` in the directory `dir_fd` holds open with `data`, through a temporary file."""
+    tmp, fd = None, -1
+    try:
+        for _ in range(4):
+            candidate = f".{name}.{os.urandom(4).hex()}.tmp"
+            try:
+                fd = os.open(candidate, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644, dir_fd=dir_fd)
+            except FileExistsError:
+                continue
+            tmp = candidate
+            break
+        if fd < 0:
+            print(f"cannot install {dest}: no temporary name beside it was free", file=sys.stderr)
+            return None
+        # The mode is set on the descriptor, so the person's umask does not decide it.
+        os.fchmod(fd, 0o644)
+        written = 0
+        while written < len(data):
+            written += os.write(fd, data[written:])
+        os.fsync(fd)
+        os.close(fd)
+        fd = -1
+        os.rename(tmp, name, src_dir_fd=dir_fd, dst_dir_fd=dir_fd)
+    except OSError as e:
+        if fd >= 0:
+            with contextlib.suppress(OSError):
+                os.close(fd)
+        if tmp is not None:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp, dir_fd=dir_fd)
+        print(f"cannot install {dest}: {e}", file=sys.stderr)
+        return None
+    return INSTALLED
+
+
+def _install_user_file(base: Path, dest: Path, data: bytes) -> str | None:
+    """Install `data` at `dest`, a file this plugin owns under the person's XDG directory `base`.
+
+    `INSTALLED` when the bytes were written, `CURRENT` when the destination already
+    held them, None when the install was refused and the reason printed.
+
+    Every name below `base` is opened relative to the descriptor of the one before
+    it, without following a link, and a missing directory is created there, so the
+    directory the write lands in is the one each check passed rather than one that
+    took its name in between. The destination is checked the same way: a symlink,
+    or anything that is not a regular file, is refused by name and nothing is
+    written. These destinations are predictable, which is the point -- a process
+    running as the same person can plant a link at one, and following it would
+    write this plugin's bytes over a file it was never asked to touch. `base`
+    itself is the person's XDG root, which a dotfiles repository may well link, so
+    it is opened as given and only what lies below it is judged.
+    """
+    try:
+        parts = dest.relative_to(base).parts
+    except ValueError:
+        print(f"cannot install {dest}: it is not under {base}", file=sys.stderr)
+        return None
+    try:
+        # The XDG root and everything above it is the person's, created the ordinary way.
+        base.mkdir(parents=True, exist_ok=True)
+        fd = os.open(base, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError as e:
+        print(f"cannot install {dest}: cannot open {base}: {e}", file=sys.stderr)
+        return None
+    walked = base
+    try:
+        for name in parts[:-1]:
+            walked = walked / name
+            try:
+                nxt = _open_dir(name, fd)
+            except FileNotFoundError:
+                try:
+                    os.mkdir(name, 0o755, dir_fd=fd)
+                except FileExistsError:
+                    pass
+                except OSError as e:
+                    print(f"cannot install {dest}: cannot create {walked}: {e}", file=sys.stderr)
+                    return None
+                try:
+                    # Whatever won the race for this name is opened, never trusted.
+                    nxt = _open_dir(name, fd)
+                except OSError:
+                    print(f"cannot install {dest}: {walked} {_what_is_there(name, fd)}", file=sys.stderr)
+                    return None
+            except OSError:
+                print(f"cannot install {dest}: {walked} {_what_is_there(name, fd)}; "
+                      f"delete it and run setup again", file=sys.stderr)
+                return None
+            os.close(fd)
+            fd = nxt
+        name = parts[-1]
+        try:
+            mode = os.lstat(name, dir_fd=fd).st_mode
+        except FileNotFoundError:
+            mode = None
+        except OSError as e:
+            print(f"cannot install {dest}: {e}", file=sys.stderr)
+            return None
+        if mode is not None:
+            if stat.S_ISLNK(mode):
+                print(f"cannot install {dest}: it is a symlink, which setup never writes through; "
+                      f"delete it and run setup again", file=sys.stderr)
+                return None
+            if not stat.S_ISREG(mode):
+                print(f"cannot install {dest}: it is not a regular file; "
+                      f"move it aside and run setup again", file=sys.stderr)
+                return None
+            if _read_at(name, fd, len(data)) == data:
+                return CURRENT
+        return _write_at(name, fd, dest, data)
+    finally:
+        os.close(fd)
 
 
 def sync_slice() -> int:
@@ -696,31 +861,59 @@ def sync_slice() -> int:
     dest = _user_unit_dir() / cgroup.SLICE
     try:
         data = source.read_bytes()
-        current = dest.read_bytes() if dest.is_file() else None
-        if current != data:
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_bytes(data)
-            rc, err = cgroup.systemctl_user("daemon-reload")
-            if rc != 0:
-                print(err or "systemctl --user daemon-reload failed", file=sys.stderr)
-                return 1
     except OSError as e:
         print(f"cannot install {dest}: {e}", file=sys.stderr)
         return 1
+    outcome = _install_user_file(_config_home(), dest, data)
+    if outcome is None:
+        return 1
+    if outcome == INSTALLED:
+        rc, err = cgroup.systemctl_user("daemon-reload")
+        if rc != 0:
+            print(err or "systemctl --user daemon-reload failed", file=sys.stderr)
+            return 1
     if not cgroup.ensure_slice():
         print(f"systemctl --user start {cgroup.SLICE} failed", file=sys.stderr)
         return 1
     return 0
 
 
+def _own_to_remove(path: Path) -> str:
+    """What holds `path`, for a remove that deletes only this plugin's own file.
+
+    `"absent"` when nothing is there, `"file"` when a regular file is, `"foreign"`
+    when something else holds the name -- a symlink, a dangling one included, or a
+    directory or device. A foreign name is reported and left where it is, the way a
+    symlinked Hyprland file is: the plugin did not put it there, so deleting it is
+    the person's call. The check is `lstat`, so a link is seen as a link rather than
+    as whatever it points at.
+    """
+    try:
+        mode = path.lstat().st_mode
+    except FileNotFoundError:
+        return "absent"
+    except OSError as e:
+        print(f"left {path} in place: {e}", file=sys.stderr)
+        return "foreign"
+    if stat.S_ISLNK(mode):
+        print(f"left the symlinked {path} in place; remove it yourself if you want it gone")
+        return "foreign"
+    if not stat.S_ISREG(mode):
+        print(f"left {path} in place: it is not a regular file; remove it yourself if you want it gone")
+        return "foreign"
+    return "file"
+
+
 def remove_slice() -> int:
     """`setup --remove`: stop the slice and drop its unit file.
 
     An absent unit file means an earlier remove already finished this step; there
-    is nothing of ours to stop, and `systemctl stop` on an unloaded unit fails.
+    is nothing of ours to stop, and `systemctl stop` on an unloaded unit fails. A
+    name held by something that is not our unit file reads the same way: the file
+    this plugin wrote is not there, so the manager is left alone as well.
     """
     dest = _user_unit_dir() / cgroup.SLICE
-    if not dest.exists():
+    if _own_to_remove(dest) != "file":
         return 0
     rc, err = cgroup.systemctl_user("stop", cgroup.SLICE)
     if rc != 0:
@@ -746,16 +939,16 @@ def sync_hook() -> int:
     script = wp.script_text().encode()
     fragment = wp.fragment_text().encode()
     # A required feature whose script is missing keeps WirePlumber from starting, so the script is written first.
-    targets = ((wp.script_path(), script), (wp.fragment_path(), fragment))
-    changed = any((path.read_bytes() if path.is_file() else None) != data for path, data in targets)
+    targets = ((launch.data_home(), wp.script_path(), script), (_config_home(), wp.fragment_path(), fragment))
+    # Each destination is judged on its own, so a link planted at one is refused even
+    # when it points at a file that already holds the shipped bytes.
+    changed = False
+    for base, path, data in targets:
+        outcome = _install_user_file(base, path, data)
+        if outcome is None:
+            return 1
+        changed = changed or outcome == INSTALLED
     if changed:
-        for path, data in targets:
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_bytes(data)
-            except OSError as e:
-                print(f"cannot install {path}: {e}", file=sys.stderr)
-                return 1
         rc, err = cgroup.systemctl_user("restart", "wireplumber")
         if rc != 0:
             print(err or "systemctl --user restart wireplumber failed", file=sys.stderr)
@@ -773,7 +966,7 @@ def remove_hook() -> int:
     removed = False
     # A required feature whose script is gone keeps WirePlumber from starting, so the fragment goes first.
     for path in (wp.fragment_path(), wp.script_path()):
-        if not path.exists():
+        if _own_to_remove(path) != "file":
             continue
         try:
             path.unlink()

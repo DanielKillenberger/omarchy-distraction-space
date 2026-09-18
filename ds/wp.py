@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
 import time
 from pathlib import Path
@@ -51,8 +52,17 @@ def wireplumber_bin():
     return Path(found).resolve() if found else None
 
 
+def _is_own_file(path):
+    """True only for a regular file at `path` itself: a symlink someone else planted
+    at one of these names is not this plugin's hook, however real its target is."""
+    try:
+        return stat.S_ISREG(path.lstat().st_mode)
+    except OSError:
+        return False
+
+
 def installed():
-    return script_path().is_file() and fragment_path().is_file()
+    return _is_own_file(script_path()) and _is_own_file(fragment_path())
 
 
 def _pw_metadata(*args):
