@@ -704,6 +704,12 @@ def _open_dir(name: str, dir_fd: int) -> int:
     return os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=dir_fd)
 
 
+def _refuse_component(dest: Path, walked: Path, name: str, dir_fd: int) -> None:
+    """Report a directory component this plugin will not write through, and what to do."""
+    print(f"cannot install {dest}: {walked} {_what_is_there(name, dir_fd)}; "
+          f"delete it and run setup again", file=sys.stderr)
+
+
 def _what_is_there(name: str, dir_fd: int) -> str:
     """Why a component relative to `dir_fd` is not a directory this plugin will write into."""
     try:
@@ -823,11 +829,10 @@ def _install_user_file(base: Path, dest: Path, data: bytes) -> str | None:
                     # Whatever won the race for this name is opened, never trusted.
                     nxt = _open_dir(name, fd)
                 except OSError:
-                    print(f"cannot install {dest}: {walked} {_what_is_there(name, fd)}", file=sys.stderr)
+                    _refuse_component(dest, walked, name, fd)
                     return None
             except OSError:
-                print(f"cannot install {dest}: {walked} {_what_is_there(name, fd)}; "
-                      f"delete it and run setup again", file=sys.stderr)
+                _refuse_component(dest, walked, name, fd)
                 return None
             os.close(fd)
             fd = nxt
@@ -904,6 +909,16 @@ def _own_to_remove(path: Path) -> str:
     return "file"
 
 
+def _drop(path: Path) -> bool:
+    """Unlink a file this plugin installed, reporting a failure."""
+    try:
+        path.unlink()
+    except OSError as e:
+        print(f"cannot remove {path}: {e}", file=sys.stderr)
+        return False
+    return True
+
+
 def remove_slice() -> int:
     """`setup --remove`: stop the slice and drop its unit file.
 
@@ -919,10 +934,7 @@ def remove_slice() -> int:
     if rc != 0:
         print(err or f"systemctl --user stop {cgroup.SLICE} failed", file=sys.stderr)
         return 1
-    try:
-        dest.unlink()
-    except OSError as e:
-        print(f"cannot remove {dest}: {e}", file=sys.stderr)
+    if not _drop(dest):
         return 1
     rc, err = cgroup.systemctl_user("daemon-reload")
     if rc != 0:
@@ -963,15 +975,25 @@ def sync_hook() -> int:
 
 
 def remove_hook() -> int:
+    """`setup --remove`: drop the hook script and its fragment, and restart WirePlumber.
+
+    A required feature whose script is gone keeps WirePlumber from starting, so the
+    fragment goes first -- and a fragment that is not ours to delete keeps the script
+    with it, because the feature that fragment still asks for would otherwise have no
+    script to load.
+    """
+    fragment, script = wp.fragment_path(), wp.script_path()
     removed = False
-    # A required feature whose script is gone keeps WirePlumber from starting, so the fragment goes first.
-    for path in (wp.fragment_path(), wp.script_path()):
-        if _own_to_remove(path) != "file":
-            continue
-        try:
-            path.unlink()
-        except OSError as e:
-            print(f"cannot remove {path}: {e}", file=sys.stderr)
+    verdict = _own_to_remove(fragment)
+    if verdict == "foreign":
+        print(f"left {script} in place as well; {fragment} still asks WirePlumber for it")
+        return 0
+    if verdict == "file":
+        if not _drop(fragment):
+            return 1
+        removed = True
+    if _own_to_remove(script) == "file":
+        if not _drop(script):
             return 1
         removed = True
     if removed and wp.wireplumber_bin() is not None:
