@@ -11,6 +11,7 @@ import json
 import os
 import pwd
 import shutil
+import socket
 import stat
 import subprocess
 import sys
@@ -1491,6 +1492,273 @@ class SetupTests(unittest.TestCase):
         self.systemctl_log.write_text("", encoding="utf-8")
         self.assertEqual(setup.remove(), 0)
         self.assertEqual(self._wp_restarts(), [])
+
+    # --- installs never follow a link ---------------------------------------
+
+    def _script(self) -> Path:
+        return self.box.data / "wireplumber" / "scripts" / "distraction-space-hold-mute.lua"
+
+    def _fragment(self) -> Path:
+        return self.box.config / "wireplumber" / "wireplumber.conf.d" / "distraction-space-hold-mute.conf"
+
+    def _plant_link(self, path: Path, text: str = "someone else's file\n") -> Path:
+        """A symlink at `path` pointing at a file of the person's somewhere else."""
+        target = self.box.runtime / f"target-{path.name}"
+        target.write_text(text, encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() or path.is_symlink():
+            path.unlink()
+        path.symlink_to(target)
+        return target
+
+    def _temps(self, *dirs: Path) -> list[str]:
+        return sorted(p.name for d in dirs if d.is_dir() for p in d.iterdir() if p.name.endswith(".tmp"))
+
+    def _remove(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = setup.remove()
+        return rc, out.getvalue() + err.getvalue()
+
+    def _shipped(self) -> tuple[tuple[str, Path, str], ...]:
+        """(label, destination, shipped text) for every user-level file setup installs."""
+        return (
+            ("script", self._script(), wp.script_text()),
+            ("fragment", self._fragment(), wp.fragment_text()),
+            ("slice unit", self.unit, (ROOT / "install" / "app-distraction.slice").read_text(encoding="utf-8")),
+        )
+
+    def _reset_installs(self) -> None:
+        """Back to a tree with none of the three files, between subtests."""
+        for _label, path, _text in self._shipped():
+            if path.is_symlink() or path.exists():
+                if path.is_dir() and not path.is_symlink():
+                    shutil.rmtree(path)
+                else:
+                    path.unlink()
+        self.systemctl_log.write_text("", encoding="utf-8")
+
+    def test_a_symlinked_destination_is_refused_and_its_target_is_untouched(self):
+        for label, dest, _text in self._shipped():
+            with self.subTest(destination=label):
+                self._enable_wireplumber(loaded=True)
+                target = self._plant_link(dest)
+                try:
+                    rc, err = self._install()
+                    self.assertEqual(rc, 1)
+                    self.assertEqual(target.read_text(encoding="utf-8"), "someone else's file\n")
+                    self.assertTrue(dest.is_symlink())
+                    self.assertIn("is a symlink", err)
+                    self.assertIn(str(dest), err)
+                    self.assertEqual(self._temps(dest.parent), [])
+                finally:
+                    self._reset_installs()
+
+    def test_a_symlinked_script_stops_setup_before_the_fragment(self):
+        self._enable_wireplumber(loaded=True)
+        script = self._script()
+        self._plant_link(script)
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertIn(str(script), err)
+        # The script goes first, so the fragment is never reached and nothing restarts.
+        self.assertFalse(self._fragment().exists())
+        self.assertEqual(self._wp_restarts(), [])
+
+    def test_a_symlinked_fragment_is_refused_with_the_script_already_written(self):
+        self._enable_wireplumber(loaded=True)
+        fragment = self._fragment()
+        target = self._plant_link(fragment)
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertEqual(target.read_text(encoding="utf-8"), "someone else's file\n")
+        self.assertTrue(fragment.is_symlink())
+        self.assertIn("is a symlink", err)
+        self.assertEqual(self._script().read_text(encoding="utf-8"), wp.script_text())
+        self.assertEqual(self._wp_restarts(), [])
+        self.assertEqual(self._temps(fragment.parent), [])
+
+    def test_a_symlinked_slice_unit_is_refused_and_the_manager_is_not_touched(self):
+        self._plant_link(self.unit)
+        rc, _err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._systemctl_lines(), [])
+
+    def test_a_symlinked_directory_under_the_xdg_base_is_refused(self):
+        for relative, base in (
+            (Path("wireplumber"), self.box.data),
+            (Path("wireplumber") / "scripts", self.box.data),
+            (Path("wireplumber"), self.box.config),
+            (Path("wireplumber") / "wireplumber.conf.d", self.box.config),
+            (Path("systemd"), self.box.config),
+            (Path("systemd") / "user", self.box.config),
+        ):
+            with self.subTest(component=str(base.name / relative)):
+                self._enable_wireplumber(loaded=True)
+                elsewhere = self.box.runtime / f"elsewhere-{base.name}-{relative.name}"
+                elsewhere.mkdir(exist_ok=True)
+                planted = base / relative
+                planted.parent.mkdir(parents=True, exist_ok=True)
+                if planted.is_dir() and not planted.is_symlink():
+                    shutil.rmtree(planted)
+                planted.symlink_to(elsewhere, target_is_directory=True)
+                try:
+                    rc, err = self._install()
+                    self.assertEqual(rc, 1)
+                    self.assertIn("is a symlink", err)
+                    self.assertIn(str(planted), err)
+                    self.assertEqual(sorted(p.name for p in elsewhere.iterdir()), [])
+                    self.assertTrue(planted.is_symlink())
+                finally:
+                    planted.unlink()
+                    shutil.rmtree(elsewhere)
+                    for leftover in (self._script(), self._fragment(), self.unit):
+                        if leftover.exists() or leftover.is_symlink():
+                            leftover.unlink()
+                    self.systemctl_log.write_text("", encoding="utf-8")
+
+    def test_an_irregular_destination_is_refused(self):
+        def fifo(path: Path) -> None:
+            os.mkfifo(path)
+
+        def socket_at(path: Path) -> None:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self.addCleanup(s.close)
+            s.bind(str(path))
+
+        for label, dest, _text in self._shipped():
+            for kind, make in (("fifo", fifo), ("socket", socket_at), ("directory", Path.mkdir)):
+                with self.subTest(destination=label, kind=kind):
+                    self._enable_wireplumber(loaded=True)
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    make(dest)
+                    try:
+                        rc, err = self._install()
+                        self.assertEqual(rc, 1)
+                        self.assertIn("not a regular file", err)
+                        self.assertIn(str(dest), err)
+                    finally:
+                        self._reset_installs()
+
+    def test_a_link_whose_target_already_holds_the_shipped_bytes_is_still_refused(self):
+        for label, dest, text in self._shipped():
+            with self.subTest(destination=label):
+                self._enable_wireplumber(loaded=True)
+                self._plant_link(dest, text)
+                try:
+                    rc, err = self._install()
+                    self.assertEqual(rc, 1)
+                    self.assertIn("is a symlink", err)
+                    self.assertTrue(dest.is_symlink())
+                finally:
+                    self._reset_installs()
+
+    @unittest.skipIf(os.geteuid() == 0, "root writes a 0500 directory")
+    def test_a_write_that_fails_leaves_no_temporary_file_behind(self):
+        for label, dest, _text in self._shipped():
+            with self.subTest(destination=label):
+                self._enable_wireplumber(loaded=True)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                mode = dest.parent.stat().st_mode
+                os.chmod(dest.parent, 0o500)
+                try:
+                    rc, err = self._install()
+                    self.assertEqual(rc, 1)
+                    self.assertIn("cannot install", err)
+                    self.assertFalse(dest.exists())
+                finally:
+                    os.chmod(dest.parent, mode)
+                    self.assertEqual(self._temps(dest.parent), [])
+                    self._reset_installs()
+
+    def test_a_drifted_file_is_rewritten_on_the_next_run(self):
+        self._enable_wireplumber(loaded=True)
+        self.assertEqual(setup.install(), 0)
+        for label, dest, text in self._shipped():
+            with self.subTest(destination=label):
+                ident = self._ident(dest)
+                dest.write_text("drifted\n", encoding="utf-8")
+                self.assertEqual(setup.install(), 0)
+                self.assertEqual(dest.read_text(encoding="utf-8"), text)
+                self.assertNotEqual(self._ident(dest), ident)
+                self.assertEqual(self._temps(dest.parent), [])
+
+    def test_the_installed_files_are_regular_and_mode_0644(self):
+        self._enable_wireplumber(loaded=True)
+        self.assertEqual(setup.install(), 0)
+        for path in (self._script(), self._fragment(), self.unit):
+            st = path.lstat()
+            self.assertTrue(stat.S_ISREG(st.st_mode), path)
+            self.assertEqual(stat.S_IMODE(st.st_mode), 0o644, path)
+            self.assertEqual(self._temps(path.parent), [])
+
+    def test_remove_leaves_a_symlinked_script_in_place_and_says_so(self):
+        self._enable_wireplumber(loaded=True)
+        self.assertEqual(setup.install(), 0)
+        script = self._script()
+        target = self._plant_link(script)
+        rc, text = self._remove()
+        self.assertEqual(rc, 0)
+        self.assertTrue(script.is_symlink())
+        self.assertTrue(target.is_file())
+        self.assertIn("left the symlinked", text)
+        # The rest of the remove still ran.
+        self.assertFalse(self._fragment().exists())
+        self.assertFalse(self.wrapper.exists())
+
+    def test_remove_keeps_the_script_when_the_fragment_is_not_ours_to_delete(self):
+        self._enable_wireplumber(loaded=True)
+        self.assertEqual(setup.install(), 0)
+        script, fragment = self._script(), self._fragment()
+        self._plant_link(fragment, wp.fragment_text())
+        self.systemctl_log.write_text("", encoding="utf-8")
+        rc, text = self._remove()
+        self.assertEqual(rc, 0)
+        # A fragment that still requires the feature would leave WirePlumber
+        # asking for a script that is no longer there.
+        self.assertTrue(fragment.is_symlink())
+        self.assertTrue(script.is_file())
+        self.assertIn("left the symlinked", text)
+        self.assertIn(str(script), text)
+        self.assertEqual(self._wp_restarts(), [])
+        self.assertFalse(self.wrapper.exists())
+
+    def test_remove_leaves_an_irregular_file_where_a_hook_file_was(self):
+        for label, dest in (("script", self._script()), ("fragment", self._fragment())):
+            with self.subTest(destination=label):
+                self._enable_wireplumber(loaded=True)
+                self.assertEqual(setup.install(), 0)
+                dest.unlink()
+                os.mkfifo(dest)
+                rc, text = self._remove()
+                self.assertEqual(rc, 0)
+                self.assertTrue(stat.S_ISFIFO(dest.lstat().st_mode))
+                self.assertIn("not a regular file", text)
+                dest.unlink()
+                self._reset_installs()
+
+    def test_remove_leaves_a_dangling_symlinked_slice_unit_in_place(self):
+        self.assertEqual(setup.install(), 0)
+        self.unit.unlink()
+        self.unit.symlink_to(self.box.runtime / "gone")
+        rc, text = self._remove()
+        self.assertEqual(rc, 0)
+        self.assertTrue(self.unit.is_symlink())
+        self.assertIn("left the symlinked", text)
+        self.assertFalse(self.wrapper.exists())
+
+    def test_a_symlink_at_either_hook_path_reads_as_not_installed(self):
+        self._enable_wireplumber(loaded=True)
+        self.assertEqual(setup.install(), 0)
+        self.assertTrue(wp.installed())
+        for path in (self._script(), self._fragment()):
+            with self.subTest(path=path.name):
+                kept = path.read_bytes()
+                self._plant_link(path, kept.decode("utf-8"))
+                self.assertFalse(wp.installed())
+                path.unlink()
+                path.write_bytes(kept)
+        self.assertTrue(wp.installed())
 
     def _stock_hypr(self) -> Path:
         hypr = self.box.config / "hypr"
