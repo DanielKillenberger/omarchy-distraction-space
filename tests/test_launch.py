@@ -11,11 +11,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 import unittest
 from pathlib import Path
 from unittest import mock
+from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from harness import ROOT, Sandbox
@@ -368,6 +370,84 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(len(self._lines(self.forward_log)), 2)
         self.assertEqual(self.box.run("open", "--app", "https://[::1").returncode, 2)
 
+    def _run_in(self, cwd, *args):
+        return subprocess.run(
+            [sys.executable, str(ROOT / "distractions"), *args],
+            capture_output=True, text=True, encoding="utf-8", timeout=60, env=self.box.env(), cwd=cwd,
+        )
+
+    def test_file_and_about_urls_forward_exactly_as_given(self):
+        # R1, R2: what the default-browser seat receives beside http(s) goes to the
+        # previous handler untouched; the file is never tested for existence.
+        state.write_entries({"files": [], "previous_handler": "firefox.desktop"})
+        for n, url in enumerate(("file:///abs/no%20such/page.html#top", "about:blank", "FILE:///abs/p.html "), start=1):
+            with self.subTest(url=url):
+                r = self.box.run("open", url)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self._wait_lines(self.forward_log, n)[-1], ["firefox-fake", url])
+        # R6: --app and browser flags reach it as they reach an unlisted http(s) URL.
+        r = self.box.run("open", "--app", "--incognito", "file:///abs/page.html")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._wait_lines(self.forward_log, 4)[-1], ["firefox-fake", "--app=file:///abs/page.html", "--incognito"])
+        # No usable handler takes the fallback; no startable browser is exit 1 with the notice.
+        state.write_entries({"files": [], "previous_handler": None})
+        for n, url in enumerate(("file:///abs/page.html", "about:blank"), start=5):
+            with self.subTest(fallback=url):
+                r = self.box.run("open", url)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self._wait_lines(self.forward_log, n)[-1], ["omarchy-launch-browser", url])
+                r = self.box.run("open", url, extra_env={"DS_XDG_BROWSER": launch.HANDLER_ID})
+                self.assertEqual(r.returncode, 1)
+        self.assertEqual(len(self._lines(self.notify_log)), 2)
+        self.assertEqual(len(self._lines(self.forward_log)), 6)
+        self.assertFalse(self.run_log.exists())
+
+    def test_an_existing_regular_file_forwards_as_its_file_url(self):
+        state.write_entries({"files": [], "previous_handler": "firefox.desktop"})
+        work = Path(os.path.realpath(self.box.runtime)) / "work dir"
+        (work / "sub").mkdir(parents=True)
+        odd = "a b#c?d%e.html"
+        (work / "sub" / odd).write_text("<p>", encoding="utf-8")
+        (work / "link.html").symlink_to(work / "sub" / odd)
+        (work / "YouTube").write_text("<p>", encoding="utf-8")
+        (work / " t\tn\n.html ").write_text("<p>", encoding="utf-8")
+        (work / "t\tn\n.html").write_text("<p>", encoding="utf-8")
+        (work / "  ").write_text("<p>", encoding="utf-8")
+        (work / " file:page").write_text("<p>", encoding="utf-8")
+        os.mkfifo(work / "fifo")
+        base = "file://" + quote(str(work))
+        cases = (
+            ("relative", f"sub/{odd}", f"{base}/sub/a%20b%23c%3Fd%25e.html"),
+            ("absolute", str(work / "sub" / odd), f"{base}/sub/a%20b%23c%3Fd%25e.html"),
+            # The link's own path is forwarded: the browser opens what it reaches.
+            ("symlink", "link.html", f"{base}/link.html"),
+            ("dotted", "./sub/../YouTube", f"{base}/YouTube"),
+            # A file name is taken whole: edge whitespace and control characters are part of it.
+            ("edge whitespace", " t\tn\n.html ", f"{base}/%20t%09n%0A.html%20"),
+            ("whitespace only", "  ", f"{base}/%20%20"),
+            ("scheme behind a space", " file:page", f"{base}/%20file%3Apage"),
+        )
+        for n, (label, arg, want) in enumerate(cases, start=1):
+            with self.subTest(label):
+                r = self._run_in(work, "open", arg, "--incognito")
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self._wait_lines(self.forward_log, n)[-1], ["firefox-fake", want, "--incognito"])
+        self.assertFalse(self.run_log.exists())
+        # R3 errors: not there, a directory, a fifo, a dangling link: usage, exit 2, nothing launched.
+        (work / "dangling").symlink_to(work / "gone")
+        for arg in ("missing.html", "sub", "fifo", "dangling", str(work), " ", " about:blank"):
+            with self.subTest(refused=arg):
+                r = self._run_in(work, "open", arg)
+                self.assertEqual(r.returncode, 2)
+                self.assertEqual(r.stderr.strip(), launch.USAGE)
+        self.assertEqual(len(self._lines(self.forward_log)), len(cases))
+        self.assertFalse(self.run_log.exists())
+        # R4: a name wins over a file of the same name in the working directory.
+        r = self._run_in(work, "open", "YouTube")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches()[0][:len(SLICE_PREFIX) + 1], SLICE_PREFIX + ["google-chrome-stable"])
+        self.assertEqual(len(self._lines(self.forward_log)), len(cases))
+
     def test_first_launch_creates_the_profile_that_never_asks(self):
         profile = launch.profile_dir() / launch.PROFILE
         self.assertIn(self.box.home.parent, profile.parents, profile)
@@ -538,6 +618,8 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(len(self._lines(self.notify_log)), 1)
         self.assertEqual(len(self._lines(self.run_log)), 1)
         for argv in (["open", "ftp://x"], ["open", "mailto:a@b"], ["open", "no-such-thing"],
+                     ["open", "javascript:alert(1)"], ["open", "data:text/html,<p>"], ["open", "unknown:x"],
+                     ["open", "view-source:file:///etc/passwd"], ["open", "file:///a\nb"], ["open", "about:\tblank"],
                      ["open", "https://[::1"], ["open", "https://a b.com/"], ["open", "https://x.com:99999/"],
                      ["open", "https://-bad-.example/"], ["open", "https://x.com:0/"],
                      ["open", "https://youtube.com\\@evil.com/"], ["open", "https://a@b@youtube.com/"],
