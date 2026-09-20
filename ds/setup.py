@@ -2374,15 +2374,17 @@ def turn_site_block(on: bool) -> int:
         return 1
     print("site blocking: on")
     # Recording the answer already asked the listener to re-read, but that was
-    # before the helper landed; this is the ask that finds it there. Nothing
-    # applies a policy until a listener does, so a machine with none says so
-    # rather than leaving "on" to mean something it does not yet mean. It is
-    # still an exit 0: a stopped listener is an ordinary state of the machine,
-    # named here and reported by `status`, not a failure of this command -- no
-    # other command that records a choice fails because the listener is down.
+    # before the helper landed; this is the ask that finds it there, and the
+    # listener is what resolves the list and applies the table. Nothing applies
+    # a policy until one does, so a reload nobody answered means this command
+    # did not end with the block on, whatever it recorded: it says so and exits
+    # non-zero rather than reporting an effect that did not happen. Starting a
+    # listener is not this command's job -- Hyprland's autostart and
+    # `distractions listen` own that lifecycle.
     if not state.request_reload():
         print("no listener is running, so nothing is applying it yet: log out and back in, "
-              "or run: distractions listen")
+              "or run: distractions listen", file=sys.stderr)
+        return 1
     return 0
 
 

@@ -432,10 +432,16 @@ class SetupTests(unittest.TestCase):
         self.wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         os.chmod(self.prefix, 0o555)
 
-    def _site_block(self, on):
-        """turn_site_block() with its own streams: `(rc, stdout, stderr)`."""
+    def _site_block(self, on, listener=True):
+        """turn_site_block() with its own streams: `(rc, stdout, stderr)`.
+
+        `listener` is whether one answers the reload. The sandbox runs none, and
+        an ordinary machine does, so that is the default; the command's own
+        behaviour when nobody answers has a test of its own.
+        """
         out, err = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
+                patch.object(setup.state, "request_reload", return_value=listener):
             rc = setup.turn_site_block(on)
         return rc, out.getvalue(), err.getvalue()
 
@@ -676,6 +682,20 @@ class SetupTests(unittest.TestCase):
         # second password would have cost is another root transaction, and none ran.
         self.assertEqual(len(self._transactions()), asked)
         self.assertIs(self._config()["site_block"]["enabled"], True)
+
+    def test_site_block_on_with_nobody_to_apply_it_says_so_and_exits_1(self):
+        self._unanswered_site_block()
+        with patch("sys.stdin", Tty("")):
+            rc, out, err = self._site_block(True, listener=False)
+        # The listener is what resolves the list and applies the table, so a
+        # reload nobody answered is a turn-on that did not end with the block on.
+        # What the command itself owns still stands: the answer and the helper.
+        self.assertEqual(rc, 1)
+        self.assertIn("no listener is running", err)
+        self.assertIn("distractions listen", err)
+        self.assertIn("site blocking: on", out)
+        self.assertIs(self._config()["site_block"]["enabled"], True)
+        self.assertEqual(self.wrapper.read_bytes(), (ROOT / "distractions-nft").read_bytes())
 
     def test_site_block_off_whose_flush_fails_records_the_choice_and_exits_1(self):
         with patch("sys.stdin", Tty("")):
