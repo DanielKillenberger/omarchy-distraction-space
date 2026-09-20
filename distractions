@@ -93,7 +93,7 @@ def build_parser():
                     "in order; a flag that takes a value wants --flag=value.",
     )
     op.add_argument("--app", action="store_true", help="forward an unlisted URL as an app window (--app=<url>)")
-    op.add_argument("target", nargs="?", help="an http(s) URL, a list entry, or a catalog name; none forwards the bare browser")
+    op.add_argument("target", nargs="?", help="an http(s) URL, a list entry, or a catalog name; a file: or about: URL or a local file is forwarded; none forwards the bare browser")
     pr = sub.add_parser("profile").add_subparsers(dest="profile_cmd")
     imp = pr.add_parser("import", help="copy the existing browser profile into the distraction profile once")
     imp.add_argument("--from", dest="source", metavar="PROFILE_DIR", help="a Chromium profile directory instead of the default browser's main profile")

@@ -5,7 +5,9 @@ target runs the distraction browser as a transient scope in `app-distraction.sli
 with the profile flags; a native target runs its desktop entry's `Exec` line the
 same way. Everything else is forwarded to the handler setup recorded, outside
 the slice, the way that handler would have run it: a URL whose host is neither
-listed nor a subdomain of a listed host, no target at all (Omarchy's browser
+listed nor a subdomain of a listed host, a `file:` or `about:` URL, an existing
+local file (as its `file://` URL; a local page is never a distraction), no
+target at all (Omarchy's browser
 keybind runs the default browser's Exec with nothing, or with a private-window
 flag), and `--app <url>` for an unlisted URL (what `omarchy-launch-webapp`
 does). Browser flags pass through to the forward unchanged; a launch into the
@@ -22,7 +24,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from ds import catalog, cgroup, config, hypr, state, ui
 
@@ -62,11 +64,14 @@ app_id=$1 slice=$2
 shift 2
 exec systemd-run --user --scope --quiet --collect --slice="$slice" --unit="app-$app_id-$$.scope" -- "$@"
 """
-USAGE = "usage: distractions open [--app] [http(s)-url | list entry | catalog name] [browser flags...]"
+USAGE = "usage: distractions open [--app] [http(s)-url | file-or-about-url | local file | list entry | catalog name] [browser flags...]"
 
 _EXEC_LINE = re.compile(r"^\s*Exec\s*=\s*(.*?)\s*$")
 _FIELD_CODE = re.compile(r"%(.)")
 _KEY_ESCAPES = {"s": " ", "n": "\n", "t": "\t", "r": "\r", "\\": "\\"}
+# What `xdg-settings set default-web-browser` hands this handler beside http(s).
+# Anything else (`javascript:`, `data:`, `mailto:`) is refused, never passed on blind.
+FORWARDED_SCHEMES = ("file", "about")
 _SCHEME = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
 
@@ -202,17 +207,39 @@ def _entry_target(entry, restricted):
     return Target("web", url=url, entry=entry, restricted=restricted)
 
 
+def _file_url(path):
+    """The absolute, percent-encoded `file://` URL of an existing regular file, else None.
+
+    The test follows a symlink, since the browser opens whatever the link
+    reaches; the file itself is never opened. The directory is resolved on the
+    filesystem, because a browser collapses `..` in a URL lexically and would
+    miss a symlinked directory; the name stays as given.
+    """
+    try:
+        if _CONTROL.search(path) or not os.path.isfile(path):
+            return None
+        head, name = os.path.split(path)
+        full = os.path.join(os.path.realpath(head or os.curdir), name)
+    except (OSError, ValueError):
+        return None
+    return "file://" + quote(os.fsencode(full))
+
+
 def resolve_target(arg, exp, cat):
     """A Target for `arg`, or None when it is unusable (exit 2 territory).
 
-    An argument carrying a URL scheme is a URL and nothing else; only http(s)
-    resolves. Otherwise a list entry name, otherwise a catalog name, which
-    launches unrestricted.
+    An argument carrying a URL scheme is a URL and nothing else: http(s)
+    resolves against the list, `file` and `about` always forward, every other
+    scheme is refused. Otherwise a list entry name, otherwise a catalog name,
+    which launches unrestricted, otherwise an existing regular file, which
+    forwards as its `file://` URL.
     """
     arg = (arg or "").strip()
     if not arg:
         return None
     if _SCHEME.match(arg):
+        if arg.split(":", 1)[0].lower() in FORWARDED_SCHEMES:
+            return None if _CONTROL.search(arg) else Target("forward", url=arg, explicit_url=True)
         host = _url_host(arg)
         if host is None:
             return None
@@ -227,7 +254,8 @@ def resolve_target(arg, exp, cat):
     if name is not None:
         entry = catalog.expand_entry(name)
         return _entry_target(entry, False) if entry else None
-    return None
+    url = _file_url(arg)
+    return Target("forward", url=url, explicit_url=True) if url else None
 
 
 # --- desktop entries ---------------------------------------------------------
@@ -810,7 +838,8 @@ def split_args(argv):
 def open_target(argv):
     """0 when something was launched or forwarded, 1 when nothing could be, 2 for a malformed target.
 
-    No target forwards bare; an unlisted URL forwards, as an app window with
+    No target forwards bare; an unlisted URL, a `file:` or `about:` URL, and a
+    local file forward, as an app window with
     `--app`; a listed or catalog target opens in the space, where `--app`
     changes nothing (the space always opens app windows) and the browser
     flags are not applied.
