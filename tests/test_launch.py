@@ -412,6 +412,8 @@ class LaunchTests(unittest.TestCase):
         (work / "YouTube").write_text("<p>", encoding="utf-8")
         (work / " t\tn\n.html ").write_text("<p>", encoding="utf-8")
         (work / "t\tn\n.html").write_text("<p>", encoding="utf-8")
+        (work / "  ").write_text("<p>", encoding="utf-8")
+        (work / " file:page").write_text("<p>", encoding="utf-8")
         os.mkfifo(work / "fifo")
         base = "file://" + quote(str(work))
         cases = (
@@ -422,6 +424,8 @@ class LaunchTests(unittest.TestCase):
             ("dotted", "./sub/../YouTube", f"{base}/YouTube"),
             # A file name is taken whole: edge whitespace and control characters are part of it.
             ("edge whitespace", " t\tn\n.html ", f"{base}/%20t%09n%0A.html%20"),
+            ("whitespace only", "  ", f"{base}/%20%20"),
+            ("scheme behind a space", " file:page", f"{base}/%20file%3Apage"),
         )
         for n, (label, arg, want) in enumerate(cases, start=1):
             with self.subTest(label):
@@ -431,7 +435,7 @@ class LaunchTests(unittest.TestCase):
         self.assertFalse(self.run_log.exists())
         # R3 errors: not there, a directory, a fifo, a dangling link: usage, exit 2, nothing launched.
         (work / "dangling").symlink_to(work / "gone")
-        for arg in ("missing.html", "sub", "fifo", "dangling", str(work)):
+        for arg in ("missing.html", "sub", "fifo", "dangling", str(work), " ", " about:blank"):
             with self.subTest(refused=arg):
                 r = self._run_in(work, "open", arg)
                 self.assertEqual(r.returncode, 2)

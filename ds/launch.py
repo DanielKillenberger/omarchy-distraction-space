@@ -237,13 +237,13 @@ def resolve_target(arg, exp, cat):
     """
     raw = arg or ""
     arg = raw.strip()
-    if not arg:
+    if not raw:
         return None
-    if _SCHEME.match(arg):
-        if arg.split(":", 1)[0].lower() in FORWARDED_SCHEMES:
-            # As given: only leading whitespace, which no URL starts with, is dropped.
-            url = raw.lstrip()
-            return None if _CONTROL.search(url) else Target("forward", url=url, explicit_url=True)
+    forwarded = arg.split(":", 1)[0].lower() in FORWARDED_SCHEMES
+    if _SCHEME.match(raw) and forwarded:
+        return None if _CONTROL.search(raw) else Target("forward", url=raw, explicit_url=True)
+    # Behind leading whitespace `file:` is no URL as given; it can still be a file name.
+    if _SCHEME.match(arg) and not forwarded:
         host = _url_host(arg)
         if host is None:
             return None
