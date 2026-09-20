@@ -1509,7 +1509,7 @@ def _render_entry(entry: dict, cfg: dict, handler: str | None) -> str:
         f"Name={name}",
         f"Comment={name} in the distraction space",
         f"Exec={exec_line}",
-        f"Icon={entry.get('desktop') or _icon_name(name)}",
+        f"Icon={entry.get('icon') or entry.get('desktop') or _icon_name(name)}",
         "Terminal=false",
         "StartupNotify=true",
     ]

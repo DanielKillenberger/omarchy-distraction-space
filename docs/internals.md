@@ -134,7 +134,7 @@ Under `~/.local/state/omarchy/distraction-space/`, honoring `$XDG_STATE_HOME`:
 |---|---|---|
 | `lock.json` | `lock` and `unlock` only | `{"locked": true, "since": "<iso>", "until": "<iso>\|null", "purpose": "<text>"}` |
 | `state.json` | Listener, on every change; the bar watches this | `{"locked": false, "until": null, "purpose": "", "on_space": false, "site_block": "on", "listener_pid": 1234, "hold": true, "held": {"Telegram": 3}, "notification_hold": "on", "pass_through": "on", "links": "on", "browser": null, "released": {"0x55d1c0a2b3c0": "<iso>"}, "launcher_refresh": "ok", "observed_at": {"site_block": "<iso>", "notification_hold": "<iso>", "links": "<iso>"}, "updated": "<iso>"}` |
-| `expansion.json` | Listener after every successful config load or reload | The last validated expansion (`name`, `classes`, `hosts`, `senders`, `audio`, `desktop` per entry, plus `keep_reachable`, `nudges`, and `site_block.enabled`); a version 2 file reads with `desktop: null` and the block enabled |
+| `expansion.json` | Listener after every successful config load or reload | The last validated expansion (`name`, `classes`, `hosts`, `senders`, `audio`, `desktop`, `icon` per entry, plus `keep_reachable`, `nudges`, and `site_block.enabled`); a version 2 file reads with `desktop: null` and the block enabled |
 | `entries.json` | `setup` | `{"files": [{"path": "<applications-dir>/<file>.desktop", "backup": "<state-dir>/entries-backup/<file>.desktop\|null"}], "previous_handler": "<id>.desktop\|null"}` |
 | `entries-backup/` | `setup` | The files that were at a launcher entry's path before setup wrote there, moved whole |
 | `hypr.json` | `setup` | `{"path": "<config>/hypr/distraction-space.lua", "digest": "<sha256>", "newline_added": false, "sync": {"state": "written\|edited\|linked\|pasted\|skipped", "detail": "<path or reason>"}}`; `path` and `digest` name the written file so remove can take it back, `newline_added` says setup had to end hyprland.lua with a newline first, and `sync` is how the last run ended: `status` lists a `pasted` outcome as a pending service and a `skipped` one as an unknown service, each with its reason |
@@ -168,7 +168,7 @@ The `lock` and `unlock` commands run their own hooks because they write `lock.js
 
 ## Catalog shapes
 
-`handoff.json`, beside it, lists the shipped handoff rules in the shape the config's `handoff.rules` takes, which the reference describes. `catalog.json` maps a product name to its identity in one of three shapes. Expansion produces `classes`: the native `class` when present, plus, for every host-bearing entry, the web-app class `^chrome-<host>__.*$` built from its first host (the `pwa` host when given). Containment does not set a rule for that web-app class any more, but `hold.py`, `launch.py`, and the adoption layer still read the host out of it. A native product may carry `desktop`, the id of its system desktop entry without the suffix; `open` runs that entry and `setup` shadows it.
+`handoff.json`, beside it, lists the shipped handoff rules in the shape the config's `handoff.rules` takes, which the reference describes. `catalog.json` maps a product name to its identity in one of three shapes. Expansion produces `classes`: the native `class` when present, plus, for every host-bearing entry, the web-app class `^chrome-<host>__.*$` built from its first host (the `pwa` host when given). Containment does not set a rule for that web-app class any more, but `hold.py`, `launch.py`, and the adoption layer still read the host out of it. A native product may carry `desktop`, the id of its system desktop entry without the suffix; `open` runs that entry and `setup` shadows it. `icon` is optional when that id is not the icon name: Arch's `signal-desktop` package installs `signal.desktop` with `Icon=signal-desktop`.
 
 Native, with the `pwa` host, empty `hosts` so a messaging app is never blocked, `senders` for the hold, `audio` for the mute, and `desktop` for the launch:
 
@@ -195,7 +195,7 @@ Hosts only, moved as a web app of the distraction profile and blocked outside it
 "YouTube": {"hosts": ["youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"]}
 ```
 
-Telegram therefore expands to `classes: ["org.telegram.desktop", "^chrome-web\\.telegram\\.org__.*$"]` and `desktop: "org.telegram.desktop"`; Discord and YouTube expand with `desktop: null`. A `class=<regex>` list entry expands to one class and no hosts.
+Telegram therefore expands to `classes: ["org.telegram.desktop", "^chrome-web\\.telegram\\.org__.*$"]` and `desktop: "org.telegram.desktop"`; Signal expands with `desktop: "signal"` and `icon: "signal-desktop"`; Discord and YouTube expand with `desktop: null`. A `class=<regex>` list entry expands to one class and no hosts.
 
 ## Config writes and migration
 

@@ -763,6 +763,16 @@ class SetupTests(unittest.TestCase):
         r = self.box.run("site-block", "off")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIs(json.loads(self.box.config_file.read_text(encoding="utf-8"))["site_block"]["enabled"], False)
+    def test_signal_wrapper_is_named_for_the_system_entry(self):
+        self._cfg(list=["Signal"])
+        self.assertEqual(self._install(), (0, ""))
+        wrapper = self.apps / "signal.desktop"
+        self.assertTrue(wrapper.is_file())
+        self.assertFalse((self.apps / "signal-desktop.desktop").exists())
+        text = wrapper.read_text(encoding="utf-8")
+        self.assertIn(f"Exec={ROOT / 'distractions'} open Signal\n", text)
+        self.assertIn("Icon=signal-desktop\n", text)
+        self.assertEqual(self._entries()["files"][0]["path"], str(wrapper))
 
     def test_entries_shadow_the_omarchy_web_app_and_remove_restores_it(self):
         omarchy = self.apps / "YouTube.desktop"

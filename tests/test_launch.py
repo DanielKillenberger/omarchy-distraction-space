@@ -756,6 +756,28 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(log.count("not network-restricted"), 1)
         self.assertIn("Discord", log)
 
+    def test_signal_opens_the_system_signal_entry_not_the_binary_named_wrapper(self):
+        # Arch ships signal.desktop; a wrapper named signal-desktop.desktop
+        # does not shadow it and skip_own finds nothing to launch.
+        self.box.fake_bin("signal-desktop", NOOP)
+        self._desktop("signal", "signal-desktop -- %u")
+        state.write_expansion({
+            "list": [catalog.expand_entry("Signal")],
+            "keep_reachable": [], "nudges": {"app_banner": True, "block_page": True},
+            "site_block": {"enabled": True},
+        })
+        r = self.box.run("open", "Signal")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches(), [SLICE_PREFIX + ["signal-desktop", "--"]])
+        own = self.data_home / "applications"
+        own.mkdir(parents=True, exist_ok=True)
+        (own / "signal.desktop").write_text(
+            f"[Desktop Entry]\nType=Application\nName=Signal\nExec={ROOT / 'distractions'} open Signal\n",
+            encoding="utf-8")
+        r = self.box.run("open", "Signal")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches(2)[1], SLICE_PREFIX + ["signal-desktop", "--"])
+
     def test_auto_pick_behind_the_plugin_handler_uses_the_recorded_browser(self):
         # After setup the default is this plugin's own handler; the pick must
         # follow the recorded previous browser, not fall through to chromium.
