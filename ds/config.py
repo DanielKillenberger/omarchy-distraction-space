@@ -278,10 +278,13 @@ def _seed():
     return cfg
 
 
-# The one default that stays out of the file until something sets it: setup
-# asks about links exactly once, and "asked" has to survive every other write
-# (a `list add`, a menu save) between the first load and the answer.
+# The two defaults that stay out of the file until something sets them: setup
+# asks about links and about site blocking exactly once each, and "asked" has to
+# survive every other write (a `list add`, a menu save) between the first load
+# and the answer.
 LINKS_KEY = "open_links_in_space"
+SITE_BLOCK_KEY = "site_block.enabled"
+ASK_ONCE_KEYS = (LINKS_KEY, SITE_BLOCK_KEY)
 
 
 def save(cfg):
@@ -289,14 +292,56 @@ def save(cfg):
     state.write_json(config_path(), cfg)
 
 
-def links_answered() -> bool:
-    """Whether the config file itself states `open_links_in_space`.
+def _stated(raw, dotkey) -> bool:
+    """Whether `raw` itself carries `dotkey`, however deep, rather than defaulting it."""
+    cur = raw
+    for part in dotkey.split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return False
+        cur = cur[part]
+    return True
 
-    In memory the key is always present at its default; in the file it appears
-    once setup's question was answered or `config set` named it.
+
+def answered(dotkey) -> bool:
+    """Whether the config file itself states `dotkey`.
+
+    In memory these keys are always present at their default; in the file one
+    appears once setup's question was answered or something named it.
     """
-    raw = _read_json(config_path())
-    return isinstance(raw, dict) and LINKS_KEY in raw
+    return _stated(_read_json(config_path()), dotkey)
+
+
+def links_answered() -> bool:
+    return answered(LINKS_KEY)
+
+
+def site_block_answered() -> bool:
+    """Whether the file states `site_block.enabled`.
+
+    Only half the answer: `ds/setup.py` also counts an installed firewall helper,
+    since a machine that has one said yes under the setup that never asked.
+    """
+    return answered(SITE_BLOCK_KEY)
+
+
+def _drop(cfg, dotkey) -> None:
+    """Remove `dotkey` from `cfg`, leaving every other key as it is."""
+    parts = dotkey.split(".")
+    cur = cfg
+    for part in parts[:-1]:
+        cur = cur.get(part) if isinstance(cur, dict) else None
+        if not isinstance(cur, dict):
+            return
+    cur.pop(parts[-1], None)
+
+
+def _without(cfg, dotkeys):
+    """`cfg` minus each dotkey, with every top-level section copied first, so the
+    caller's dict keeps what this drops. The ask-once keys are one section deep."""
+    out = {k: (dict(v) if isinstance(v, dict) else v) for k, v in cfg.items()}
+    for dotkey in dotkeys:
+        _drop(out, dotkey)
+    return out
 
 
 def set_links(value: bool):
@@ -305,6 +350,11 @@ def set_links(value: bool):
         cfg[LINKS_KEY] = value
 
     return update(answer)
+
+
+def set_site_block(value: bool):
+    """Answer the site-block question: the key written explicitly, every other key kept as it is."""
+    return update(lambda cfg: set_value(cfg, SITE_BLOCK_KEY, value))
 
 
 def _read():
@@ -362,19 +412,19 @@ def update(fn, timeout=None):
     with open(lock_path, "a+", encoding="utf-8") as lf:
         _acquire(lf, timeout)
         try:
-            answered = links_answered()
-            cfg = _read()
-            if not answered:
-                # `fn` sees the file's own keys: an assignment, whatever the
-                # value, is the answer; an untouched default stays out of the file.
-                del cfg[LINKS_KEY]
+            raw, cfg = _read_json(config_path()), _read()
+            for key in ASK_ONCE_KEYS:
+                if not _stated(raw, key):
+                    # `fn` sees the file's own keys: an assignment, whatever the
+                    # value, is the answer; an untouched default stays out of the file.
+                    _drop(cfg, key)
             result = fn(cfg)
             if result is not None:
                 cfg = result
-            answered = LINKS_KEY in cfg
+            unanswered = [key for key in ASK_ONCE_KEYS if not _stated(cfg, key)]
             cfg = _merge(cfg)
             validate(cfg)
-            state.write_json(config_path(), cfg if answered else {k: v for k, v in cfg.items() if k != LINKS_KEY})
+            state.write_json(config_path(), _without(cfg, unanswered))
         finally:
             fcntl.flock(lf, fcntl.LOCK_UN)
     try:
@@ -442,7 +492,15 @@ def cmd_config(args):
             print(json.dumps(get(load(), args.key)))
             return 0
         if cmd == "set":
-            update(lambda cfg: set_value(cfg, args.key, _parse_value(args.value)))
+            value = _parse_value(args.value)
+            update(lambda cfg: set_value(cfg, args.key, value))
+            if args.key == SITE_BLOCK_KEY and value is True:
+                # A config write never asks for a password, so switching site
+                # blocking on here is a choice recorded and nothing more; the
+                # command that finishes the job is the one that can ask.
+                from ds import setup
+                if not setup.helper_installed():
+                    print(f"site blocking: not set up -- {setup.SITE_BLOCK_ON_HINT}")
             return 0
         if cmd == "edit":
             load()

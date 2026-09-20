@@ -11,7 +11,8 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-_ENV_KEYS = ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR", "PATH")
+_ENV_KEYS = ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_RUNTIME_DIR",
+             "PATH", "PYTHONPATH")
 
 
 class Tty(io.StringIO):
@@ -43,9 +44,58 @@ class Sandbox:
             p.mkdir()
         (self.config / "omarchy").mkdir()
         (self.state / "omarchy" / "distraction-space").mkdir(parents=True)
+        # The two root-owned destinations are module constants with no environment
+        # override, so a sandbox moves them the only way there is: into the module,
+        # in this process and in every `distractions` child. Without that, whether
+        # the firewall helper is installed would be a fact about the machine running
+        # the suite, and every test that asks would answer differently on a
+        # developer's box and on CI.
+        self.root = base / "root"
+        self.wrapper = self.root / "libexec" / "omarchy-distraction-space" / "distractions-nft"
+        self.sudoers = self.root / "etc" / "sudoers.d" / "omarchy-distraction-space"
+        for p in (self.wrapper.parent, self.sudoers.parent):
+            p.mkdir(parents=True)
+        self.site = base / "pysite"
+        self.site.mkdir()
+        self._site_lines: list[str] = []
+        self.install_helper()
+        self._write_site()
         self._orig_env: dict[str, str | None] | None = None
+        self._orig_destinations: tuple[str, str] | None = None
         self._path_inserted = False
         self._closed = False
+
+    def install_helper(self, installed: bool = True) -> None:
+        """Whether this sandbox looks like a machine whose setup installed the helper.
+
+        Installed is the default, so a test that says nothing about site blocking
+        behaves as it did before the question existed.
+        """
+        if installed:
+            self.wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            self.wrapper.chmod(0o755)
+        elif self.wrapper.exists() or self.wrapper.is_symlink():
+            self.wrapper.unlink()
+
+    def _write_site(self) -> None:
+        """A `sitecustomize` the `distractions` children import, and nothing else does.
+
+        Guarding on the program name keeps the fake binaries on PATH -- which run
+        far more often than the CLI -- from importing the plugin at all.
+        """
+        body = [
+            f"sys.path.insert(0, {str(ROOT)!r})",
+            "from ds import setup",
+            f"setup.WRAPPER_DEFAULT = {str(self.wrapper)!r}",
+            f"setup.SUDOERS_DEFAULT = {str(self.sudoers)!r}",
+            *self._site_lines,
+        ]
+        (self.site / "sitecustomize.py").write_text(
+            "import os, sys\n"
+            "if os.path.basename(sys.argv[0] or '') == 'distractions':\n"
+            + "".join(f"    {line}\n" for line in body),
+            encoding="utf-8",
+        )
 
     def cleanup(self) -> None:
         if self._closed:
@@ -74,6 +124,7 @@ class Sandbox:
             XDG_STATE_HOME=str(self.state),
             XDG_RUNTIME_DIR=str(self.runtime),
             PATH=path,
+            PYTHONPATH=str(self.site),
         )
         if extra:
             for k, v in extra.items():
@@ -91,8 +142,16 @@ class Sandbox:
         if root not in sys.path:
             sys.path.insert(0, root)
             self._path_inserted = True
+        from ds import setup
+        if self._orig_destinations is None:
+            self._orig_destinations = (setup.WRAPPER_DEFAULT, setup.SUDOERS_DEFAULT)
+        setup.WRAPPER_DEFAULT, setup.SUDOERS_DEFAULT = str(self.wrapper), str(self.sudoers)
 
     def restore_env(self) -> None:
+        if self._orig_destinations is not None:
+            from ds import setup
+            setup.WRAPPER_DEFAULT, setup.SUDOERS_DEFAULT = self._orig_destinations
+            self._orig_destinations = None
         if self._orig_env is None:
             return
         for k, v in self._orig_env.items():
@@ -166,16 +225,9 @@ class Sandbox:
         return holder
 
     def batch_deadline_env(self, seconds: float) -> dict[str, str]:
-        site = self.runtime / "pysite"
-        site.mkdir(exist_ok=True)
-        (site / "sitecustomize.py").write_text(
-            "import sys\n"
-            f"sys.path.insert(0, {str(ROOT)!r})\n"
-            "from ds import net\n"
-            f"net.BATCH_DEADLINE = {float(seconds)!r}\n",
-            encoding="utf-8",
-        )
-        return {"PYTHONPATH": str(site)}
+        self._site_lines = ["from ds import net", f"net.BATCH_DEADLINE = {float(seconds)!r}"]
+        self._write_site()
+        return {"PYTHONPATH": str(self.site)}
 
     def wait_file(self, path, timeout: float = 5.0) -> Path:
         path = Path(path)

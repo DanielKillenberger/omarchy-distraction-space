@@ -408,6 +408,32 @@ class SetupTests(unittest.TestCase):
         self.box.config_file.write_text(json.dumps(raw) + "\n", encoding="utf-8")
         return raw
 
+    def _unanswered_site_block(self):
+        """The config file before setup ever asked about site blocking: the switch absent.
+
+        The destinations this sandbox points at hold no helper either, which is
+        the other half of unanswered.
+        """
+        raw = json.loads(self.box.config_file.read_text(encoding="utf-8"))
+        raw["site_block"] = {k: v for k, v in raw["site_block"].items() if k != "enabled"}
+        self.box.config_file.write_text(json.dumps(raw) + "\n", encoding="utf-8")
+        self.assertFalse(setup.helper_installed())
+        return raw
+
+    def _plant_helper(self):
+        """A machine whose earlier setup installed the helper, before this one runs."""
+        os.chmod(self.prefix, 0o755)
+        self.wrapper.parent.mkdir(parents=True, exist_ok=True)
+        self.wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        os.chmod(self.prefix, 0o555)
+
+    def _site_block(self, on):
+        """turn_site_block() with its own streams: `(rc, stdout, stderr)`."""
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = setup.turn_site_block(on)
+        return rc, out.getvalue(), err.getvalue()
+
     def _config(self):
         return json.loads(self.box.config_file.read_text(encoding="utf-8"))
 
@@ -484,7 +510,9 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("--yes never asks for a password", err)
         self.assertFalse(self.wrapper.exists())
-        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+        # Only site blocking went without: the rest of the run is not its dependant.
+        self.assertIn("site blocking is not set up", err)
+        self.assertTrue((self.apps / setup.HANDLER_ID).is_file())
         self.assertIs(self._config()["open_links_in_space"], True)
         with patch("sys.stdin", ClosedTty()):
             self.assertEqual(self._install(), (0, ""))
@@ -499,7 +527,7 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertIn("a setup without a terminal never asks for a password", err)
         self.assertFalse(self.wrapper.exists())
-        self.assertFalse((self.apps / setup.HANDLER_ID).exists())
+        self.assertTrue((self.apps / setup.HANDLER_ID).is_file())
 
     def test_yes_and_a_non_terminal_never_prompt_and_print_the_explanation_as_a_notice(self):
         # A terminal run lays down the root files once; the quiet runs find them
@@ -519,6 +547,142 @@ class SetupTests(unittest.TestCase):
                 self.assertEqual(self._config(), {**before, "open_links_in_space": True})
                 self.assertEqual(self._default(), setup.HANDLER_ID)
                 self.assertEqual(self._links(), "on")
+
+    def test_setup_asks_about_site_blocking_once_before_the_password_and_a_rerun_prints_the_choice(self):
+        before = self._unanswered_site_block()
+        os.environ["DS_SUDO_DENY"] = "1"
+        with patch("sys.stdin", Tty("\n")):
+            rc, _err = self._install()
+        # The refused transaction ran after the question, and the answer was in
+        # the file before anything asked for a password.
+        self.assertEqual(rc, 1)
+        self.assertTrue(self._sudo_lines())
+        self.assertEqual(self.stdout.count(setup.SITE_BLOCK_QUESTION), 1)
+        self.assertIn("distractions site-block on", self.stdout)
+        self.assertEqual(self._config(), {**before, "site_block": {**before["site_block"], "enabled": True}})
+        os.environ.pop("DS_SUDO_DENY")
+        with patch("sys.stdin", ClosedTty()):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertNotIn(setup.SITE_BLOCK_QUESTION, self.stdout)
+        self.assertIn("site blocking: on -- change it with: distractions site-block off", self.stdout)
+        self.assertTrue(self.wrapper.is_file())
+
+    def test_a_site_block_answer_that_cannot_be_recorded_stops_setup_before_anything(self):
+        before = self._unanswered_site_block()
+        with patch("sys.stdin", Tty("y\n")), \
+                patch.object(setup.config, "set_site_block", side_effect=setup.config.Busy("config busy")):
+            rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertIn("cannot record the answer", err)
+        self.assertEqual(self._sudo_lines(), [])
+        self.assertIsNone(self._entries())
+        self.assertEqual(self._config(), before)
+
+    def test_answering_no_installs_every_user_level_step_and_asks_for_no_password(self):
+        self._unanswered_site_block()
+        with patch("sys.stdin", Tty("n\n")):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self._sudo_lines(), [])
+        self.assertFalse(self.wrapper.exists())
+        self.assertIs(self._config()["site_block"]["enabled"], False)
+        self.assertTrue((self.apps / setup.HANDLER_ID).is_file())
+        self.assertTrue(self.unit.is_file())
+        status = state.status()
+        self.assertEqual(status["site_block"], "off")
+        self.assertEqual(status["health"]["services"]["site_block"]["state"], "disabled")
+
+    def test_a_cancelled_password_keeps_the_answer_and_installs_everything_else(self):
+        os.environ["DS_SUDO_DENY"] = "1"
+        rc, err = self._install()
+        self.assertEqual(rc, 1)
+        self.assertFalse(self.wrapper.exists())
+        self.assertIn(setup.SITE_BLOCK_ON_HINT, err)
+        self.assertIs(self._config()["site_block"]["enabled"], True)
+        self.assertTrue((self.apps / setup.HANDLER_ID).is_file())
+        self.assertTrue(self.unit.is_file())
+        # Saved on with no helper is not off: status says so, and names the way back.
+        self.assertEqual(state.status()["site_block"], state.SITE_BLOCK_NOT_SET_UP)
+
+    def test_an_installed_helper_is_an_answered_yes_and_is_never_asked_again(self):
+        self._unanswered_site_block()
+        self._plant_helper()
+        # ClosedTty is a terminal where a question would be a test failure.
+        with patch("sys.stdin", ClosedTty()):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertIn("site blocking: on -- change it with: distractions site-block off", self.stdout)
+        # The out-of-date helper was updated, and nothing was written to the file:
+        # having one is the answer, so the update neither asks nor records.
+        self.assertEqual(self.wrapper.read_bytes(), (ROOT / "distractions-nft").read_bytes())
+        self.assertNotIn("enabled", self._config()["site_block"])
+
+    def test_yes_and_a_non_terminal_leave_the_site_block_question_unanswered(self):
+        for name, assume_yes, stdin in (("no terminal", False, io.StringIO("")), ("--yes", True, ClosedTty())):
+            with self.subTest(name):
+                before = self._unanswered_site_block()
+                with patch("sys.stdin", stdin):
+                    self.assertEqual(self._install(assume_yes=assume_yes), (0, ""))
+                self.assertIn(f"site blocking: not set up ({'--yes' if assume_yes else 'no terminal to ask'}) "
+                              f"-- {setup.SITE_BLOCK_ON_HINT}", self.stdout)
+                self.assertEqual(self._sudo_lines(), [])
+                self.assertEqual(self._config(), before)
+                self.assertTrue((self.apps / setup.HANDLER_ID).is_file())
+
+    def test_site_block_on_records_yes_and_installs_the_helper(self):
+        self._unanswered_site_block()
+        with patch("sys.stdin", Tty("")):
+            rc, out, _err = self._site_block(True)
+        self.assertEqual(rc, 0)
+        self.assertIs(self._config()["site_block"]["enabled"], True)
+        self.assertEqual(self.wrapper.read_bytes(), (ROOT / "distractions-nft").read_bytes())
+        self.assertIn("site blocking: on", out)
+
+    def test_site_block_off_records_no_and_keeps_the_helper_for_a_free_turn_on(self):
+        with patch("sys.stdin", Tty("")):
+            self.assertEqual(self._site_block(True)[0], 0)
+        asked = len(self._sudo_lines())
+        rc, out, _err = self._site_block(False)
+        self.assertEqual(rc, 0)
+        self.assertIs(self._config()["site_block"]["enabled"], False)
+        self.assertIn("site blocking: off", out)
+        # The helper and the grant stay; `setup --remove` is what takes them away,
+        # so turning it back on asks for no second password and needs no terminal.
+        self.assertTrue(self.wrapper.is_file())
+        with patch("sys.stdin", io.StringIO("")):
+            self.assertEqual(self._site_block(True)[0], 0)
+        self.assertEqual(len(self._sudo_lines()), asked)
+        self.assertIs(self._config()["site_block"]["enabled"], True)
+
+    def test_site_block_on_without_a_terminal_and_without_a_helper_installs_nothing(self):
+        before = self._unanswered_site_block()
+        with patch("sys.stdin", io.StringIO("")):
+            rc, _out, err = self._site_block(True)
+        self.assertEqual(rc, 1)
+        self.assertIn("needs a terminal", err)
+        self.assertEqual(self._sudo_lines(), [])
+        self.assertFalse(self.wrapper.exists())
+        self.assertEqual(self._config(), before)
+
+    def test_site_block_on_whose_transaction_fails_exits_1_with_the_answer_left_on(self):
+        self._unanswered_site_block()
+        os.environ["DS_SUDO_DENY"] = "1"
+        with patch("sys.stdin", Tty("")):
+            rc, _out, err = self._site_block(True)
+        self.assertEqual(rc, 1)
+        self.assertIn(setup.SITE_BLOCK_ON_HINT, err)
+        self.assertFalse(self.wrapper.exists())
+        self.assertIs(self._config()["site_block"]["enabled"], True)
+
+    def test_site_block_wants_on_or_off_and_exits_2_otherwise(self):
+        for args in (("site-block",), ("site-block", "sideways")):
+            with self.subTest(args=args):
+                r = self.box.run(*args)
+                self.assertEqual(r.returncode, 2, r.stderr)
+                self.assertIn("usage", r.stderr)
+        # The sandbox CLI reaches the command itself, not just the parser: its
+        # own destinations hold a helper, so `off` is a plain recorded answer.
+        r = self.box.run("site-block", "off")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIs(json.loads(self.box.config_file.read_text(encoding="utf-8"))["site_block"]["enabled"], False)
 
     def test_entries_shadow_the_omarchy_web_app_and_remove_restores_it(self):
         omarchy = self.apps / "YouTube.desktop"
@@ -1026,7 +1190,8 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(writable.exists())
         self.assertFalse(sudoers.exists())
         self.assertEqual(self._sudo_lines(), [])
-        self.assertEqual(self._rescan_text(), "")
+        # The refusal is the root step's alone; every user-level step still ran.
+        self.assertIn("shell rescanPlugins", self._rescan_text())
 
     def test_environment_never_moves_the_destinations(self):
         with patch.dict(os.environ, {"DS_WRAPPER_DEST": "/etc/shadow", "DS_SUDOERS_DEST": "/etc/sudoers"}):
@@ -1098,7 +1263,8 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(rc, 1)
         self.assertFalse(self.wrapper.exists())
         self.assertFalse(self.sudoers.exists())
-        self.assertEqual(self._rescan_text(), "")
+        # A cancelled password costs site blocking; the rest of the run finished.
+        self.assertIn("shell rescanPlugins", self._rescan_text())
 
     def test_failed_rescan_leaves_files_and_exits_1(self):
         self.box.fake_bin("omarchy-shell", SHELL_FAIL)
@@ -1263,7 +1429,7 @@ class SetupTests(unittest.TestCase):
         # The grant is checked first, so a rejection costs the wrapper nothing either.
         self.assertFalse(self.wrapper.exists())
         self.assertEqual(self._staged(), [])
-        self.assertEqual(self._rescan_text(), "")
+        self.assertIn("shell rescanPlugins", self._rescan_text())
 
     def test_rejected_grant_leaves_the_prior_grant_intact(self):
         self.assertEqual(setup.install(), 0)
@@ -1322,13 +1488,12 @@ class SetupTests(unittest.TestCase):
             fake_root / "install" / "sudoers.omarchy-distraction-space",
         )
         (fake_root / "distractions-nft").symlink_to(ROOT / "distractions-nft")
-        with patch.object(setup, "ROOT", fake_root):
+        with patch.object(setup, "ROOT", fake_root), contextlib.redirect_stderr(io.StringIO()):
             rc = setup.install()
         self.assertEqual(rc, 1)
         self.assertEqual(self._sudo_lines(), [])
         self.assertFalse(self.wrapper.exists())
         self.assertFalse(self.sudoers.exists())
-        self.assertEqual(self._rescan_text(), "")
 
     def _cli_site(self) -> dict[str, str]:
         """Environment for the real CLI: the sandbox destinations patched into the

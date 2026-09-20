@@ -6,6 +6,11 @@ import subprocess
 from ds import catalog, config, hypr, state
 
 CHECK, UNCHECK = "󰄲", "󰄱"
+SITE_BLOCK_KEY = "site_block.enabled"
+# Omarchy's own menus hand a command that needs a password to this launcher. The
+# menu never handles a password itself: no polkit rule, no graphical prompt, and
+# no second privileged path for a reviewer to audit.
+FLOATING_TERMINAL = "omarchy-launch-floating-terminal-with-presentation"
 _BOOL = (
     "nudges.app_banner", "nudges.block_page",
     "mute_sounds", "lock.ask_purpose",
@@ -123,6 +128,48 @@ def prompt_reason(min_chars):
     return input(f"Reason ({min_chars}+ characters)" if min_chars else "Reason", width=900)
 
 
+def _toggle(cfg, key):
+    """Flip a bool inside a config update.
+
+    A key setup asks about once is absent from the view an update hands out
+    until it has been answered, and answering it is exactly what this does, so
+    a missing one flips from its default rather than raising.
+    """
+    try:
+        current = config.get(cfg, key)
+    except KeyError:
+        current = config.get(config.DEFAULTS, key)
+    config.set_value(cfg, key, not current)
+
+
+def _site_block_command() -> str:
+    from ds import setup
+    return f"{setup.ROOT / 'distractions'} site-block on"
+
+
+def _turn_site_block_on() -> bool:
+    """Turn site blocking on from the menu, in a terminal when a password is needed.
+
+    With the helper already installed this is an ordinary config write and takes
+    effect at once, which is what True reports. With no helper the turn-on
+    command has to ask for a password, so it runs in Omarchy's floating
+    terminal, where one can be typed, and this menu records nothing itself; a
+    launcher that is missing or will not start is a notice naming the command,
+    never silence.
+    """
+    from ds import setup
+    if setup.helper_installed():
+        return _mutate(lambda c: config.set_value(c, SITE_BLOCK_KEY, True))
+    command = _site_block_command()
+    try:
+        proc = subprocess.run([FLOATING_TERMINAL, command], capture_output=True, text=True)
+    except OSError:
+        proc = None
+    if proc is None or proc.returncode != 0:
+        notify("Site blocking needs a terminal", f"Run: {command}")
+    return False
+
+
 def _locked():
     try:
         from ds import lock
@@ -215,6 +262,10 @@ def _fmt(cfg, key):
 def _setting_status(cfg, key, status):
     saved = f"Saved: {_fmt(cfg, key)}"
     health = status["health"]
+    if key == SITE_BLOCK_KEY and status["site_block"] == state.SITE_BLOCK_NOT_SET_UP:
+        # Never set up is a fact about this machine, not an observation the
+        # listener owes us, so it is what the row says however the listener is.
+        return saved + "; " + health["services"]["site_block"]["reason"]
     if health["listener"] != "responsive":
         return saved + "; application pending: listener is " + health["listener"]
     if key == "containment.snap_back":
@@ -259,8 +310,16 @@ def _settings():
             spec = _SETTINGS[i]
             kind, key = spec[0], spec[1]
             if kind == "bool":
-                changed = _mutate(lambda c, key=key: config.set_value(
-                    c, key, not c.get(key, config.DEFAULTS[key]) if key == "open_links_in_space" else not config.get(c, key)))
+                if key == SITE_BLOCK_KEY and not (config.get(cfg, key)
+                                                  and status["site_block"] != state.SITE_BLOCK_NOT_SET_UP):
+                    # The row answers "is site blocking working", so a saved yes
+                    # whose helper never arrived retries rather than switching a
+                    # feature off that was never on. Turning it on may need the
+                    # password the helper install asks for; turning it off never
+                    # does and takes the plain write below.
+                    changed = _turn_site_block_on()
+                else:
+                    changed = _mutate(lambda c, key=key: _toggle(c, key))
                 if changed and key in _V3_LABELS:
                     detail = _setting_status(config.load(), key, state.status())
                     if key == "open_links_in_space":
