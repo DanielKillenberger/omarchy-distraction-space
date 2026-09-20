@@ -380,7 +380,7 @@ class LaunchTests(unittest.TestCase):
         # R1, R2: what the default-browser seat receives beside http(s) goes to the
         # previous handler untouched; the file is never tested for existence.
         state.write_entries({"files": [], "previous_handler": "firefox.desktop"})
-        for n, url in enumerate(("file:///abs/no%20such/page.html#top", "about:blank", "FILE:///abs/p.html"), start=1):
+        for n, url in enumerate(("file:///abs/no%20such/page.html#top", "about:blank", "FILE:///abs/p.html "), start=1):
             with self.subTest(url=url):
                 r = self.box.run("open", url)
                 self.assertEqual(r.returncode, 0, r.stderr)
@@ -410,6 +410,8 @@ class LaunchTests(unittest.TestCase):
         (work / "sub" / odd).write_text("<p>", encoding="utf-8")
         (work / "link.html").symlink_to(work / "sub" / odd)
         (work / "YouTube").write_text("<p>", encoding="utf-8")
+        (work / " t\tn\n.html ").write_text("<p>", encoding="utf-8")
+        (work / "t\tn\n.html").write_text("<p>", encoding="utf-8")
         os.mkfifo(work / "fifo")
         base = "file://" + quote(str(work))
         cases = (
@@ -418,6 +420,8 @@ class LaunchTests(unittest.TestCase):
             # The link's own path is forwarded: the browser opens what it reaches.
             ("symlink", "link.html", f"{base}/link.html"),
             ("dotted", "./sub/../YouTube", f"{base}/YouTube"),
+            # A file name is taken whole: edge whitespace and control characters are part of it.
+            ("edge whitespace", " t\tn\n.html ", f"{base}/%20t%09n%0A.html%20"),
         )
         for n, (label, arg, want) in enumerate(cases, start=1):
             with self.subTest(label):

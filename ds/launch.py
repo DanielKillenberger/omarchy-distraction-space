@@ -216,7 +216,7 @@ def _file_url(path):
     miss a symlinked directory; the name stays as given.
     """
     try:
-        if _CONTROL.search(path) or not os.path.isfile(path):
+        if not os.path.isfile(path):
             return None
         head, name = os.path.split(path)
         full = os.path.join(os.path.realpath(head or os.curdir), name)
@@ -232,14 +232,18 @@ def resolve_target(arg, exp, cat):
     resolves against the list, `file` and `about` always forward, every other
     scheme is refused. Otherwise a list entry name, otherwise a catalog name,
     which launches unrestricted, otherwise an existing regular file, which
-    forwards as its `file://` URL.
+    forwards as its `file://` URL. Names and http(s) URLs are read trimmed;
+    a path is a file name and is taken whole.
     """
-    arg = (arg or "").strip()
+    raw = arg or ""
+    arg = raw.strip()
     if not arg:
         return None
     if _SCHEME.match(arg):
         if arg.split(":", 1)[0].lower() in FORWARDED_SCHEMES:
-            return None if _CONTROL.search(arg) else Target("forward", url=arg, explicit_url=True)
+            # As given: only leading whitespace, which no URL starts with, is dropped.
+            url = raw.lstrip()
+            return None if _CONTROL.search(url) else Target("forward", url=url, explicit_url=True)
         host = _url_host(arg)
         if host is None:
             return None
@@ -254,7 +258,7 @@ def resolve_target(arg, exp, cat):
     if name is not None:
         entry = catalog.expand_entry(name)
         return _entry_target(entry, False) if entry else None
-    url = _file_url(arg)
+    url = _file_url(raw)
     return Target("forward", url=url, explicit_url=True) if url else None
 
 
