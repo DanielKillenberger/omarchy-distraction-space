@@ -2342,6 +2342,25 @@ def _flush_block() -> bool:
     return False
 
 
+def _block_applied(since: str) -> bool:
+    """Whether the listener has reconciled site blocking since `since`.
+
+    The listener writes its observation before it answers the reload, so one
+    read after the answer is enough and nothing has to be polled. The answer
+    itself cannot stand in for this: `ok` also carries link routing and the
+    launcher sync, so a default browser someone else took would otherwise read
+    as site blocking that failed. `on` and `off` are both applied policy --
+    `off` is what a list with no hosts in it correctly reconciles to -- and
+    they are the same two the listener counts as a clean reconcile; anything
+    else, including an observation older than the ask, is not.
+    """
+    st = state.read_state() or {}
+    observed = st.get("observed_at")
+    observed = observed.get("site_block") if isinstance(observed, dict) else None
+    return (st.get("site_block") in ("on", "off")
+            and isinstance(observed, str) and observed >= since)
+
+
 def turn_site_block(on: bool) -> int:
     """`distractions site-block on|off`: the answer recorded, and for `on` the helper installed.
 
@@ -2376,16 +2395,26 @@ def turn_site_block(on: bool) -> int:
     # Recording the answer already asked the listener to re-read, but that was
     # before the helper landed; this is the ask that finds it there, and the
     # listener is what resolves the list and applies the table. Nothing applies
-    # a policy until one does, so a reload nobody answered means this command
-    # did not end with the block on, whatever it recorded: it says so and exits
-    # non-zero rather than reporting an effect that did not happen. Starting a
-    # listener is not this command's job -- Hyprland's autostart and
-    # `distractions listen` own that lifecycle.
-    if not state.request_reload():
+    # a policy until one does, so this command ends with what the listener
+    # recorded rather than with what it was told to do. Starting a listener is
+    # not this command's job -- Hyprland's autostart and `distractions listen`
+    # own that lifecycle, and the line below names them.
+    #
+    # The reload gets the listener's own budget: a reconcile resolves every
+    # listed host and applies the table, which the default two seconds would
+    # time out on while the listener was still working.
+    from ds import listener
+    since = state.now_iso()
+    state.request_reload(timeout=listener._reload_wait())
+    if _block_applied(since):
+        return 0
+    if state.listener_pid() is None:
         print("no listener is running, so nothing is applying it yet: log out and back in, "
               "or run: distractions listen", file=sys.stderr)
-        return 1
-    return 0
+    else:
+        print("the listener could not apply the block; `distractions status` says why",
+              file=sys.stderr)
+    return 1
 
 
 def cmd_site_block(args):

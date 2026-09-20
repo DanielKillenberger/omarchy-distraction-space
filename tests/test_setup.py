@@ -432,16 +432,28 @@ class SetupTests(unittest.TestCase):
         self.wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
         os.chmod(self.prefix, 0o555)
 
-    def _site_block(self, on, listener=True):
+    def _site_block(self, on, reply=True, observed="on"):
         """turn_site_block() with its own streams: `(rc, stdout, stderr)`.
 
-        `listener` is whether one answers the reload. The sandbox runs none, and
-        an ordinary machine does, so that is the default; the command's own
-        behaviour when nobody answers has a test of its own.
+        Stands in for the listener the sandbox does not run, in the order the
+        real one works: it records what it observed for site blocking, then
+        answers. `observed` is that record (None is a machine with no listener
+        at all), and `reply` is what the reload answered -- a separate knob
+        because the listener's `ok` also carries link routing and the launcher
+        sync. The default is the ordinary machine: applied, and answered.
         """
+        def reload(verb="reload", timeout=None):
+            if observed is not None:
+                st = state.read_state() or {}
+                st["listener_pid"] = os.getpid()
+                st["site_block"] = observed
+                st.setdefault("observed_at", {})["site_block"] = state.now_iso()
+                state.write_state(st)
+            return reply
+
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err), \
-                patch.object(setup.state, "request_reload", return_value=listener):
+                patch.object(setup.state, "request_reload", reload):
             rc = setup.turn_site_block(on)
         return rc, out.getvalue(), err.getvalue()
 
@@ -683,19 +695,29 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(len(self._transactions()), asked)
         self.assertIs(self._config()["site_block"]["enabled"], True)
 
-    def test_site_block_on_with_nobody_to_apply_it_says_so_and_exits_1(self):
-        self._unanswered_site_block()
-        with patch("sys.stdin", Tty("")):
-            rc, out, err = self._site_block(True, listener=False)
-        # The listener is what resolves the list and applies the table, so a
-        # reload nobody answered is a turn-on that did not end with the block on.
-        # What the command itself owns still stands: the answer and the helper.
-        self.assertEqual(rc, 1)
-        self.assertIn("no listener is running", err)
-        self.assertIn("distractions listen", err)
-        self.assertIn("site blocking: on", out)
-        self.assertIs(self._config()["site_block"]["enabled"], True)
-        self.assertEqual(self.wrapper.read_bytes(), (ROOT / "distractions-nft").read_bytes())
+    def test_site_block_on_ends_with_what_the_listener_applied(self):
+        # The listener is what resolves the list and applies the table, so the
+        # exit code follows what it recorded, not what it was told to do. What
+        # this command owns stands in every case: the answer and the helper.
+        for label, reply, observed, rc, says in (
+            ("no listener at all", False, None, 1, "no listener is running"),
+            ("answered, could not apply", False, "unavailable", 1, "could not apply the block"),
+            # `ok` also carries link routing and the launcher sync, so a default
+            # browser someone else took must not read as site blocking failing.
+            ("applied, unrelated failure in the answer", False, "on", 0, ""),
+            ("applied and answered", True, "on", 0, ""),
+        ):
+            with self.subTest(label):
+                with patch("sys.stdin", Tty("")):
+                    got, out, err = self._site_block(True, reply=reply, observed=observed)
+                self.assertEqual(got, rc)
+                self.assertIn("site blocking: on", out)
+                if says:
+                    self.assertIn(says, err)
+                else:
+                    self.assertEqual(err, "")
+                self.assertIs(self._config()["site_block"]["enabled"], True)
+                self.assertEqual(self.wrapper.read_bytes(), (ROOT / "distractions-nft").read_bytes())
 
     def test_site_block_off_whose_flush_fails_records_the_choice_and_exits_1(self):
         with patch("sys.stdin", Tty("")):
