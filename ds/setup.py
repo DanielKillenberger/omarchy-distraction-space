@@ -2143,6 +2143,13 @@ def site_block_answered() -> bool:
     nothing, and an update must not ask them to confirm it or take it away.
     Only a config file with no explicit value on a machine with no helper is
     unanswered.
+
+    This answers whether to ask, never what the answer was. A helper standing
+    beside an explicit `site_block.enabled: false` is someone who turned site
+    blocking off and kept the helper -- which is exactly what `site-block off`
+    leaves behind, since removal belongs to `setup --remove` -- so the file's
+    no stands and setup runs no root step. Reading the helper as a standing yes
+    instead would undo that choice on the next setup run.
     """
     return config.site_block_answered() or helper_installed()
 
@@ -2308,6 +2315,27 @@ def remove():
     return 1 if rescan_rc != 0 or clone_rc != 0 else 0
 
 
+def _flush_block() -> None:
+    """Destroy the table now, instead of leaving it to whenever a listener next runs.
+
+    Turning site blocking off has to end with the block gone, and the listener
+    is what normally flushes -- but the table is kernel state that outlives it,
+    so on a machine with no listener running "off" would otherwise keep
+    blocking. This is the same passwordless wrapper call `setup --remove`
+    makes, not a second privileged path, and a listener that is running
+    converges on the same flush from the reload the recorded answer asked for.
+    Best effort by contract: the choice is recorded either way, which is what
+    the exit code reports, and the listener flushes again when it starts.
+    """
+    if not helper_installed():
+        return
+    from ds import net
+    if net.apply([]) != "off":
+        print("the firewall table could not be destroyed now; the listener flushes it when "
+              "it next runs, and `distractions setup --remove` removes the helper with it",
+              file=sys.stderr)
+
+
 def turn_site_block(on: bool) -> int:
     """`distractions site-block on|off`: the answer recorded, and for `on` the helper installed.
 
@@ -2329,15 +2357,20 @@ def turn_site_block(on: bool) -> int:
         print(f"cannot record the answer in {config.config_path()}: {e}", file=sys.stderr)
         return 1
     if not on:
+        _flush_block()
         print("site blocking: off -- turn it back on with: distractions site-block on")
         return 0
     if install_root() != 0:
         print(f"site blocking is on but not set up; {SITE_BLOCK_ON_HINT}", file=sys.stderr)
         return 1
-    # Recording the answer already asked the listener to re-read, but that was
-    # before the helper landed; this is the ask that finds it there.
-    state.request_reload()
     print("site blocking: on")
+    # Recording the answer already asked the listener to re-read, but that was
+    # before the helper landed; this is the ask that finds it there. Nothing
+    # applies a policy until a listener does, so a machine with none says so
+    # rather than leaving "on" to mean something it does not yet mean.
+    if not state.request_reload():
+        print("no listener is running, so nothing is applying it yet: log out and back in, "
+              "or run: distractions listen")
     return 0
 
 

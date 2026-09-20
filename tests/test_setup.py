@@ -340,6 +340,11 @@ class SetupTests(unittest.TestCase):
             return []
         return [ln for ln in self.sudo_log.read_text(encoding="utf-8").splitlines() if ln.strip()]
 
+    def _transactions(self):
+        """The sudo calls that ask for a password: the root transaction, not a
+        passwordless wrapper call through the grant it installed."""
+        return [ln for ln in self._sudo_lines() if ln.startswith("python3 -c <transaction>")]
+
     def _rescan_text(self):
         return self.rescan_log.read_text(encoding="utf-8") if self.rescan_log.exists() else ""
 
@@ -615,6 +620,20 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(self.wrapper.read_bytes(), (ROOT / "distractions-nft").read_bytes())
         self.assertNotIn("enabled", self._config()["site_block"])
 
+    def test_an_installed_helper_beside_an_explicit_no_leaves_site_blocking_off(self):
+        # Turning site blocking off keeps the helper, so this pair is what every
+        # machine that used `site-block off` looks like. The helper answers only
+        # whether to ask; the file answers what was chosen, and setup must not
+        # undo it.
+        self._plant_helper()
+        self._cfg(site_block={"enabled": False, "pass_through": True})
+        with patch("sys.stdin", ClosedTty()):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertIn("site blocking: off -- change it with: distractions site-block on", self.stdout)
+        self.assertEqual(self._sudo_lines(), [])
+        self.assertEqual(self.wrapper.read_text(encoding="utf-8"), "#!/bin/sh\nexit 0\n")
+        self.assertIs(self._config()["site_block"]["enabled"], False)
+
     def test_yes_and_a_non_terminal_leave_the_site_block_question_unanswered(self):
         for name, assume_yes, stdin in (("no terminal", False, io.StringIO("")), ("--yes", True, ClosedTty())):
             with self.subTest(name):
@@ -639,17 +658,23 @@ class SetupTests(unittest.TestCase):
     def test_site_block_off_records_no_and_keeps_the_helper_for_a_free_turn_on(self):
         with patch("sys.stdin", Tty("")):
             self.assertEqual(self._site_block(True)[0], 0)
-        asked = len(self._sudo_lines())
+        asked = len(self._transactions())
         rc, out, _err = self._site_block(False)
         self.assertEqual(rc, 0)
         self.assertIs(self._config()["site_block"]["enabled"], False)
         self.assertIn("site blocking: off", out)
+        # No listener is running here, and the table is kernel state that outlives
+        # one: `off` destroys it itself rather than leaving the block standing
+        # until something else happens to run.
+        self.assertIn(f"-n {self.wrapper} flush ds", self._sudo_lines())
         # The helper and the grant stay; `setup --remove` is what takes them away,
         # so turning it back on asks for no second password and needs no terminal.
         self.assertTrue(self.wrapper.is_file())
         with patch("sys.stdin", io.StringIO("")):
             self.assertEqual(self._site_block(True)[0], 0)
-        self.assertEqual(len(self._sudo_lines()), asked)
+        # The flush above went through the standing passwordless grant; what a
+        # second password would have cost is another root transaction, and none ran.
+        self.assertEqual(len(self._transactions()), asked)
         self.assertIs(self._config()["site_block"]["enabled"], True)
 
     def test_site_block_on_without_a_terminal_and_without_a_helper_installs_nothing(self):
