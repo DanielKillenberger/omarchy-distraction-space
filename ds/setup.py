@@ -2315,7 +2315,7 @@ def remove():
     return 1 if rescan_rc != 0 or clone_rc != 0 else 0
 
 
-def _flush_block() -> None:
+def _flush_block() -> bool:
     """Destroy the table now, instead of leaving it to whenever a listener next runs.
 
     Turning site blocking off has to end with the block gone, and the listener
@@ -2324,16 +2324,22 @@ def _flush_block() -> None:
     blocking. This is the same passwordless wrapper call `setup --remove`
     makes, not a second privileged path, and a listener that is running
     converges on the same flush from the reload the recorded answer asked for.
-    Best effort by contract: the choice is recorded either way, which is what
-    the exit code reports, and the listener flushes again when it starts.
+
+    False when a flush was attempted and did not take: the choice is recorded
+    either way, but a table still standing is the opposite of what was asked
+    for, so the caller reports it rather than claiming the block is gone. With
+    no helper there is no table and nothing to do, which is a plain True.
     """
     if not helper_installed():
-        return
+        return True
     from ds import net
-    if net.apply([]) != "off":
-        print("the firewall table could not be destroyed now; the listener flushes it when "
-              "it next runs, and `distractions setup --remove` removes the helper with it",
-              file=sys.stderr)
+    if net.apply([]) == "off":
+        return True
+    print("site blocking is recorded off, but the firewall table is still up: the wrapper "
+          "could not be reached. The listener flushes it when it next runs, and "
+          "`distractions setup --remove` removes the helper and the grant with it",
+          file=sys.stderr)
+    return False
 
 
 def turn_site_block(on: bool) -> int:
@@ -2357,9 +2363,12 @@ def turn_site_block(on: bool) -> int:
         print(f"cannot record the answer in {config.config_path()}: {e}", file=sys.stderr)
         return 1
     if not on:
-        _flush_block()
+        # The choice is recorded either way; the exit code then says whether the
+        # block is actually gone, because a table left standing is the opposite
+        # of what was asked for.
+        flushed = _flush_block()
         print("site blocking: off -- turn it back on with: distractions site-block on")
-        return 0
+        return 0 if flushed else 1
     if install_root() != 0:
         print(f"site blocking is on but not set up; {SITE_BLOCK_ON_HINT}", file=sys.stderr)
         return 1
@@ -2367,7 +2376,10 @@ def turn_site_block(on: bool) -> int:
     # Recording the answer already asked the listener to re-read, but that was
     # before the helper landed; this is the ask that finds it there. Nothing
     # applies a policy until a listener does, so a machine with none says so
-    # rather than leaving "on" to mean something it does not yet mean.
+    # rather than leaving "on" to mean something it does not yet mean. It is
+    # still an exit 0: a stopped listener is an ordinary state of the machine,
+    # named here and reported by `status`, not a failure of this command -- no
+    # other command that records a choice fails because the listener is down.
     if not state.request_reload():
         print("no listener is running, so nothing is applying it yet: log out and back in, "
               "or run: distractions listen")

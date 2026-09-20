@@ -677,6 +677,19 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(len(self._transactions()), asked)
         self.assertIs(self._config()["site_block"]["enabled"], True)
 
+    def test_site_block_off_whose_flush_fails_records_the_choice_and_exits_1(self):
+        with patch("sys.stdin", Tty("")):
+            self.assertEqual(self._site_block(True)[0], 0)
+        # The wrapper cannot be reached, so the table is still up: the choice is
+        # recorded, and the exit code says the block is not actually gone.
+        os.environ["DS_FLUSH_RC"] = "1"
+        self.box.fake_bin("omarchy-notification-send", "import sys\nsys.exit(0)\n")
+        rc, out, err = self._site_block(False)
+        self.assertEqual(rc, 1)
+        self.assertIn("the firewall table is still up", err)
+        self.assertIn("site blocking: off", out)
+        self.assertIs(self._config()["site_block"]["enabled"], False)
+
     def test_site_block_on_without_a_terminal_and_without_a_helper_installs_nothing(self):
         before = self._unanswered_site_block()
         with patch("sys.stdin", io.StringIO("")):
