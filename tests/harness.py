@@ -126,6 +126,14 @@ class Sandbox:
             PATH=path,
             PYTHONPATH=str(self.site),
         )
+        if extra and extra.get("PYTHONPATH", str(self.site)) != str(self.site):
+            # Silently dropping the pin is how four listener tests passed here
+            # and failed on CI; a replacement fails loudly instead.
+            raise RuntimeError(
+                "PYTHONPATH carries this sandbox's sitecustomize, which pins the root "
+                "destinations; replacing it drops the pin and the child reads the real "
+                "machine. Add code with Sandbox.site_lines() instead."
+            )
         if extra:
             for k, v in extra.items():
                 if v is None:
@@ -224,10 +232,24 @@ class Sandbox:
             raise RuntimeError("config lock holder did not acquire")
         return holder
 
-    def batch_deadline_env(self, seconds: float) -> dict[str, str]:
-        self._site_lines = ["from ds import net", f"net.BATCH_DEADLINE = {float(seconds)!r}"]
+    def site_lines(self, *lines: str) -> dict[str, str]:
+        """Add code to this sandbox's one `sitecustomize`, and hand back the environment that carries it.
+
+        The destination pin travels in that file, on PYTHONPATH. A test that
+        writes a `sitecustomize` of its own and puts it on PYTHONPATH instead
+        silently drops the pin -- Python imports that name once, from whichever
+        directory comes first -- and the child then reads the real machine's
+        `/usr/local/libexec`, which is green on a developer's box and red on
+        CI. Adding lines here keeps one file, with the pin already in it and
+        these lines after, so a test that means to move the destinations again
+        (as the CLI setup tests do) still can, deliberately and last.
+        """
+        self._site_lines = list(lines)
         self._write_site()
         return {"PYTHONPATH": str(self.site)}
+
+    def batch_deadline_env(self, seconds: float) -> dict[str, str]:
+        return self.site_lines("from ds import net", f"net.BATCH_DEADLINE = {float(seconds)!r}")
 
     def wait_file(self, path, timeout: float = 5.0) -> Path:
         path = Path(path)

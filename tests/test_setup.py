@@ -1576,39 +1576,40 @@ class SetupTests(unittest.TestCase):
         self.assertFalse(self.sudoers.exists())
 
     def _cli_site(self) -> dict[str, str]:
-        """Environment for the real CLI: the sandbox destinations patched into the
-        module in-process, since the CLI's environment cannot move them, and the
-        prefix made to look root-owned to `os.access`."""
-        site = self.box.runtime / "pysite"
-        site.mkdir()
+        """Environment for the real CLI: this test's own destinations patched into
+        the module in the child, since the CLI's environment cannot move them, and
+        the prefix made to look root-owned to `os.access`.
+
+        Through the sandbox's one sitecustomize, so these lines land after its
+        destination pin and deliberately move it on to this test's prefix; a
+        file of our own on PYTHONPATH would replace the pin rather than build
+        on it, and every other child would then read the real machine.
+        """
         prefix = str(self.prefix.resolve())
-        (site / "sitecustomize.py").write_text(
-            "import os, sys\n"
-            "from pathlib import Path\n"
-            f"sys.path.insert(0, {str(ROOT)!r})\n"
-            "from ds import setup\n"
-            f"setup.WRAPPER_DEFAULT = {str(self.wrapper)!r}\n"
-            f"setup.SUDOERS_DEFAULT = {str(self.sudoers)!r}\n"
-            f"_prefix = Path({prefix!r})\n"
-            "_real = os.access\n"
-            "def _access(path, mode, **kwargs):\n"
-            "    try:\n"
-            "        p = Path(path).resolve()\n"
-            "    except OSError:\n"
-            "        p = Path(path)\n"
-            "    try:\n"
-            "        if p != _prefix and _prefix.is_relative_to(p):\n"
-            "            return False\n"
-            "        if p != _prefix and p.is_relative_to(_prefix):\n"
-            "            return False\n"
-            "    except ValueError:\n"
-            "        pass\n"
-            "    return _real(path, mode, **kwargs)\n"
-            "os.access = _access\n",
-            encoding="utf-8",
+        env = self.box.site_lines(
+            "import os",
+            "from pathlib import Path",
+            f"setup.WRAPPER_DEFAULT = {str(self.wrapper)!r}",
+            f"setup.SUDOERS_DEFAULT = {str(self.sudoers)!r}",
+            f"_prefix = Path({prefix!r})",
+            "_real = os.access",
+            "def _access(path, mode, **kwargs):",
+            "    try:",
+            "        p = Path(path).resolve()",
+            "    except OSError:",
+            "        p = Path(path)",
+            "    try:",
+            "        if p != _prefix and _prefix.is_relative_to(p):",
+            "            return False",
+            "        if p != _prefix and p.is_relative_to(_prefix):",
+            "            return False",
+            "    except ValueError:",
+            "        pass",
+            "    return _real(path, mode, **kwargs)",
+            "os.access = _access",
         )
         return {
-            "PYTHONPATH": str(site),
+            **env,
             "DS_SETUP_SUDO_LOG": str(self.sudo_log),
             "DS_RESCAN_LOG": str(self.rescan_log),
             "DS_LOCK_PREFIX": str(self.prefix),
