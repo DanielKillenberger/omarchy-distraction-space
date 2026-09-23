@@ -742,6 +742,7 @@ def cycle(direction):
         for w in spaces
         if isinstance(w, dict)
         and w.get("name") != SPACE
+        and not str(w.get("name") or "").startswith("special:")
         and int(w.get("windows") or 0) > 0
     ]
     occupied.sort(key=lambda w: w.get("id") or 0)
