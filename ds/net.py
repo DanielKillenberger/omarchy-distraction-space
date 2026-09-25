@@ -205,8 +205,15 @@ def _append_log(line: str) -> None:
 
 
 def _notice_unavailable() -> None:
+    """One notice per outage, and none at all for a helper that was never installed.
+
+    A missing helper is not an outage: site blocking is not set up, which
+    `status` says plainly and one command fixes. This notice is for a helper
+    that is installed and failing, so `_noticed` is left alone here and the
+    first real failure after an install still raises it.
+    """
     global _noticed
-    if _noticed:
+    if _noticed or not setup.helper_installed():
         return
     _noticed = True
     try:
@@ -309,6 +316,11 @@ def finish_batch(batch, outcome):
 
 def _apply_result(addresses):
     addrs = [a for a in (addresses or []) if a]
+    if not setup.helper_installed():
+        # Nothing was ever installed to apply or flush, so there is no table:
+        # an empty policy is genuinely off, and a policy to apply is site
+        # blocking that is not set up, which `status` names.
+        return "unavailable" if addrs else "off"
     wrapper = str(setup.wrapper_dest())
     try:
         proc = run_command(

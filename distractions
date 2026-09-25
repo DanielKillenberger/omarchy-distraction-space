@@ -28,6 +28,7 @@ COMMANDS = {
     "release": listener.cmd_release,
     "migrate": hypr.cmd_migrate,
     "setup": setup.cmd_setup,
+    "site-block": setup.cmd_site_block,
     "senders": hold.cmd_senders,
     "banners": state.cmd_banners,
     "profile": profile.cmd_profile,
@@ -79,7 +80,9 @@ def build_parser():
     mg.add_argument("identity", help="window identity from the migration notification")
     st = sub.add_parser("setup")
     st.add_argument("--remove", action="store_true")
-    st.add_argument("--yes", action="store_true", help="never prompt: the link question takes the config value (true by default) and sudo runs with -n")
+    st.add_argument("--yes", action="store_true", help="never prompt: the link question takes the config value (true by default), the site-block question is left unanswered, and sudo runs with -n")
+    sb = sub.add_parser("site-block", help="turn site blocking on, installing the firewall helper when it is missing, or off")
+    sb.add_argument("state", choices=("on", "off"))
     sub.add_parser("senders")
     banners = sub.add_parser("banners")
     banners.add_argument("--count", type=positive_int, default=20, metavar="N")

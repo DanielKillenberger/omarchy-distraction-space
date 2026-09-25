@@ -482,6 +482,22 @@ class NetTests(unittest.TestCase):
         net.apply(["203.0.113.4"])
         self.assertEqual(self.notify_log.read_text(encoding="utf-8"), first)
 
+    def test_a_helper_that_was_never_installed_raises_no_notice(self):
+        self.box.install_helper(False)
+        self._map({"a.example": ["203.0.113.5"]})
+        addrs, _ = self._resolve(["a.example"], 9, "start")
+        # Nothing was installed to apply through, so nothing is asked of sudo and
+        # nothing is claimed: site blocking is not set up, which status names.
+        self.assertEqual(net.apply(addrs), "unavailable")
+        self.assertEqual(net.apply([]), "off")
+        self.assertFalse(self.nft_log.exists())
+        self.assertFalse(self.notify_log.exists())
+        # A helper that is installed and failing is a real outage, and still notices.
+        self.box.install_helper(True)
+        os.environ["DS_NFT_FAIL"] = "1"
+        self.assertEqual(net.apply(addrs), "unavailable")
+        self.assertTrue(self.notify_log.read_text(encoding="utf-8").strip())
+
     def test_finish_batch_stale_coalesced_without_apply(self):
         self._map({"a.example": ["203.0.113.1"]})
         _, batch = self._resolve(["a.example"], 9, "workspace")

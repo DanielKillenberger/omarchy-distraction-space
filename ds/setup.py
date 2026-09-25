@@ -60,6 +60,21 @@ def wrapper_dest() -> Path:
     return Path(WRAPPER_DEFAULT)
 
 
+def helper_installed() -> bool:
+    """Whether the firewall helper is installed where the grant names it.
+
+    The listener runs exactly this path through `sudo -n`, so its presence is
+    what "site blocking is set up" means, and its absence is what tells site
+    blocking that is off by choice from site blocking that was never installed.
+    A symlink standing at that name is not an install this plugin made, so the
+    check never follows one.
+    """
+    try:
+        return stat.S_ISREG(wrapper_dest().lstat().st_mode)
+    except OSError:
+        return False
+
+
 def _sudoers_dest() -> Path:
     return Path(SUDOERS_DEFAULT)
 
@@ -2104,7 +2119,83 @@ def ask_links(cfg: dict, assume_yes: bool) -> dict | None:
         return None
 
 
-def install(assume_yes: bool = False):
+SITE_BLOCK_QUESTION = "Block listed sites outside the space? [Y/n] "
+SITE_BLOCK_EXPLANATION = """Blocking listed sites outside the space
+
+This is the one part that needs your password: it installs a firewall
+helper and a sudoers rule so the listener can run it. Everything else
+works without it, and you can turn it on later with:
+distractions site-block on
+
+Without it, a listed site loads wherever you type it: the space still
+holds the windows, the notifications, and the sounds, but not the
+network.
+"""
+SITE_BLOCK_COMMAND = "distractions site-block on"
+SITE_BLOCK_ON_HINT = f"turn it on with: {SITE_BLOCK_COMMAND}"
+
+
+def site_block_answered() -> bool:
+    """Whether this machine has already answered the site-block question.
+
+    An explicit value in the config file is an answer. So is an installed
+    firewall helper: whoever has one said yes under the setup that asked for
+    nothing, and an update must not ask them to confirm it or take it away.
+    Only a config file with no explicit value on a machine with no helper is
+    unanswered.
+
+    This answers whether to ask, never what the answer was. A helper standing
+    beside an explicit `site_block.enabled: false` is someone who turned site
+    blocking off and kept the helper -- which is exactly what `site-block off`
+    leaves behind, since removal belongs to `setup --remove` -- so the file's
+    no stands and setup runs no root step. Reading the helper as a standing yes
+    instead would undo that choice on the next setup run.
+    """
+    return config.site_block_answered() or helper_installed()
+
+
+def _site_block_line(cfg: dict) -> str:
+    """What a rerun prints instead of asking: the choice, and the command that changes it."""
+    if cfg["site_block"]["enabled"]:
+        return "site blocking: on -- change it with: distractions site-block off"
+    return "site blocking: off -- change it with: distractions site-block on"
+
+
+def ask_site_block(cfg: dict, assume_yes: bool) -> dict | None:
+    """Setup's second question, asked right after the link one and before any password.
+
+    Unanswered on a terminal, the explanation is printed and the question asked
+    once; the answer goes into the config file, so it is never asked again and a
+    rerun prints the choice instead. `--yes` and a run without a terminal never
+    ask and leave an unanswered question unanswered: nobody is there to type a
+    password, and taking the default would install a sudoers grant nobody agreed
+    to, so the run says in one line what turns it on later. None when the answer
+    could not be written: an answer that lives only in this run would be asked
+    again, so setup stops here, before anything is installed.
+    """
+    if site_block_answered():
+        print(_site_block_line(cfg))
+        return cfg
+    if assume_yes or not sys.stdin.isatty():
+        why = "--yes" if assume_yes else "no terminal to ask"
+        print(f"site blocking: not set up ({why}) -- {SITE_BLOCK_ON_HINT}")
+        return cfg
+    print(SITE_BLOCK_EXPLANATION)
+    answer = _yes_no(SITE_BLOCK_QUESTION)
+    try:
+        return config.set_site_block(answer)
+    except (config.Busy, config.Invalid, OSError) as e:
+        print(f"cannot record the answer in {config.config_path()}: {e}; nothing was installed", file=sys.stderr)
+        return None
+
+
+def install_root(assume_yes: bool = False) -> int:
+    """The privileged half: the firewall helper and its grant, through one sudo.
+
+    Everything this step needs it decides for itself, so a refusal costs site
+    blocking and nothing else -- no user-level step below ever depended on it.
+    A run whose bytes already match returns 0 without reaching sudo at all.
+    """
     destinations = _canonical_destinations()
     if destinations is None:
         return 1
@@ -2126,20 +2217,42 @@ def install(assume_yes: bool = False):
     source = _pinned_source(shipped)
     if source is None:
         return 1
+    grant_bytes = grant.encode("utf-8")
+    if _already_current(source, grant_bytes, wrapper):
+        return 0
+    # No terminal and --yes both mean nobody is there to type a password:
+    # the root transaction runs with `sudo -n` and fails instead of prompting.
+    quiet = assume_yes or not sys.stdin.isatty()
+    if _root_transaction(source, grant_bytes, wrapper, sudoers, prompt=not quiet) != 0:
+        why = "--yes" if assume_yes else "a setup without a terminal"
+        print("sudo setup transaction failed" + (f"; {why} never asks for a password, so run setup from a terminal once" if quiet else ""), file=sys.stderr)
+        return 1
+    return 0
+
+
+def install(assume_yes: bool = False):
+    """The two questions, then the root step the second one decides, then everything else.
+
+    Both answers are recorded before anything asks for a password, and the root
+    step is the only step that depends on one: a no, a refusal, or a cancelled
+    password still leaves the slice, the hold hook, the Hyprland file, the
+    launcher entries, and the clone installed, and only the exit code says the
+    root step did not happen.
+    """
     cfg = _load_cfg()
     if cfg is not None:
         cfg = ask_links(cfg, assume_yes)
         if cfg is None:
             return 1
-    grant_bytes = grant.encode("utf-8")
-    # No terminal and --yes both mean nobody is there to type a password:
-    # the root transaction runs with `sudo -n` and fails instead of prompting.
-    quiet = assume_yes or not sys.stdin.isatty()
-    if not _already_current(source, grant_bytes, wrapper):
-        if _root_transaction(source, grant_bytes, wrapper, sudoers, prompt=not quiet) != 0:
-            why = "--yes" if assume_yes else "a setup without a terminal"
-            print("sudo setup transaction failed" + (f"; {why} never asks for a password, so run setup from a terminal once" if quiet else ""), file=sys.stderr)
+        cfg = ask_site_block(cfg, assume_yes)
+        if cfg is None:
             return 1
+    # An unreadable config cannot say; a helper already installed still can, and
+    # keeping it current is what an update owes the person who has one.
+    enabled = cfg["site_block"]["enabled"] if cfg is not None else True
+    root_rc = install_root(assume_yes) if enabled and site_block_answered() else 0
+    if root_rc != 0:
+        print(f"site blocking is not set up; {SITE_BLOCK_ON_HINT}", file=sys.stderr)
     slice_rc = sync_slice()
     hook_rc = sync_hook()
     hypr_rc = sync_hypr()
@@ -2148,7 +2261,8 @@ def install(assume_yes: bool = False):
     rescan_rc = _rescan()
     if rescan_rc == 0:
         _settle_service()
-    return 1 if rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 or entries_rc != 0 or hook_rc != 0 or hypr_rc != 0 else 0
+    return 1 if (rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 or entries_rc != 0
+                 or hook_rc != 0 or hypr_rc != 0 or root_rc != 0) else 0
 
 
 def remove():
@@ -2199,6 +2313,112 @@ def remove():
     if rescan_rc == 0:
         _settle_service()
     return 1 if rescan_rc != 0 or clone_rc != 0 else 0
+
+
+def _flush_block() -> bool:
+    """Destroy the table now, instead of leaving it to whenever a listener next runs.
+
+    Turning site blocking off has to end with the block gone, and the listener
+    is what normally flushes -- but the table is kernel state that outlives it,
+    so on a machine with no listener running "off" would otherwise keep
+    blocking. This is the same passwordless wrapper call `setup --remove`
+    makes, not a second privileged path, and a listener that is running
+    converges on the same flush from the reload the recorded answer asked for.
+
+    False when a flush was attempted and did not take: the choice is recorded
+    either way, but a table still standing is the opposite of what was asked
+    for, so the caller reports it rather than claiming the block is gone. With
+    no helper there is no table and nothing to do, which is a plain True.
+    """
+    if not helper_installed():
+        return True
+    from ds import net
+    if net.apply([]) == "off":
+        return True
+    print("site blocking is recorded off, but the firewall table is still up: the wrapper "
+          "could not be reached. The listener flushes it when it next runs, and "
+          "`distractions setup --remove` removes the helper and the grant with it",
+          file=sys.stderr)
+    return False
+
+
+def _block_applied(since: str) -> bool:
+    """Whether the listener has reconciled site blocking since `since`.
+
+    The listener writes its observation before it answers the reload, so one
+    read after the answer is enough and nothing has to be polled. The answer
+    itself cannot stand in for this: `ok` also carries link routing and the
+    launcher sync, so a default browser someone else took would otherwise read
+    as site blocking that failed. `on` and `off` are both applied policy --
+    `off` is what a list with no hosts in it correctly reconciles to -- and
+    they are the same two the listener counts as a clean reconcile; anything
+    else, including an observation older than the ask, is not.
+    """
+    st = state.read_state() or {}
+    observed = st.get("observed_at")
+    observed = observed.get("site_block") if isinstance(observed, dict) else None
+    return (st.get("site_block") in ("on", "off")
+            and isinstance(observed, str) and observed >= since)
+
+
+def turn_site_block(on: bool) -> int:
+    """`distractions site-block on|off`: the answer recorded, and for `on` the helper installed.
+
+    The answer is written before the password is asked for, so a refused or
+    cancelled password leaves the choice standing and the retry is this same
+    command. `on` needs a terminal when the helper is missing, because that is
+    where the password prompt appears and nothing here may ask for one
+    elsewhere; with the helper already current it needs nothing. Turning it off
+    leaves the helper and the grant installed -- `setup --remove` is what takes
+    them away -- so turning it off and on again costs no second password.
+    """
+    if on and not helper_installed() and not sys.stdin.isatty():
+        print("site blocking needs a terminal once, to install the firewall helper: "
+              "run `distractions site-block on` from a terminal", file=sys.stderr)
+        return 1
+    try:
+        config.set_site_block(on)
+    except (config.Busy, config.Invalid, OSError) as e:
+        print(f"cannot record the answer in {config.config_path()}: {e}", file=sys.stderr)
+        return 1
+    if not on:
+        # The choice is recorded either way; the exit code then says whether the
+        # block is actually gone, because a table left standing is the opposite
+        # of what was asked for.
+        flushed = _flush_block()
+        print("site blocking: off -- turn it back on with: distractions site-block on")
+        return 0 if flushed else 1
+    if install_root() != 0:
+        print(f"site blocking is on but not set up; {SITE_BLOCK_ON_HINT}", file=sys.stderr)
+        return 1
+    print("site blocking: on")
+    # Recording the answer already asked the listener to re-read, but that was
+    # before the helper landed; this is the ask that finds it there, and the
+    # listener is what resolves the list and applies the table. Nothing applies
+    # a policy until one does, so this command ends with what the listener
+    # recorded rather than with what it was told to do. Starting a listener is
+    # not this command's job -- Hyprland's autostart and `distractions listen`
+    # own that lifecycle, and the line below names them.
+    #
+    # The reload gets the listener's own budget: a reconcile resolves every
+    # listed host and applies the table, which the default two seconds would
+    # time out on while the listener was still working.
+    from ds import listener
+    since = state.now_iso()
+    state.request_reload(timeout=listener._reload_wait())
+    if _block_applied(since):
+        return 0
+    if state.listener_pid() is None:
+        print("no listener is running, so nothing is applying it yet: log out and back in, "
+              "or run: distractions listen", file=sys.stderr)
+    else:
+        print("the listener could not apply the block; `distractions status` says why",
+              file=sys.stderr)
+    return 1
+
+
+def cmd_site_block(args):
+    return turn_site_block(args.state == "on")
 
 
 def cmd_setup(args):

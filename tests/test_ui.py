@@ -88,6 +88,26 @@ if os.environ.get("DS_NOTIFY_FAIL"):
     sys.exit(1)
 """
 
+# Omarchy's floating terminal, standing in for the one the turn-on command runs
+# in: it records the command and, unless the password is cancelled, leaves behind
+# what `distractions site-block on` would -- the recorded answer and the helper.
+TERMINAL = r"""
+import json, os, sys
+from pathlib import Path
+
+Path(os.environ["DS_TERMINAL_LOG"]).open("a").write(json.dumps(sys.argv[1:]) + "\n")
+if os.environ.get("DS_TERMINAL_FAIL"):
+    sys.exit(1)
+if os.environ.get("DS_TERMINAL_CANCEL"):
+    sys.exit(0)
+cfg = Path(os.environ["XDG_CONFIG_HOME"]) / "omarchy" / "distraction-space.json"
+raw = json.loads(cfg.read_text(encoding="utf-8"))
+raw.setdefault("site_block", {})["enabled"] = True
+cfg.write_text(json.dumps(raw), encoding="utf-8")
+helper = Path(os.environ["DS_TERMINAL_HELPER"])
+helper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+"""
+
 CFG = {
     "lock": {"default_minutes": 25, "ask_purpose": True, "reason_min_chars": 50},
 }
@@ -439,6 +459,77 @@ class UiTests(unittest.TestCase):
         self.assertIn("Saved", rows)
         self.assertIn("setup", str(self._notices()))
         self.assertIn("pending", str(self._notices()))
+
+    def _site_block_row(self):
+        return next(i for i, item in enumerate(ui._SETTINGS) if item[1] == "site_block.enabled")
+
+    def _arm_terminal(self):
+        self.terminal_log = self.box.runtime / "terminal.log"
+        os.environ["DS_TERMINAL_LOG"] = str(self.terminal_log)
+        os.environ["DS_TERMINAL_HELPER"] = str(self.box.wrapper)
+        for key in ("DS_TERMINAL_LOG", "DS_TERMINAL_HELPER", "DS_TERMINAL_FAIL", "DS_TERMINAL_CANCEL"):
+            self.addCleanup(os.environ.pop, key, None)
+        self.box.fake_bin(ui.FLOATING_TERMINAL, TERMINAL)
+
+    def _last_site_block_row(self):
+        rows = self._calls("select")[-1][2:]
+        return next(r for r in rows if "Block listed sites" in r)
+
+    def test_site_block_menu_takes_effect_without_a_terminal_when_the_helper_is_installed(self):
+        self._arm_terminal()
+        config.load()
+        idx = self._site_block_row()
+        for expected in (False, True):
+            with self.subTest(expected=expected):
+                self._sq(["index", idx], ["cancel"])
+                ui._settings()
+                self.assertIs(config.get(config.load(), "site_block.enabled"), expected)
+        self.assertFalse(self.terminal_log.exists())
+
+    def test_site_block_menu_opens_a_terminal_when_the_helper_is_missing(self):
+        self._arm_terminal()
+        self.box.install_helper(False)
+        config.load()
+        self._sq(["index", self._site_block_row()], ["cancel"])
+        ui._settings()
+        # The menu never handles the password itself: it hands the turn-on command
+        # to Omarchy's floating terminal, and shows the result on the next draw.
+        self.assertEqual(json.loads(self.terminal_log.read_text(encoding="utf-8").splitlines()[0]),
+                         [f"{ROOT / 'distractions'} site-block on"])
+        self.assertIs(config.get(config.load(), "site_block.enabled"), True)
+        self.assertIn("Saved: on", self._last_site_block_row())
+        self.assertNotIn("Not set up", self._last_site_block_row())
+
+    def test_site_block_menu_after_a_cancelled_password_still_reads_not_set_up(self):
+        self._arm_terminal()
+        self.box.install_helper(False)
+        os.environ["DS_TERMINAL_CANCEL"] = "1"
+        config.load()
+        self._sq(["index", self._site_block_row()], ["cancel"])
+        ui._settings()
+        self.assertTrue(self.terminal_log.exists())
+        self.assertIn("Not set up", self._last_site_block_row())
+        self.assertIn("distractions site-block on", self._last_site_block_row())
+
+    def test_site_block_menu_without_a_working_launcher_names_the_command(self):
+        self._arm_terminal()
+        self.box.install_helper(False)
+        config.load()
+        # A launcher that is not installed, then one that will not start: the same
+        # notice, never silence. The missing one is a patched name rather than a
+        # PATH without it, so no test can ever reach a real terminal launcher.
+        with patch.object(ui, "FLOATING_TERMINAL", "omarchy-launch-floating-terminal-not-installed"):
+            self._sq(["index", self._site_block_row()], ["cancel"])
+            ui._settings()
+        os.environ["DS_TERMINAL_FAIL"] = "1"
+        self._sq(["index", self._site_block_row()], ["cancel"])
+        ui._settings()
+        notices = [n for n in self._notices() if "Site blocking needs a terminal" in str(n)]
+        self.assertEqual(len(notices), 2)
+        self.assertIn(f"{ROOT / 'distractions'} site-block on", str(notices))
+        # The menu recorded nothing of its own: the command it hands over is the
+        # one that records the answer, wherever it ends up running.
+        self.assertNotIn("enabled", self._cfg()["site_block"])
 
     def test_v3_setting_failed_write_and_validation_do_not_report_saved(self):
         config.load()

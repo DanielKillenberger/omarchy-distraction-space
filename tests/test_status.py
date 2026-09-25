@@ -283,6 +283,25 @@ class HealthTests(unittest.TestCase):
                 if expected == "healthy":
                     self.assertIn("Idle", result["reason"])
 
+    def test_site_block_not_set_up_is_told_from_off_and_names_the_command(self):
+        state.write_state(self.saved)
+        self.box.install_helper(False)
+        result = self.project()
+        self.assertEqual(result["site_block"], state.SITE_BLOCK_NOT_SET_UP)
+        service = result["health"]["services"]["site_block"]
+        self.assertEqual(service["state"], "pending")
+        self.assertIn("distractions site-block on", service["reason"])
+        # Off by choice is healthy and says so; a helper that is there hands the
+        # report back to the last observation, saying nothing of its own.
+        self.cfg["site_block"]["enabled"] = False
+        off = self.project()["health"]["services"]["site_block"]
+        self.assertEqual(off["state"], "disabled")
+        self.assertEqual(off["reason"], "Off by choice.")
+        self.cfg["site_block"]["enabled"] = True
+        self.box.install_helper(True)
+        self.assertEqual(self.project()["site_block"], "on")
+        self.assertEqual(self.project()["health"]["services"]["site_block"]["state"], "healthy")
+
     def test_healthy_overall_has_empty_reasons(self):
         state.write_state(self.saved)
         result = self.project()["health"]

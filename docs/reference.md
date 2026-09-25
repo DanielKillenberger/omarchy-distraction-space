@@ -22,9 +22,28 @@ That is the whole install: the add command and one setup run. Then log out and b
 
 ### Links from other apps
 
-`setup` asks one question: whether to route links through the distraction space. Yes registers the plugin's link handler as the system's default browser. The handler is a router, not a browser: a clicked link to a listed site opens in the distraction profile on the space, and every other link is forwarded to the browser that was the default before, unchanged, so Omarchy's browser keybinds (Super+Shift+Return, Super+Shift+B) and its web apps keep working. That browser may ask to become the default again; answer "Don't ask again", because one click there takes the default back. No leaves your default browser as it is: a clicked link to a listed site then opens there, hits the block page, and you reopen it from the launcher.
+`setup` asks two questions, one after the other and both before anything asks for a password. The first: whether to route links through the distraction space. Yes registers the plugin's link handler as the system's default browser. The handler is a router, not a browser: a clicked link to a listed site opens in the distraction profile on the space, and every other link is forwarded to the browser that was the default before, unchanged, so Omarchy's browser keybinds (Super+Shift+Return, Super+Shift+B) and its web apps keep working. That browser may ask to become the default again; answer "Don't ask again", because one click there takes the default back. No leaves your default browser as it is: a clicked link to a listed site then opens there, hits the block page, and you reopen it from the launcher.
 
-The answer is written to `open_links_in_space` in the config file, so setup asks once; a rerun prints the current choice, `distractions config set open_links_in_space true` (or `false`) changes it, and a setup with no terminal takes the config value without asking. `setup --yes` does the same and never prompts for anything, the sudo password included, so a first install that needs one fails and says so. `distractions setup --remove` restores the previous default browser.
+The answer is written to `open_links_in_space` in the config file, so setup asks once; a rerun prints the current choice, `distractions config set open_links_in_space true` (or `false`) changes it, and a setup with no terminal takes the config value without asking. `setup --yes` does the same and never prompts for anything, the sudo password included. `distractions setup --remove` restores the previous default browser.
+
+### Blocking listed sites
+
+`setup` asks a second question, right after the link one and before anything asks for a password: whether to block listed sites outside the space. Yes installs the firewall helper and the sudoers grant, which is the one part of this plugin that needs your password. No installs everything else — the slice, the Hyprland file, the launcher entries, the notification hold, the WirePlumber hook — runs no sudo at all, and leaves the space working as a place your distractions live rather than the only place they load.
+
+The answer is written to `site_block.enabled`, so setup asks once and a rerun prints the choice instead. A machine that already has the helper installed counts as a yes and is never asked: an update keeps site blocking on. `setup --yes` and a setup with no terminal never ask and never take the default here — nobody is there to type a password, so an unanswered question stays unanswered and the run says in one line what turns it on later.
+
+Either of two things turns it on afterwards, and both end with it working rather than with an instruction to go and run something else:
+
+```bash
+distractions site-block on    # installs the helper when it is missing, then applies the block
+distractions site-block off   # destroys the table; the helper and the grant stay installed
+```
+
+Both end with the block in the state you asked for, or say why not. `off` destroys the table itself rather than waiting for the listener, because the table is kernel state that outlives one. `on` hands the block to the listener, which is what resolves the list and applies the table, and then reports what the listener recorded rather than what it was told to do. Either way the answer is recorded first and stays recorded; when the effect does not happen — a table that would not flush, no listener running, a listener that could not apply the block — the command says which and exits 1, and the line it prints is the thing to do next.
+
+and the settings menu's "Block listed sites outside the space", which turns it off and turns it on directly when the helper is there, and otherwise opens Omarchy's floating terminal running `distractions site-block on`, since that is where a password prompt has somewhere to appear. `site-block on` with no terminal and no helper installs nothing and says a terminal is needed once. Turning it off leaves the helper and the grant in place, so turning it back on costs no second password; `setup --remove` is what removes them.
+
+`config set site_block.enabled true` stays a plain config write — a config write never asks for a password — and prints the turn-on command when no helper is installed. Until one is, `status` reports site blocking as `not set up` rather than `off` or `unavailable`, names that command, and the listener raises no repeated "unavailable" notice: that notice is for a helper that is installed and failing.
 
 ### The Hyprland configuration
 
@@ -32,7 +51,7 @@ The answer is written to `open_links_in_space` in the config file, so setup asks
 
 ### Root-owned files
 
-`setup` asks for sudo one time. It installs the nftables wrapper at `/usr/local/libexec/omarchy-distraction-space/distractions-nft` and the grant at `/etc/sudoers.d/omarchy-distraction-space`, and records what it installed in `/usr/local/libexec/omarchy-distraction-space/.installed.sha256` so a matching re-run needs no password. The grant lets only the installing user run that one wrapper without a password, which is how the listener keeps the firewall table in place.
+This step runs only when site blocking is on, and it is the only step that needs a password. `setup` asks for sudo one time. It installs the nftables wrapper at `/usr/local/libexec/omarchy-distraction-space/distractions-nft` and the grant at `/etc/sudoers.d/omarchy-distraction-space`, and records what it installed in `/usr/local/libexec/omarchy-distraction-space/.installed.sha256` so a matching re-run needs no password. The grant lets only the installing user run that one wrapper without a password, which is how the listener keeps the firewall table in place.
 
 ### Everything else
 
@@ -100,7 +119,7 @@ omarchy plugin remove io.github.danielkillenberger.distraction-space
 - The notification hold needs the patched service clone until Omarchy ships a per-sender silenced list of its own. Without it, `status` reports `notification_hold: unavailable`, one notice names the fix, and everything else keeps working.
 - `hyprctl keyword` refuses on Omarchy 4's Lua config, which is why the window rules go through `hyprctl eval`.
 - `setup --remove` leaves the browser profile in place. Delete `~/.local/share/omarchy/distraction-space/browser` yourself when you want the logins gone.
-- `setup` needs sudo once and writes two root-owned files. Read [`distractions-nft`](../distractions-nft) and [`install/sudoers.omarchy-distraction-space`](../install/sudoers.omarchy-distraction-space) before you run it.
+- Site blocking needs sudo once and writes two root-owned files. Read [`distractions-nft`](../distractions-nft) and [`install/sudoers.omarchy-distraction-space`](../install/sudoers.omarchy-distraction-space) before you say yes; nothing else in the plugin asks for a password.
 
 ## Configuration
 
@@ -110,7 +129,7 @@ omarchy plugin remove io.github.danielkillenberger.distraction-space
 |---|---|---|
 | `list` | the 15 defaults | Catalog name, hostname, `class=<regex>`, or an object with `name` plus `class` or `hosts` |
 | `keep_reachable` | `[]` | Hosts whose addresses stay out of the block, even when a listed site shares one |
-| `site_block.enabled` | `true` | Render and maintain the nftables table at all; `false` destroys it and stops resolving |
+| `site_block.enabled` | `true` | Render and maintain the nftables table at all; `false` destroys it and stops resolving. Absent until `setup` asks or `distractions site-block` answers; an installed helper counts as a yes |
 | `site_block.pass_through` | `true` | Splice unlisted hostnames on a blocked address to their real destination; `false` refuses every connection to the address |
 | `browser` | `"auto"` | The distraction browser: `auto` takes the Omarchy default when it is Chromium-family, else `chromium`; or an argv array |
 | `open_links_in_space` | `true` | Register the URL handler at `setup` and keep it; `false` skips it, and `open` still works when called directly. Absent until `setup` asks; the answer is written here |
@@ -131,7 +150,7 @@ omarchy plugin remove io.github.danielkillenberger.distraction-space
 
 With no config file, the first load seeds `list` from your existing `~/.config/omarchy/app-list.json` and `focus.json`, and falls back to the 15 defaults.
 
-The menu can release the window that was focused before the menu opened, for `containment.release_minutes`. Settings includes “Open listed links in the space”, “Block listed sites outside the space”, and “Return moved windows to the space”. Each shows the saved choice separately from its last observed behavior. Browser-routing changes still need `distractions setup`; snap-back is applied on reload but is not independently verified by status. A cancelled or invalid edit leaves the saved choice unchanged.
+The menu can release the window that was focused before the menu opened, for `containment.release_minutes`. Settings includes “Open listed links in the space”, “Block listed sites outside the space”, and “Return moved windows to the space”. Each shows the saved choice separately from its last observed behavior. Browser-routing changes still need `distractions setup`; site blocking that is saved on but has no helper reads “not set up” and the same row turns it on, in a terminal when the password is needed; snap-back is applied on reload but is not independently verified by status. A cancelled or invalid edit leaves the saved choice unchanged.
 
 ## Commands
 
@@ -139,7 +158,7 @@ The menu can release the window that was focused before the menu opened, for `co
 
 | Command | What it does |
 |---|---|
-| `status [--json]` | Lock, workspace and containment state, plus `health` reasons and per-service `observed_at`. `updated` is the saved state timestamp; `response_at` is this read. Works without a listener and reports it stopped. |
+| `status [--json]` | Lock, workspace and containment state, plus `health` reasons and per-service `observed_at`. Site blocking reads `on`, `off`, `unavailable`, or `not set up` when it is switched on with no firewall helper installed. `updated` is the saved state timestamp; `response_at` is this read. Works without a listener and reports it stopped. |
 | `open [--app] [url\|path\|name] [browser flags...]` | Deliver an exact listed URL, or launch a list entry or catalog product by name with existing-window reuse. An unlisted URL is forwarded to the previous default browser, as an app window with `--app`; so is a `file:` or `about:` URL as given, and a path to an existing regular file as its `file://` URL, neither of which ever opens in the space. A name is tried before a path, so a file named like a list entry or catalog product wants `./` in front; no target forwards the bare browser, and `-` flags pass through to it unchanged. Exit 1 when no browser can be started or the link had no forwarder, 2 on a malformed URL, any other scheme, or a bare argument that is neither a name nor an existing regular file. |
 | `migrate ADDRESS IDENTITY` | Notification action: confirm a separate-profile product launch for the still-matching original window. The notification supplies the identity. Cancelling, failure, and success all leave the original open. |
 | `profile import [--from DIR] [--replace]` | Copy the default browser's main profile, or the Chromium profile at `DIR`, into the distraction profile once, skipping caches, and print the destination and the byte count. Exit 1 while either browser runs, when the source is not a Chromium profile or overlaps the destination, or when the destination exists without `--replace`. |
@@ -157,4 +176,5 @@ The menu can release the window that was focused before the menu opened, for `co
 | `listen` | The listener. Autostart runs one per session; a second one exits 0 immediately. |
 | `reload` | Ask the running listener to re-read the config. |
 | `refresh` | Ask the running listener to re-resolve the listed hosts and reconcile the table now, without re-reading the config, and to re-run the launcher entry sync. Exit 1 when no listener runs or the batch failed. |
-| `setup [--yes] [--remove]` | Install or remove the privileged wrapper, the Hyprland config file and its marked line, the slice unit, the launcher entries, the URL handler, and the patched notification-service clone. The first run asks whether to route links through the space; `--yes` takes the config value (`true` by default) without asking and runs sudo with `-n`, so it never prompts for anything. |
+| `setup [--yes] [--remove]` | Install or remove the privileged wrapper, the Hyprland config file and its marked line, the slice unit, the launcher entries, the URL handler, and the patched notification-service clone. The first run asks whether to route links through the space and whether to block listed sites outside it, both before anything asks for a password. The wrapper is installed only for a yes, and a no, a refusal, or a cancelled password costs site blocking alone: every other step still runs, and only the exit code says so. `--yes` takes the config value for links (`true` by default), leaves an unanswered site-block question unanswered, and runs sudo with `-n`, so it never prompts for anything. |
+| `site-block on\|off` | Turn site blocking on or off after setup. `on` records the answer, installs the firewall helper when it is missing or out of date — the one moment it asks for a password — and hands the block to the listener. `off` records the answer and destroys the table itself, leaving the helper installed. Exit 1 when the helper could not be installed, with the answer left on, when `on` has no terminal and no helper, or when the answer was recorded but its effect did not happen: no listener applied `on`, or `off` could not destroy the table; 2 for anything but `on` or `off`. |

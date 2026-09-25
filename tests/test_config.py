@@ -185,6 +185,26 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(json.loads(r.stdout), expected)
         self.assertEqual(json.loads(self.box.config_file.read_text(encoding="utf-8")), v2)
 
+    def test_site_block_switch_stays_out_of_the_file_and_set_names_the_turn_on_command(self):
+        # Setup asks about site blocking once, so the switch is absent from the
+        # file until it is answered, exactly as the link key is.
+        self.box.install_helper(False)
+        r = self.box.run("config", "get", "site_block.enabled")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIs(json.loads(r.stdout), True)
+        raw = json.loads(self.box.config_file.read_text(encoding="utf-8"))
+        self.assertNotIn("enabled", raw["site_block"])
+        # A plain config write, password or no password: it records the choice and
+        # names the command that installs the helper the choice needs.
+        r = self.box.run("config", "set", "site_block.enabled", "true")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("distractions site-block on", r.stdout)
+        self.assertIs(json.loads(self.box.config_file.read_text(encoding="utf-8"))["site_block"]["enabled"], True)
+        self.box.install_helper(True)
+        r = self.box.run("config", "set", "site_block.enabled", "true")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, "")
+
     def test_open_links_in_space_stays_out_of_the_file_until_something_sets_it(self):
         # Setup asks about links once; "not asked yet" is the key's absence from
         # the file, and it has to survive every write made before the answer.

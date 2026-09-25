@@ -566,11 +566,9 @@ class HoldListenerTests(unittest.TestCase):
         return self._log_text().count("silencedSenders: omarchy-shell is not running")
 
     def _pysite(self, body):
-        site = self.box.runtime / "pysite"
-        site.mkdir(exist_ok=True)
-        (site / "sitecustomize.py").write_text(
-            f"import sys\nsys.path.insert(0, {str(ROOT)!r})\n{body}", encoding="utf-8")
-        return {"PYTHONPATH": str(site)}
+        """`body` added to the sandbox's own sitecustomize, which already pins the
+        root destinations; a file of our own on PYTHONPATH would replace it."""
+        return self.box.site_lines(*body.splitlines())
 
     def test_a_late_shell_recovers_inside_the_window_without_a_notice(self):
         down = self.box.runtime / "shell-down"

@@ -33,7 +33,13 @@ chmod +x ~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-spac
 ~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions setup
 ```
 
-Setup asks for sudo once, to install the firewall helper and the sudoers grant that lets the listener run it without a password; the reference lists [everything setup writes](docs/reference.md#what-setup-installs) and how to [move a 3.x install that pasted the snippets by hand](docs/reference.md#moving-a-pasted-3x-install).
+Setup asks two questions and asks them once: whether links should open in the space, and whether listed sites should be blocked outside it. The second one is the only part that needs your password, because it installs a firewall helper and the sudoers grant that lets the listener run it. Say no and you still get everything else — the space, the containment, the notification hold, the mute, the links — and you can turn blocking on later with one command:
+
+```bash
+~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions site-block on
+```
+
+The settings menu turns it on too, opening a terminal for the password when the helper is not installed yet. The reference lists [everything setup writes](docs/reference.md#what-setup-installs) and how to [move a 3.x install that pasted the snippets by hand](docs/reference.md#moving-a-pasted-3x-install).
 
 ## Use
 

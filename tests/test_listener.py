@@ -418,17 +418,16 @@ class ListenerTests(unittest.TestCase):
         sock.sendall((verb + "\n").encode())
         self.fired.append(sock)
 
-    def _period_env(self, seconds):
-        site = self.box.runtime / "pysite"
-        site.mkdir(exist_ok=True)
-        (site / "sitecustomize.py").write_text(
-            "import sys\n"
-            f"sys.path.insert(0, {str(ROOT)!r})\n"
-            "from ds import listener\n"
-            f"listener.PERIOD = {float(seconds)!r}\n",
-            encoding="utf-8",
-        )
-        return {"PYTHONPATH": str(site)}
+    def _period_env(self, seconds, *extra):
+        """A listener whose period is `seconds`, plus any further lines it needs.
+
+        Through the sandbox's own sitecustomize, so the listener child keeps the
+        root-destination pin: a file of our own on PYTHONPATH would replace it,
+        and the listener would then ask the real machine whether the firewall
+        helper is installed.
+        """
+        return self.box.site_lines(
+            "from ds import listener", f"listener.PERIOD = {float(seconds)!r}", *extra)
 
     def _systemctl_lines(self):
         if not self.systemctl_log.exists():
@@ -758,11 +757,11 @@ time.sleep(3600)
     def test_worker_command_timeouts_report_failure_then_recover(self):
         self._cfg()
         self._register_handler()
-        env = self._period_env(60)
-        site = self.box.runtime / "pysite" / "sitecustomize.py"
-        with site.open("a") as out:
-            out.write("from ds import net, cgroup, setup\n"
-                      "net.COMMAND_TIMEOUT = cgroup.SYSTEMCTL_TIMEOUT = setup.UDD_TIMEOUT = 0.5\n")
+        env = self._period_env(
+            60,
+            "from ds import net, cgroup, setup",
+            "net.COMMAND_TIMEOUT = cgroup.SYSTEMCTL_TIMEOUT = setup.UDD_TIMEOUT = 0.5",
+        )
         self._start(extra_env=env)
         self.assertTrue(_wait(lambda: (self._state() or {}).get("site_block") == "on"))
         for tool, body in (("sudo", SUDO), ("systemctl", SYSTEMCTL),

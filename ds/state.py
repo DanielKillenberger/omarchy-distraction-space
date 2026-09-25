@@ -271,10 +271,22 @@ def _expansion_hosts(expansion):
     return hosts
 
 
+# Site blocking that is switched on and has no firewall helper installed: not off
+# by choice, not failing, just never finished. One command finishes it.
+SITE_BLOCK_NOT_SET_UP = "not set up"
+
+
+def _site_block_not_set_up(cfg) -> bool:
+    from ds import setup
+    return cfg is not None and cfg["site_block"]["enabled"] and not setup.helper_installed()
+
+
 def _health(st, cfg, listener, on_space, locked):
+    from ds import setup
     observed = st.get("observed_at")
     observed = observed if isinstance(observed, dict) else {}
     now = datetime.now(timezone.utc)
+    not_set_up = _site_block_not_set_up(cfg)
     labels = {"site_block": "Site blocking", "notification_hold": "Notification holding", "links": "Listed-link routing"}
     services, reasons = {}, []
     if listener != "responsive":
@@ -306,6 +318,11 @@ def _health(st, cfg, listener, on_space, locked):
             kind, reason = "disabled", "Off by choice."
         elif enabled is None:
             kind, reason = "unknown", "Cannot read saved settings."
+        elif key == "site_block" and not_set_up:
+            # A fact about the machine, not about the last observation, so it is
+            # decided before the observation's age is weighed at all.
+            kind = "pending"
+            reason = f"Not set up: no firewall helper is installed. Turn it on with: {setup.SITE_BLOCK_COMMAND}"
         elif age is None or age < 0:
             kind, reason = "unknown", "No valid observation time; current behavior is unknown."
         elif age > HEALTH_STALE_SECONDS:
@@ -371,7 +388,7 @@ def status():
         "until": lk["until"],
         "purpose": lk["purpose"],
         "on_space": on_space,
-        "site_block": st.get("site_block", "off"),
+        "site_block": SITE_BLOCK_NOT_SET_UP if _site_block_not_set_up(cfg) else st.get("site_block", "off"),
         "listener_pid": pid,
         "hold": st.get("hold") is True,
         "held": {k: v for k, v in held.items() if isinstance(k, str) and type(v) is int} if isinstance(held, dict) else {},
