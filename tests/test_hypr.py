@@ -651,6 +651,23 @@ class HyprTests(unittest.TestCase):
         self.assertIn("name:1", dest)
         self.assertNotIn("name:distraction", dest.split("hl.dsp.focus", 1)[-1])
 
+    def test_cycle_skips_special_workspaces(self):
+        # Hyprland gives the named space and special workspaces negative ids, so
+        # leaving the space (-1337) used to land on the scratchpad (-98) and
+        # toggle it open instead of returning to a numbered workspace.
+        self._state(
+            activeworkspace={"id": -1337, "name": "distraction"},
+            workspaces=[
+                {"id": 1, "name": "1", "windows": 3},
+                {"id": -1337, "name": "distraction", "windows": 4},
+                {"id": -98, "name": "special:scratchpad", "windows": 1},
+            ],
+        )
+        hypr.cycle("next")
+        dest = "\n".join(self._joined()).split("hl.dsp.focus", 1)[-1]
+        self.assertIn("name:1", dest)
+        self.assertNotIn("special:", dest)
+
     def test_failed_disable_kept_in_rules_json_and_retried(self):
         hypr.apply_rules(_entries("Telegram", "Signal"))
         signal_names, _ = hypr._rule_names(_entries("Signal"))
