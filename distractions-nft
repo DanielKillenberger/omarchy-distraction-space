@@ -110,11 +110,20 @@ def render_destroy() -> str:
 def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
     slice_accept = f'socket cgroupv2 level {SLICE_LEVEL} "{cgroup}" accept'
     login = "/".join(cgroup.split("/")[:LOGIN_LEVEL])
-    # Only connections the redirect produced are judged (ct status dnat), so a
-    # service another account runs on either port stays reachable directly. Only
-    # the opening SYN is judged: the handshake's last ACK finds a request socket,
-    # which carries no cgroup, and a connection past the SYN is already the person's.
-    feedback_syn = f"tcp dport {{ {HTTP_PORT}, {TLS_PORT} }} ct status dnat tcp flags & (syn | ack) == syn"
+    # Only connections this table's own redirect produced are judged: the
+    # connection was first addressed to a listed address on 80 or 443. A direct
+    # connection, or another firewall's forward, to a service on either port
+    # stays reachable. Only the opening SYN is judged: the handshake's last ACK
+    # finds a request socket, which carries no cgroup, and a connection past the
+    # SYN is already the person's.
+    def feedback_syn(ip: str, addr_set: str) -> str:
+        return (f"tcp dport {{ {HTTP_PORT}, {TLS_PORT} }} ct original {ip} daddr @{addr_set} "
+                f"ct original proto-dst {{ 80, 443 }} tcp flags & (syn | ack) == syn")
+    gate = "".join(
+        f'    {feedback_syn(ip, addr_set)} socket cgroupv2 level {LOGIN_LEVEL} "{login}" accept\n'
+        f"    {feedback_syn(ip, addr_set)} reject with tcp reset\n"
+        for ip, addr_set in (("ip", SET4), ("ip6", SET6))
+    )
     return (
         f"destroy table {FAMILY} {TABLE}\n"
         f"table {FAMILY} {TABLE} {{\n"
@@ -148,8 +157,7 @@ def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
         f"  }}\n"
         f"  chain input {{\n"
         f"    type filter hook input priority filter; policy accept;\n"
-        f'    {feedback_syn} socket cgroupv2 level {LOGIN_LEVEL} "{login}" accept\n'
-        f"    {feedback_syn} reject with tcp reset\n"
+        f"{gate}"
         f"  }}\n"
         f"}}\n"
     )

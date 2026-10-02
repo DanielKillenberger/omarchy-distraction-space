@@ -115,12 +115,16 @@ class NftTests(unittest.TestCase):
     def test_feedback_ports_accept_a_new_connection_only_from_the_login(self):
         script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
         body = script[script.index("chain input {") :]
-        syn = "tcp dport { 28080, 28443 } ct status dnat tcp flags & (syn | ack) == syn"
+        login = f'socket cgroupv2 level 2 "user.slice/user-{UID}.slice" accept'
+        rules = ""
+        for ip, addr_set in (("ip", "omarchy_ds_v4"), ("ip6", "omarchy_ds_v6")):
+            syn = (f"tcp dport {{ 28080, 28443 }} ct original {ip} daddr @{addr_set} "
+                   "ct original proto-dst { 80, 443 } tcp flags & (syn | ack) == syn")
+            rules += f"    {syn} {login}\n    {syn} reject with tcp reset\n"
         self.assertTrue(body.startswith(
             "chain input {\n"
             "    type filter hook input priority filter; policy accept;\n"
-            f'    {syn} socket cgroupv2 level 2 "user.slice/user-{UID}.slice" accept\n'
-            f"    {syn} reject with tcp reset\n"
+            f"{rules}"
             "  }\n"
         ), body)
 
@@ -347,9 +351,11 @@ class NftTests(unittest.TestCase):
             ("level 2", "level 3"),
             (f'"user.slice/user-{UID}.slice"', f'"user.slice/user-{UID + 1}.slice"'),
             ("== syn reject with tcp reset\n", "== syn accept\n"),
-            ("{ 28080, 28443 } ct status", "{ 28080 } ct status"),
+            ("{ 28080, 28443 } ct original", "{ 28080 } ct original"),
+            ("proto-dst { 80, 443 }", "proto-dst { 80 }"),
+            ("ct original ip6 daddr @omarchy_ds_v6", "ct original ip6 daddr @omarchy_ds_v4"),
             ("hook input priority 0", "hook input priority 10"),
-            ("} ct status dnat tcp flags & (syn | ack) == syn reject", "} tcp flags & (syn | ack) == syn reject"),
+            ("proto-dst { 80, 443 } tcp flags & (syn | ack) == syn reject", "tcp flags & (syn | ack) == syn reject"),
         ]
         for old, new in changes:
             with self.subTest(change=(old, new)):
@@ -451,7 +457,9 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
     assert own.startswith("/" + login + "/"), f"test process outside {login}: {own}"
     for argv in (["ip", "link", "set", "lo", "up"],
                  ["ip", "addr", "add", "203.0.113.1/24", "dev", "lo"],
-                 ["ip", "-6", "addr", "add", "2001:db8::1/64", "dev", "lo", "nodad"]):
+                 ["ip", "-6", "addr", "add", "2001:db8::1/64", "dev", "lo", "nodad"],
+                 ["ip", "addr", "add", "198.51.100.1/24", "dev", "lo"],
+                 ["ip", "-6", "addr", "add", "2001:db8:1::1/64", "dev", "lo", "nodad"]):
         done = call(argv)
         assert done.returncode == 0, done.stderr
 
@@ -502,7 +510,22 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
     # account runs there stays reachable while site blocking is on.
     for pair in pairs:
         assert outcome(pair[0], pair[1], pair[1], port=28080) == "reached", f"{pair[0].name}: direct connection reset"
-    print("LIVE_NFT_GATE: login socket reached, foreign socket reset, direct connection untouched, IPv4 and IPv6", flush=True)
+    # Another firewall's forward to the port is not this table's redirect either.
+    forward = call([nft, "-f", "-"], (
+        "table inet ds_test_forward {\n"
+        "  chain out { type nat hook output priority dstnat; policy accept;\n"
+        "    ip daddr 198.51.100.7 tcp dport 8080 redirect to :28080\n"
+        "    ip6 daddr 2001:db8:1::7 tcp dport 8080 redirect to :28080\n"
+        "  }\n"
+        "}\n"))
+    assert forward.returncode == 0, forward.stderr
+    for family, loopback, dst in ((socket.AF_INET, "127.0.0.1", "198.51.100.7"),
+                                  (socket.AF_INET6, "::1", "2001:db8:1::7")):
+        assert outcome(family, loopback, dst, port=8080) == "reached", f"{family.name}: foreign forward reset"
+    dropped = call([nft, "delete", "table", "inet", "ds_test_forward"])
+    assert dropped.returncode == 0, dropped.stderr
+    print("LIVE_NFT_GATE: login socket reached, foreign socket reset, direct connection and"
+          " foreign forward untouched, IPv4 and IPv6", flush=True)
 
 
 def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
