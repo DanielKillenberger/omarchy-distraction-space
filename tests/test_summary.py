@@ -183,6 +183,17 @@ class SummaryUnitTests(_Env):
         os.environ["DS_AGENT_REPLY"] = "y" * summary.READ_CAP
         self.assertEqual(summary.body(RECORDS, _auto()), "y" * summary.CLIP)
 
+    def test_a_temp_dir_that_cannot_be_made_is_the_grouped_count(self):
+        for name in ("mkdtemp", "TemporaryFile"):
+            with self.subTest(fails=name):
+                before = self._log_text()
+                err = OSError(28, "No space left on device")
+                with mock.patch.object(summary.tempfile, name, side_effect=err):
+                    self.assertEqual(summary.body(RECORDS, _auto()), GROUPED)
+                tail = self._log_text()[len(before):]
+                self.assertIn("summary: claude: [Errno 28] No space left on device", tail)
+        self.assertEqual(self._asked(), [])
+
     def test_a_flooding_agent_is_cut_off_at_the_read_cap(self):
         os.environ["DS_AGENT_FLOOD"] = "1"
         t0 = time.monotonic()

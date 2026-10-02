@@ -238,9 +238,13 @@ def _drain(proc, deadline):
 def ask(argv, text, timeout):
     """The command's reply as one line, or None when it failed, timed out, or answered nothing."""
     deadline = time.monotonic() + timeout
-    # A fresh empty directory, so the agent picks up no project instructions or configuration.
-    with tempfile.TemporaryDirectory(prefix="ds-summary-") as cwd:
+    # A fresh empty directory, so the agent picks up no project instructions or configuration. Making it,
+    # like the stdin file, is inside the error path: a full or unwritable temp dir is the count, not a raise
+    # after the records were already claimed. Removing it never raises either.
+    cwd = None
+    try:
         try:
+            cwd = tempfile.mkdtemp(prefix="ds-summary-")
             with tempfile.TemporaryFile() as stdin:
                 stdin.write(text.encode("utf-8"))
                 stdin.flush()
@@ -250,6 +254,9 @@ def ask(argv, text, timeout):
             _log(f"{argv[0]}: {e}")
             return None
         got = _drain(proc, deadline)
+    finally:
+        if cwd is not None:
+            shutil.rmtree(cwd, ignore_errors=True)
     if got is None:
         _log(f"{argv[0]} timed out after {timeout:g}s")
         return None
