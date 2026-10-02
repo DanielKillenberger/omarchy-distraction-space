@@ -10,6 +10,7 @@ import time
 from unittest.mock import patch
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -110,6 +111,18 @@ class NftTests(unittest.TestCase):
         logged = self.stdin_log()
         self.assertIn("redirect to :28080", logged)
         self.assertIn("meta l4proto tcp reject with tcp reset", logged)
+
+    def test_feedback_ports_accept_a_new_connection_only_from_the_login(self):
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
+        body = script[script.index("chain input {") :]
+        syn = "tcp dport { 28080, 28443 } tcp flags & (syn | ack) == syn"
+        self.assertTrue(body.startswith(
+            "chain input {\n"
+            "    type filter hook input priority filter; policy accept;\n"
+            f'    {syn} socket cgroupv2 level 2 "user.slice/user-{UID}.slice" accept\n'
+            f"    {syn} reject with tcp reset\n"
+            "  }\n"
+        ), body)
 
     def test_splice_source_port_accept_precedes_redirect_and_reject(self):
         script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
@@ -331,6 +344,11 @@ class NftTests(unittest.TestCase):
             (" accept\n", ' accept comment "extra"\n'),
             ("    ip daddr @omarchy_ds_v4 reject with icmp port-unreachable\n", ""),
             ("    ip daddr @omarchy_ds_v4 reject with icmp port-unreachable\n", "    accept\n"),
+            ("level 2", "level 3"),
+            (f'"user.slice/user-{UID}.slice"', f'"user.slice/user-{UID + 1}.slice"'),
+            ("== syn reject with tcp reset\n", "== syn accept\n"),
+            ("{ 28080, 28443 } tcp flags", "{ 28080 } tcp flags"),
+            ("hook input priority 0", "hook input priority 10"),
         ]
         for old, new in changes:
             with self.subTest(change=(old, new)):
@@ -425,6 +443,51 @@ class NftTests(unittest.TestCase):
             self.fail(f"nft -c rejected ruleset: {err}")
 
 
+def live_feedback_gate(call, nft: str, uid: int) -> None:
+    """A redirected connection reaches a router socket in the login and is reset for one outside it."""
+    login = f"user.slice/user-{uid}.slice"
+    own = Path("/proc/self/cgroup").read_text().strip().split("::", 1)[-1]
+    assert own.startswith("/" + login + "/"), f"test process outside {login}: {own}"
+    for argv in (["ip", "link", "set", "lo", "up"],
+                 ["ip", "addr", "add", "203.0.113.1/24", "dev", "lo"],
+                 ["ip", "-6", "addr", "add", "2001:db8::1/64", "dev", "lo", "nodad"]):
+        done = call(argv)
+        assert done.returncode == 0, done.stderr
+
+    def reaches(family, loopback, dst):
+        server = socket.socket(family)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((loopback, 28080))
+        server.listen()
+        server.settimeout(2)
+        try:
+            client = socket.create_connection((dst, 80), timeout=2)
+            peer, _ = server.accept()
+            client.sendall(b"ping")
+            ok = peer.recv(4) == b"ping"
+            peer.close()
+            client.close()
+            return ok
+        except OSError:
+            return False
+        finally:
+            server.close()
+
+    pairs = ((socket.AF_INET, "127.0.0.1", "203.0.113.8"), (socket.AF_INET6, "::1", "2001:db8::8"))
+    for pair in pairs:
+        assert reaches(*pair), f"{pair[0].name}: login socket not reached"
+    # The same table with the gate naming another cgroup stands in for a router
+    # socket another account owns.
+    listed = call([nft, "list", "table", "inet", "omarchy_ds"]).stdout
+    foreign = listed.replace(f'level 2 "{login}"', 'level 1 "system.slice"')
+    assert foreign != listed
+    swapped = call([nft, "-f", "-"], "destroy table inet omarchy_ds\n" + foreign)
+    assert swapped.returncode == 0, swapped.stderr
+    for pair in pairs:
+        assert not reaches(*pair), f"{pair[0].name}: foreign socket reached"
+    print("LIVE_NFT_GATE: login socket reached, foreign socket reset, IPv4 and IPv6", flush=True)
+
+
 def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
     """Invoked only by LiveNftTests inside a disposable user/network namespace."""
     if os.readlink("/proc/self/ns/net") == parent_namespace:
@@ -454,6 +517,8 @@ def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
     listed = call([nft, "-y", "list", "table", "inet", "omarchy_ds"])
     assert listed.returncode == 0, listed.stderr
     print("Real installed policy:\n" + listed.stdout, flush=True)
+    live_feedback_gate(call, nft, uid)
+    apply_and_check()
     for mutation in ([nft, "add", "rule", "inet", "omarchy_ds", "output", "accept"],
                      [nft, "delete", "table", "inet", "omarchy_ds"]):
         changed = call(mutation)

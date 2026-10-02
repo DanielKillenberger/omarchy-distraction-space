@@ -44,6 +44,10 @@ MAX_ADDRESSES = 4096
 SLICE = "app-distraction.slice"
 CGROUP_ROOT = "/sys/fs/cgroup"
 SLICE_LEVEL = 5
+# The person's whole login, user.slice/user-<uid>.slice. Only root and that uid's
+# own manager place processes under it, so a feedback port held by a socket outside
+# it belongs to another account, and a redirected connection to it is reset.
+LOGIN_LEVEL = 2
 CHECK_TIMEOUT = 5.0
 MAX_OUTPUT_BYTES = 1024 * 1024
 
@@ -105,6 +109,11 @@ def render_destroy() -> str:
 
 def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
     slice_accept = f'socket cgroupv2 level {SLICE_LEVEL} "{cgroup}" accept'
+    login = "/".join(cgroup.split("/")[:LOGIN_LEVEL])
+    # Only the opening SYN is judged: the handshake's last ACK finds a request
+    # socket, which carries no cgroup, and a connection past the SYN is already
+    # the person's.
+    feedback_syn = f"tcp dport {{ {HTTP_PORT}, {TLS_PORT} }} tcp flags & (syn | ack) == syn"
     return (
         f"destroy table {FAMILY} {TABLE}\n"
         f"table {FAMILY} {TABLE} {{\n"
@@ -135,6 +144,11 @@ def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
         f"    ip daddr @{SET4} tcp dport 443 redirect to :{TLS_PORT}\n"
         f"    ip6 daddr @{SET6} tcp dport 80 redirect to :{HTTP_PORT}\n"
         f"    ip6 daddr @{SET6} tcp dport 443 redirect to :{TLS_PORT}\n"
+        f"  }}\n"
+        f"  chain input {{\n"
+        f"    type filter hook input priority filter; policy accept;\n"
+        f'    {feedback_syn} socket cgroupv2 level {LOGIN_LEVEL} "{login}" accept\n'
+        f"    {feedback_syn} reject with tcp reset\n"
         f"  }}\n"
         f"}}\n"
     )
