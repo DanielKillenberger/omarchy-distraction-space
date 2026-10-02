@@ -118,8 +118,9 @@ class NftTests(unittest.TestCase):
         login = f'socket cgroupv2 level 2 "user.slice/user-{UID}.slice" accept'
         rules = ""
         for ip, addr_set in (("ip", "omarchy_ds_v4"), ("ip6", "omarchy_ds_v6")):
-            syn = (f"tcp dport {{ 28080, 28443 }} ct original {ip} daddr @{addr_set} "
-                   "ct original proto-dst { 80, 443 } tcp flags & (syn | ack) == syn")
+            syn = (f"ct original {ip} daddr @{addr_set} "
+                   "tcp dport . ct original proto-dst { 28080 . 80, 28443 . 443 } "
+                   "tcp flags & (syn | ack) == syn")
             rules += f"    {syn} {login}\n    {syn} reject with tcp reset\n"
         self.assertTrue(body.startswith(
             "chain input {\n"
@@ -351,11 +352,12 @@ class NftTests(unittest.TestCase):
             ("level 2", "level 3"),
             (f'"user.slice/user-{UID}.slice"', f'"user.slice/user-{UID + 1}.slice"'),
             ("== syn reject with tcp reset\n", "== syn accept\n"),
-            ("{ 28080, 28443 } ct original", "{ 28080 } ct original"),
-            ("proto-dst { 80, 443 }", "proto-dst { 80 }"),
+            ("{ 28080 . 80, 28443 . 443 }", "{ 28080 . 80 }"),
+            ("{ 28080 . 80, 28443 . 443 }", "{ 28080 . 443, 28443 . 80 }"),
+            ("tcp dport . ct original proto-dst", "ct original proto-dst . tcp dport"),
             ("ct original ip6 daddr @omarchy_ds_v6", "ct original ip6 daddr @omarchy_ds_v4"),
             ("hook input priority 0", "hook input priority 10"),
-            ("proto-dst { 80, 443 } tcp flags & (syn | ack) == syn reject", "tcp flags & (syn | ack) == syn reject"),
+            ("443 } tcp flags & (syn | ack) == syn reject", "443 } reject"),
         ]
         for old, new in changes:
             with self.subTest(change=(old, new)):
@@ -463,7 +465,7 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
         done = call(argv)
         assert done.returncode == 0, done.stderr
 
-    def outcome(family, loopback, dst, port=80):
+    def outcome(family, loopback, dst, port=80, listen=28080):
         """"reached" when the router socket echoes, "refused" only for a reset SYN.
 
         Anything else -- a timeout, another error, a connection that opens but
@@ -471,7 +473,7 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
         """
         server = socket.socket(family)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        server.bind((loopback, 28080))
+        server.bind((loopback, listen))
         server.listen()
         server.settimeout(2)
         try:
@@ -524,8 +526,26 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
         assert outcome(family, loopback, dst, port=8080) == "reached", f"{family.name}: foreign forward reset"
     dropped = call([nft, "delete", "table", "inet", "ds_test_forward"])
     assert dropped.returncode == 0, dropped.stderr
-    print("LIVE_NFT_GATE: login socket reached, foreign socket reset, direct connection and"
-          " foreign forward untouched, IPv4 and IPv6", flush=True)
+    # A forward that crosses a listed address's ports (80 to the TLS port, 443
+    # to the HTTP port) runs ahead of output_nat and is not a pair it makes.
+    crossed = call([nft, "-f", "-"], (
+        "table inet ds_test_crossed {\n"
+        "  chain out { type nat hook output priority -110; policy accept;\n"
+        "    ip daddr 203.0.113.8 tcp dport 80 redirect to :28443\n"
+        "    ip6 daddr 2001:db8::8 tcp dport 80 redirect to :28443\n"
+        "    ip daddr 203.0.113.8 tcp dport 443 redirect to :28080\n"
+        "    ip6 daddr 2001:db8::8 tcp dport 443 redirect to :28080\n"
+        "  }\n"
+        "}\n"))
+    assert crossed.returncode == 0, crossed.stderr
+    for family, loopback, dst in pairs:
+        for port, listen in ((80, 28443), (443, 28080)):
+            assert outcome(family, loopback, dst, port=port, listen=listen) == "reached", \
+                f"{family.name}: crossed forward {port} to {listen} reset"
+    dropped = call([nft, "delete", "table", "inet", "ds_test_crossed"])
+    assert dropped.returncode == 0, dropped.stderr
+    print("LIVE_NFT_GATE: login socket reached, foreign socket reset, direct connection,"
+          " foreign forward and crossed forward untouched, IPv4 and IPv6", flush=True)
 
 
 def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:

@@ -111,14 +111,16 @@ def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
     slice_accept = f'socket cgroupv2 level {SLICE_LEVEL} "{cgroup}" accept'
     login = "/".join(cgroup.split("/")[:LOGIN_LEVEL])
     # Only connections this table's own redirect produced are judged: the
-    # connection was first addressed to a listed address on 80 or 443. A direct
+    # connection was first addressed to a listed address on 80 and now lands on
+    # the HTTP port, or on 443 and the TLS port, the pairs output_nat makes. A direct
     # connection, or another firewall's forward, to a service on either port
     # stays reachable. Only the opening SYN is judged: the handshake's last ACK
     # finds a request socket, which carries no cgroup, and a connection past the
     # SYN is already the person's.
     def feedback_syn(ip: str, addr_set: str) -> str:
-        return (f"tcp dport {{ {HTTP_PORT}, {TLS_PORT} }} ct original {ip} daddr @{addr_set} "
-                f"ct original proto-dst {{ 80, 443 }} tcp flags & (syn | ack) == syn")
+        return (f"ct original {ip} daddr @{addr_set} "
+                f"tcp dport . ct original proto-dst {{ {HTTP_PORT} . 80, {TLS_PORT} . 443 }} "
+                f"tcp flags & (syn | ack) == syn")
     gate = "".join(
         f'    {feedback_syn(ip, addr_set)} socket cgroupv2 level {LOGIN_LEVEL} "{login}" accept\n'
         f"    {feedback_syn(ip, addr_set)} reject with tcp reset\n"
