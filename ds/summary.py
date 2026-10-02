@@ -21,15 +21,17 @@ READ_CAP, ERR_CAP = 64 * 1024, 4 * 1024
 # Held records are one small JSON object per line, so a real claim is kilobytes: the cap sits far above any
 # genuine hold and bounds what a tampered or runaway file can push through the summary into the listener.
 HELD_READ_CAP = 4 * 1024 * 1024
-# The headless one-shot form of each Omarchy default agent: the prompt on stdin, the answer on stdout.
+# The held text comes from whoever sent the notifications, so the agent that summarizes it gets no tools
+# at all: no shell, no files, no web, no MCP servers. A route ships only through a switch that allows no
+# tools (an allowlist given nothing, not a denylist of today's tool names), proven by the live canary probe
+# recorded in docs/internals.md. The prompt goes on stdin and the answer comes back on stdout.
 AGENTS = {
-    "grok": ["grok", "-p"],
-    "claude": ["claude", "-p", "--output-format", "text"],
-    "codex": ["codex", "exec", "-s", "read-only", "--skip-git-repo-check", "-"],
-    "gemini": ["gemini", "-p"],
-    "opencode": ["opencode", "run"],
-    "copilot": ["copilot", "-p"],
+    "claude": ["claude", "-p", "--output-format", "text", "--tools", "", "--strict-mcp-config"],
 }
+# Omarchy default agents with a one-shot form that cannot be shown to run without tools: codex and grok
+# have no switch that removes every tool (grok's allowlist leaves MCP servers in place), and gemini,
+# opencode and copilot have not passed the canary probe. Each shows the grouped count instead.
+NO_TOOLS_UNPROVEN = ("codex", "grok", "gemini", "opencode", "copilot")
 PROMPT = (
     "The desktop notifications below were held while the person was focused. Each line is one JSON object "
     "with the app, the title, and the body. In one or two plain sentences, in the second person, tell them "
@@ -70,6 +72,9 @@ def default_agent():
         _log(f"cannot read {path}: {e}; showing the count")
         return None
     argv = AGENTS.get(name)
+    if argv is None and name in NO_TOOLS_UNPROVEN:
+        _log(f"Omarchy default agent {name!r} cannot be run without tools; showing the count")
+        return None
     if argv is None:
         _log(f"Omarchy default agent {name!r} has no headless one-shot form; showing the count")
         return None
@@ -233,16 +238,18 @@ def _drain(proc, deadline):
 def ask(argv, text, timeout):
     """The command's reply as one line, or None when it failed, timed out, or answered nothing."""
     deadline = time.monotonic() + timeout
-    try:
-        with tempfile.TemporaryFile() as stdin:
-            stdin.write(text.encode("utf-8"))
-            stdin.flush()
-            stdin.seek(0)
-            proc = subprocess.Popen(argv, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except OSError as e:
-        _log(f"{argv[0]}: {e}")
-        return None
-    got = _drain(proc, deadline)
+    # A fresh empty directory, so the agent picks up no project instructions or configuration.
+    with tempfile.TemporaryDirectory(prefix="ds-summary-") as cwd:
+        try:
+            with tempfile.TemporaryFile() as stdin:
+                stdin.write(text.encode("utf-8"))
+                stdin.flush()
+                stdin.seek(0)
+                proc = subprocess.Popen(argv, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=cwd)
+        except OSError as e:
+            _log(f"{argv[0]}: {e}")
+            return None
+        got = _drain(proc, deadline)
     if got is None:
         _log(f"{argv[0]} timed out after {timeout:g}s")
         return None

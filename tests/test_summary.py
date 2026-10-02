@@ -29,7 +29,7 @@ AGENT = r"""
 import json, os, sys, time
 from pathlib import Path
 text = sys.stdin.read()
-Path(os.environ["DS_AGENT_LOG"]).open("a", encoding="utf-8").write(json.dumps({"argv": sys.argv, "stdin": text}) + "\n")
+Path(os.environ["DS_AGENT_LOG"]).open("a", encoding="utf-8").write(json.dumps({"argv": sys.argv, "stdin": text, "cwd": os.getcwd(), "files": os.listdir(".")}) + "\n")
 time.sleep(float(os.environ.get("DS_AGENT_SLEEP", "0")))
 if os.environ.get("DS_AGENT_FLOOD"):
     try:
@@ -132,12 +132,12 @@ class SummaryUnitTests(_Env):
         self.assertEqual(summary.resolve_command(_cfg(command=["agent", "--x"])), ["agent", "--x"])
         self.assertEqual(self._log_text(), "")
         cases = [
-            ("grok", "grok", ["grok", "-p"], None),
-            ("claude", "claude", ["claude", "-p", "--output-format", "text"], None),
-            ("codex", "codex", ["codex", "exec", "-s", "read-only", "--skip-git-repo-check", "-"], None),
+            ("claude", "claude", ["claude", "-p", "--output-format", "text", "--tools", "", "--strict-mcp-config"], None),
+            ("codex", "codex", None, "'codex' cannot be run without tools"),
+            ("grok", "grok", None, "'grok' cannot be run without tools"),
+            ("opencode", "opencode", None, "'opencode' cannot be run without tools"),
             ("unsupported", "pi", None, "'pi' has no headless one-shot form"),
             ("no file", None, None, "no Omarchy default agent chosen"),
-            ("no binary", "gemini", None, "'gemini' is not on PATH"),
             ("not utf-8", b"\xff\xfegrok\n", None, "cannot read"),
         ]
         for name, agent, argv, log_bit in cases:
@@ -153,13 +153,23 @@ class SummaryUnitTests(_Env):
                     self.assertIn("summary: ", tail)
                     self.assertIn(log_bit, tail)
                     self.assertIn("showing the count", tail)
+        self._choose("claude")
+        before = self._log_text()
+        with mock.patch.object(summary.shutil, "which", return_value=None):
+            self.assertIsNone(summary.resolve_command(_auto()))
+        tail = self._log_text()[len(before):]
+        self.assertIn("'claude' is not on PATH; showing the count", tail)
 
     def test_body_sends_prompt_on_stdin_and_clips_the_reply(self):
         os.environ["DS_AGENT_REPLY"] = "Alice asked about lunch,\n  twice.  \n"
         self.assertEqual(summary.body(RECORDS, _auto()), "Alice asked about lunch, twice.")
         asked = self._asked()
         self.assertEqual(len(asked), 1)
-        self.assertEqual(asked[0]["argv"][1:], ["-p", "--output-format", "text"])
+        self.assertEqual(asked[0]["argv"][1:], ["-p", "--output-format", "text", "--tools", "", "--strict-mcp-config"])
+        # The agent runs in a fresh empty directory, removed once it answers.
+        self.assertEqual(asked[0]["files"], [])
+        self.assertNotEqual(os.path.realpath(asked[0]["cwd"]), os.path.realpath(os.getcwd()))
+        self.assertFalse(os.path.exists(asked[0]["cwd"]))
         self.assertTrue(asked[0]["stdin"].startswith(summary.PROMPT))
         self.assertIn("second person", asked[0]["stdin"])
         self.assertEqual([json.loads(ln) for ln in asked[0]["stdin"][len(summary.PROMPT):].splitlines()], RECORDS)
@@ -417,7 +427,7 @@ class SummaryListenerTests(_Env):
         self.assertFalse(self._held_file().exists())
         self.assertTrue(_wait(lambda: self._state().get("held") == {}, 3), self._state())
         asked = json.loads(self.agent_log.read_text(encoding="utf-8").splitlines()[0])
-        self.assertEqual(asked["argv"][1:], ["-p", "--output-format", "text"])
+        self.assertEqual(asked["argv"][1:], summary.AGENTS["claude"][1:])
         self.assertEqual([json.loads(ln)["app"] for ln in asked["stdin"][len(summary.PROMPT):].splitlines()],
                          ["Telegram", "Telegram", "Discord"])
         self._go("2", 2)
