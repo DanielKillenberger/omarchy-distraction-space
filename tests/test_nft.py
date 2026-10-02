@@ -454,28 +454,40 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
         done = call(argv)
         assert done.returncode == 0, done.stderr
 
-    def reaches(family, loopback, dst):
+    def outcome(family, loopback, dst):
+        """"reached" when the router socket echoes, "refused" only for a reset SYN.
+
+        Anything else -- a timeout, another error, a connection that opens but
+        does not carry the bytes -- fails the scenario rather than passing as either.
+        """
         server = socket.socket(family)
         server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         server.bind((loopback, 28080))
         server.listen()
         server.settimeout(2)
         try:
-            client = socket.create_connection((dst, 80), timeout=2)
-            peer, _ = server.accept()
-            client.sendall(b"ping")
-            ok = peer.recv(4) == b"ping"
-            peer.close()
-            client.close()
-            return ok
-        except OSError:
-            return False
+            try:
+                client = socket.create_connection((dst, 80), timeout=2)
+            except ConnectionRefusedError:
+                # The reset SYN never reached the listener's queue.
+                server.setblocking(False)
+                try:
+                    server.accept()
+                except BlockingIOError:
+                    return "refused"
+                raise AssertionError("refused connection still queued on the router socket")
+            with client:
+                peer, _ = server.accept()
+                with peer:
+                    client.sendall(b"ping")
+                    assert peer.recv(4) == b"ping", "router socket did not carry the bytes"
+            return "reached"
         finally:
             server.close()
 
     pairs = ((socket.AF_INET, "127.0.0.1", "203.0.113.8"), (socket.AF_INET6, "::1", "2001:db8::8"))
     for pair in pairs:
-        assert reaches(*pair), f"{pair[0].name}: login socket not reached"
+        assert outcome(*pair) == "reached", f"{pair[0].name}: login socket not reached"
     # The same table with the gate naming another cgroup stands in for a router
     # socket another account owns.
     listed = call([nft, "list", "table", "inet", "omarchy_ds"]).stdout
@@ -484,7 +496,7 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
     swapped = call([nft, "-f", "-"], "destroy table inet omarchy_ds\n" + foreign)
     assert swapped.returncode == 0, swapped.stderr
     for pair in pairs:
-        assert not reaches(*pair), f"{pair[0].name}: foreign socket reached"
+        assert outcome(*pair) == "refused", f"{pair[0].name}: foreign socket not refused"
     print("LIVE_NFT_GATE: login socket reached, foreign socket reset, IPv4 and IPv6", flush=True)
 
 
