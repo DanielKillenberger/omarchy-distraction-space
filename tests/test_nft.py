@@ -10,6 +10,7 @@ import time
 from unittest.mock import patch
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -110,6 +111,21 @@ class NftTests(unittest.TestCase):
         logged = self.stdin_log()
         self.assertIn("redirect to :28080", logged)
         self.assertIn("meta l4proto tcp reject with tcp reset", logged)
+
+    def test_feedback_ports_reset_a_redirected_connection_outside_the_login(self):
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
+        body = script[script.index("chain input {") :]
+        rules = "".join(
+            f"    ct original {ip} daddr @{addr_set} "
+            "tcp dport . ct original proto-dst { 28080 . 80, 28443 . 443 } "
+            f'socket cgroupv2 level 2 != "user.slice/user-{UID}.slice" reject with tcp reset\n'
+            for ip, addr_set in (("ip", "omarchy_ds_v4"), ("ip6", "omarchy_ds_v6")))
+        self.assertTrue(body.startswith(
+            "chain input {\n"
+            "    type filter hook input priority filter; policy accept;\n"
+            f"{rules}"
+            "  }\n"
+        ), body)
 
     def test_splice_source_port_accept_precedes_redirect_and_reject(self):
         script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
@@ -331,6 +347,16 @@ class NftTests(unittest.TestCase):
             (" accept\n", ' accept comment "extra"\n'),
             ("    ip daddr @omarchy_ds_v4 reject with icmp port-unreachable\n", ""),
             ("    ip daddr @omarchy_ds_v4 reject with icmp port-unreachable\n", "    accept\n"),
+            ("level 2", "level 3"),
+            (f'"user.slice/user-{UID}.slice"', f'"user.slice/user-{UID + 1}.slice"'),
+            ('!= "user.slice', '"user.slice'),
+            (" reject with tcp reset\n  }", " accept\n  }"),
+            ("{ 28080 . 80, 28443 . 443 }", "{ 28080 . 80 }"),
+            ("{ 28080 . 80, 28443 . 443 }", "{ 28080 . 443, 28443 . 80 }"),
+            ("tcp dport . ct original proto-dst", "ct original proto-dst . tcp dport"),
+            ("ct original ip6 daddr @omarchy_ds_v6", "ct original ip6 daddr @omarchy_ds_v4"),
+            ("hook input priority 0", "hook input priority 10"),
+            ("443 } socket", "443 } tcp flags & (syn | ack) == syn socket"),
         ]
         for old, new in changes:
             with self.subTest(change=(old, new)):
@@ -425,6 +451,126 @@ class NftTests(unittest.TestCase):
             self.fail(f"nft -c rejected ruleset: {err}")
 
 
+def live_feedback_gate(call, nft: str, uid: int) -> None:
+    """A redirected connection reaches a router socket in the login and is reset for one outside it."""
+    login = f"user.slice/user-{uid}.slice"
+    own = Path("/proc/self/cgroup").read_text().strip().split("::", 1)[-1]
+    assert own.startswith("/" + login + "/"), f"test process outside {login}: {own}"
+    for argv in (["ip", "link", "set", "lo", "up"],
+                 ["ip", "addr", "add", "203.0.113.1/24", "dev", "lo"],
+                 ["ip", "-6", "addr", "add", "2001:db8::1/64", "dev", "lo", "nodad"],
+                 ["ip", "addr", "add", "198.51.100.1/24", "dev", "lo"],
+                 ["ip", "-6", "addr", "add", "2001:db8:1::1/64", "dev", "lo", "nodad"]):
+        done = call(argv)
+        assert done.returncode == 0, done.stderr
+
+    def outcome(family, loopback, dst, port=80, listen=28080):
+        """"reached" when the router socket echoes, "refused" only for a reset SYN.
+
+        Anything else -- a timeout, another error, a connection that opens but
+        does not carry the bytes -- fails the scenario rather than passing as either.
+        """
+        server = socket.socket(family)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((loopback, listen))
+        server.listen()
+        server.settimeout(2)
+        try:
+            try:
+                client = socket.create_connection((dst, port), timeout=2)
+            except ConnectionRefusedError:
+                # The reset SYN never reached the listener's queue.
+                server.setblocking(False)
+                try:
+                    server.accept()
+                except BlockingIOError:
+                    return "refused"
+                raise AssertionError("refused connection still queued on the router socket")
+            with client:
+                peer, _ = server.accept()
+                with peer:
+                    client.sendall(b"ping")
+                    assert peer.recv(4) == b"ping", "router socket did not carry the bytes"
+            return "reached"
+        finally:
+            server.close()
+
+    pairs = ((socket.AF_INET, "127.0.0.1", "203.0.113.8"), (socket.AF_INET6, "::1", "2001:db8::8"))
+    for pair in pairs:
+        assert outcome(*pair) == "reached", f"{pair[0].name}: login socket not reached"
+    # Connections opened now, while the gate admits them, stand in for ones
+    # another account completed before this table replaced an older one.
+    held = []
+    for family, loopback, dst in pairs:
+        server = socket.socket(family)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.bind((loopback, 28080))
+        server.listen()
+        server.settimeout(2)
+        client = socket.create_connection((dst, 80), timeout=2)
+        peer, _ = server.accept()
+        server.close()
+        client.sendall(b"a")
+        assert peer.recv(1) == b"a", f"{family.name}: held connection not carried"
+        held.append((family, client, peer))
+    # The same table with the gate naming another cgroup stands in for a router
+    # socket another account owns.
+    listed = call([nft, "list", "table", "inet", "omarchy_ds"]).stdout
+    foreign = listed.replace(f'level 2 != "{login}"', 'level 1 != "system.slice"')
+    assert foreign != listed
+    swapped = call([nft, "-f", "-"], "destroy table inet omarchy_ds\n" + foreign)
+    assert swapped.returncode == 0, swapped.stderr
+    for pair in pairs:
+        assert outcome(*pair) == "refused", f"{pair[0].name}: foreign socket not refused"
+    for family, client, peer in held:
+        with client, peer:
+            peer.settimeout(1)
+            try:
+                client.sendall(b"b")
+                got = peer.recv(1)
+            except OSError:
+                got = None
+            assert got != b"b", f"{family.name}: connection held from before the swap still carried"
+    # A direct connection to the port is no redirect, so a service another
+    # account runs there stays reachable while site blocking is on.
+    for pair in pairs:
+        assert outcome(pair[0], pair[1], pair[1], port=28080) == "reached", f"{pair[0].name}: direct connection reset"
+    # Another firewall's forward to the port is not this table's redirect either.
+    forward = call([nft, "-f", "-"], (
+        "table inet ds_test_forward {\n"
+        "  chain out { type nat hook output priority dstnat; policy accept;\n"
+        "    ip daddr 198.51.100.7 tcp dport 8080 redirect to :28080\n"
+        "    ip6 daddr 2001:db8:1::7 tcp dport 8080 redirect to :28080\n"
+        "  }\n"
+        "}\n"))
+    assert forward.returncode == 0, forward.stderr
+    for family, loopback, dst in ((socket.AF_INET, "127.0.0.1", "198.51.100.7"),
+                                  (socket.AF_INET6, "::1", "2001:db8:1::7")):
+        assert outcome(family, loopback, dst, port=8080) == "reached", f"{family.name}: foreign forward reset"
+    dropped = call([nft, "delete", "table", "inet", "ds_test_forward"])
+    assert dropped.returncode == 0, dropped.stderr
+    # A forward that crosses a listed address's ports (80 to the TLS port, 443
+    # to the HTTP port) runs ahead of output_nat and is not a pair it makes.
+    crossed = call([nft, "-f", "-"], (
+        "table inet ds_test_crossed {\n"
+        "  chain out { type nat hook output priority -110; policy accept;\n"
+        "    ip daddr 203.0.113.8 tcp dport 80 redirect to :28443\n"
+        "    ip6 daddr 2001:db8::8 tcp dport 80 redirect to :28443\n"
+        "    ip daddr 203.0.113.8 tcp dport 443 redirect to :28080\n"
+        "    ip6 daddr 2001:db8::8 tcp dport 443 redirect to :28080\n"
+        "  }\n"
+        "}\n"))
+    assert crossed.returncode == 0, crossed.stderr
+    for family, loopback, dst in pairs:
+        for port, listen in ((80, 28443), (443, 28080)):
+            assert outcome(family, loopback, dst, port=port, listen=listen) == "reached", \
+                f"{family.name}: crossed forward {port} to {listen} reset"
+    dropped = call([nft, "delete", "table", "inet", "ds_test_crossed"])
+    assert dropped.returncode == 0, dropped.stderr
+    print("LIVE_NFT_GATE: login socket reached, foreign socket reset, held connection cut, direct connection,"
+          " foreign forward and crossed forward untouched, IPv4 and IPv6", flush=True)
+
+
 def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
     """Invoked only by LiveNftTests inside a disposable user/network namespace."""
     if os.readlink("/proc/self/ns/net") == parent_namespace:
@@ -454,6 +600,8 @@ def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
     listed = call([nft, "-y", "list", "table", "inet", "omarchy_ds"])
     assert listed.returncode == 0, listed.stderr
     print("Real installed policy:\n" + listed.stdout, flush=True)
+    live_feedback_gate(call, nft, uid)
+    apply_and_check()
     for mutation in ([nft, "add", "rule", "inet", "omarchy_ds", "output", "accept"],
                      [nft, "delete", "table", "inet", "omarchy_ds"]):
         changed = call(mutation)

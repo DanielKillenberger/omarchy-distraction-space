@@ -44,6 +44,10 @@ MAX_ADDRESSES = 4096
 SLICE = "app-distraction.slice"
 CGROUP_ROOT = "/sys/fs/cgroup"
 SLICE_LEVEL = 5
+# The person's whole login, user.slice/user-<uid>.slice. Only root and that uid's
+# own manager place processes under it, so a feedback port held by a socket outside
+# it belongs to another account, and a redirected connection to it is reset.
+LOGIN_LEVEL = 2
 CHECK_TIMEOUT = 5.0
 MAX_OUTPUT_BYTES = 1024 * 1024
 
@@ -105,6 +109,22 @@ def render_destroy() -> str:
 
 def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
     slice_accept = f'socket cgroupv2 level {SLICE_LEVEL} "{cgroup}" accept'
+    login = "/".join(cgroup.split("/")[:LOGIN_LEVEL])
+    # Only connections this table's own redirect produced are judged: the
+    # connection was first addressed to a listed address on 80 and now lands on
+    # the HTTP port, or on 443 and the TLS port, the pairs output_nat makes. A direct
+    # connection, or another firewall's forward, to a service on either port
+    # stays reachable. Every packet of such a connection is reset when the socket
+    # it lands on is a full socket outside the person's login, so a connection
+    # another account completed before this table replaced an older one is cut
+    # too. The handshake's last ACK lands on a request socket, which carries no
+    # cgroup, so the match neither holds nor fails for it and it passes.
+    gate = "".join(
+        f"    ct original {ip} daddr @{addr_set} "
+        f"tcp dport . ct original proto-dst {{ {HTTP_PORT} . 80, {TLS_PORT} . 443 }} "
+        f'socket cgroupv2 level {LOGIN_LEVEL} != "{login}" reject with tcp reset\n'
+        for ip, addr_set in (("ip", SET4), ("ip6", SET6))
+    )
     return (
         f"destroy table {FAMILY} {TABLE}\n"
         f"table {FAMILY} {TABLE} {{\n"
@@ -135,6 +155,10 @@ def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
         f"    ip daddr @{SET4} tcp dport 443 redirect to :{TLS_PORT}\n"
         f"    ip6 daddr @{SET6} tcp dport 80 redirect to :{HTTP_PORT}\n"
         f"    ip6 daddr @{SET6} tcp dport 443 redirect to :{TLS_PORT}\n"
+        f"  }}\n"
+        f"  chain input {{\n"
+        f"    type filter hook input priority filter; policy accept;\n"
+        f"{gate}"
         f"  }}\n"
         f"}}\n"
     )
