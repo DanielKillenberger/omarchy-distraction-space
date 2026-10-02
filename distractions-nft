@@ -110,10 +110,11 @@ def render_destroy() -> str:
 def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
     slice_accept = f'socket cgroupv2 level {SLICE_LEVEL} "{cgroup}" accept'
     login = "/".join(cgroup.split("/")[:LOGIN_LEVEL])
-    # Only the opening SYN is judged: the handshake's last ACK finds a request
-    # socket, which carries no cgroup, and a connection past the SYN is already
-    # the person's.
-    feedback_syn = f"tcp dport {{ {HTTP_PORT}, {TLS_PORT} }} tcp flags & (syn | ack) == syn"
+    # Only connections the redirect produced are judged (ct status dnat), so a
+    # service another account runs on either port stays reachable directly. Only
+    # the opening SYN is judged: the handshake's last ACK finds a request socket,
+    # which carries no cgroup, and a connection past the SYN is already the person's.
+    feedback_syn = f"tcp dport {{ {HTTP_PORT}, {TLS_PORT} }} ct status dnat tcp flags & (syn | ack) == syn"
     return (
         f"destroy table {FAMILY} {TABLE}\n"
         f"table {FAMILY} {TABLE} {{\n"

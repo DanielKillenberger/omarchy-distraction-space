@@ -115,7 +115,7 @@ class NftTests(unittest.TestCase):
     def test_feedback_ports_accept_a_new_connection_only_from_the_login(self):
         script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
         body = script[script.index("chain input {") :]
-        syn = "tcp dport { 28080, 28443 } tcp flags & (syn | ack) == syn"
+        syn = "tcp dport { 28080, 28443 } ct status dnat tcp flags & (syn | ack) == syn"
         self.assertTrue(body.startswith(
             "chain input {\n"
             "    type filter hook input priority filter; policy accept;\n"
@@ -347,8 +347,9 @@ class NftTests(unittest.TestCase):
             ("level 2", "level 3"),
             (f'"user.slice/user-{UID}.slice"', f'"user.slice/user-{UID + 1}.slice"'),
             ("== syn reject with tcp reset\n", "== syn accept\n"),
-            ("{ 28080, 28443 } tcp flags", "{ 28080 } tcp flags"),
+            ("{ 28080, 28443 } ct status", "{ 28080 } ct status"),
             ("hook input priority 0", "hook input priority 10"),
+            ("} ct status dnat tcp flags & (syn | ack) == syn reject", "} tcp flags & (syn | ack) == syn reject"),
         ]
         for old, new in changes:
             with self.subTest(change=(old, new)):
@@ -454,7 +455,7 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
         done = call(argv)
         assert done.returncode == 0, done.stderr
 
-    def outcome(family, loopback, dst):
+    def outcome(family, loopback, dst, port=80):
         """"reached" when the router socket echoes, "refused" only for a reset SYN.
 
         Anything else -- a timeout, another error, a connection that opens but
@@ -467,7 +468,7 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
         server.settimeout(2)
         try:
             try:
-                client = socket.create_connection((dst, 80), timeout=2)
+                client = socket.create_connection((dst, port), timeout=2)
             except ConnectionRefusedError:
                 # The reset SYN never reached the listener's queue.
                 server.setblocking(False)
@@ -497,7 +498,11 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
     assert swapped.returncode == 0, swapped.stderr
     for pair in pairs:
         assert outcome(*pair) == "refused", f"{pair[0].name}: foreign socket not refused"
-    print("LIVE_NFT_GATE: login socket reached, foreign socket reset, IPv4 and IPv6", flush=True)
+    # A direct connection to the port is no redirect, so a service another
+    # account runs there stays reachable while site blocking is on.
+    for pair in pairs:
+        assert outcome(pair[0], pair[1], pair[1], port=28080) == "reached", f"{pair[0].name}: direct connection reset"
+    print("LIVE_NFT_GATE: login socket reached, foreign socket reset, direct connection untouched, IPv4 and IPv6", flush=True)
 
 
 def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
