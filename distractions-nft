@@ -114,16 +114,15 @@ def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
     # connection was first addressed to a listed address on 80 and now lands on
     # the HTTP port, or on 443 and the TLS port, the pairs output_nat makes. A direct
     # connection, or another firewall's forward, to a service on either port
-    # stays reachable. Only the opening SYN is judged: the handshake's last ACK
-    # finds a request socket, which carries no cgroup, and a connection past the
-    # SYN is already the person's.
-    def feedback_syn(ip: str, addr_set: str) -> str:
-        return (f"ct original {ip} daddr @{addr_set} "
-                f"tcp dport . ct original proto-dst {{ {HTTP_PORT} . 80, {TLS_PORT} . 443 }} "
-                f"tcp flags & (syn | ack) == syn")
+    # stays reachable. Every packet of such a connection is reset when the socket
+    # it lands on is a full socket outside the person's login, so a connection
+    # another account completed before this table replaced an older one is cut
+    # too. The handshake's last ACK lands on a request socket, which carries no
+    # cgroup, so the match neither holds nor fails for it and it passes.
     gate = "".join(
-        f'    {feedback_syn(ip, addr_set)} socket cgroupv2 level {LOGIN_LEVEL} "{login}" accept\n'
-        f"    {feedback_syn(ip, addr_set)} reject with tcp reset\n"
+        f"    ct original {ip} daddr @{addr_set} "
+        f"tcp dport . ct original proto-dst {{ {HTTP_PORT} . 80, {TLS_PORT} . 443 }} "
+        f'socket cgroupv2 level {LOGIN_LEVEL} != "{login}" reject with tcp reset\n'
         for ip, addr_set in (("ip", SET4), ("ip6", SET6))
     )
     return (
