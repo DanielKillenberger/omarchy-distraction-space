@@ -412,6 +412,39 @@ class UiTests(unittest.TestCase):
         self.assertTrue(self._notices())
 
 
+    def test_summary_on_asks_before_an_agent_that_may_keep_its_tools(self):
+        from ds import summary
+        config.load()
+        agent = summary.agent_path()
+        agent.parent.mkdir(parents=True, exist_ok=True)
+        cmd_row = next(i for i, spec in enumerate(ui._SETTINGS) if spec[0] == "cmd")
+        back = len(ui._SETTINGS)
+        cases = [
+            # agent, the approval answer (None: no question), command and acceptance saved
+            ("claude", None, "auto", False),
+            ("grok", ["cancel"], "off", False),
+            ("grok", ["index", 1], "off", False),
+            ("opencode", ["index", 0], "auto", True),
+        ]
+        for name, answer, command, allowed in cases:
+            with self.subTest(agent=name, answer=answer):
+                config.update(lambda c: c["summary"].update(command="off", allow_agent_tools=False))
+                agent.write_text(name + "\n", encoding="utf-8")
+                self.log.unlink(missing_ok=True)
+                self._sq(["index", 3], ["index", cmd_row], *([answer] if answer else []),
+                         ["index", back], ["cancel"])
+                self.assertEqual(ui.menu(), 0)
+                cfg = self._cfg()
+                self.assertEqual(cfg["summary"]["command"], command)
+                self.assertIs(cfg["summary"]["allow_agent_tools"], allowed)
+                asked = [c[1] for c in self._calls("select") if "cannot be run without tools" in c[1]]
+                self.assertEqual(asked, [] if answer is None else [f"{name} cannot be run without tools"])
+        # Turning it off withdraws the acceptance.
+        self._sq(["index", 3], ["index", cmd_row], ["index", back], ["cancel"])
+        self.assertEqual(ui.menu(), 0)
+        self.assertEqual(self._cfg()["summary"]["command"], "off")
+        self.assertIs(self._cfg()["summary"]["allow_agent_tools"], False)
+
     def test_release_captures_window_before_menu_focus_and_uses_saved_duration(self):
         config.load()
         config.update(lambda c: config.set_value(c, "containment.release_minutes", 17))

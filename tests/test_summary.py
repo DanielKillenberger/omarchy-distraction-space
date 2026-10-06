@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import sys
 import time
@@ -29,7 +30,7 @@ AGENT = r"""
 import json, os, sys, time
 from pathlib import Path
 text = sys.stdin.read()
-Path(os.environ["DS_AGENT_LOG"]).open("a", encoding="utf-8").write(json.dumps({"argv": sys.argv, "stdin": text}) + "\n")
+Path(os.environ["DS_AGENT_LOG"]).open("a", encoding="utf-8").write(json.dumps({"argv": sys.argv, "stdin": text, "cwd": os.getcwd(), "files": os.listdir(".")}) + "\n")
 time.sleep(float(os.environ.get("DS_AGENT_SLEEP", "0")))
 if os.environ.get("DS_AGENT_FLOOD"):
     try:
@@ -132,12 +133,12 @@ class SummaryUnitTests(_Env):
         self.assertEqual(summary.resolve_command(_cfg(command=["agent", "--x"])), ["agent", "--x"])
         self.assertEqual(self._log_text(), "")
         cases = [
-            ("grok", "grok", ["grok", "-p"], None),
-            ("claude", "claude", ["claude", "-p", "--output-format", "text"], None),
-            ("codex", "codex", ["codex", "exec", "-s", "read-only", "--skip-git-repo-check", "-"], None),
+            ("claude", "claude", ["claude", "-p", "--output-format", "text", "--tools", "", "--strict-mcp-config"], None),
+            ("codex", "codex", None, "'codex' may keep its tools and summary.allow_agent_tools is off"),
+            ("grok", "grok", None, "'grok' may keep its tools and summary.allow_agent_tools is off"),
+            ("opencode", "opencode", None, "'opencode' may keep its tools and summary.allow_agent_tools is off"),
             ("unsupported", "pi", None, "'pi' has no headless one-shot form"),
             ("no file", None, None, "no Omarchy default agent chosen"),
-            ("no binary", "gemini", None, "'gemini' is not on PATH"),
             ("not utf-8", b"\xff\xfegrok\n", None, "cannot read"),
         ]
         for name, agent, argv, log_bit in cases:
@@ -153,13 +154,40 @@ class SummaryUnitTests(_Env):
                     self.assertIn("summary: ", tail)
                     self.assertIn(log_bit, tail)
                     self.assertIn("showing the count", tail)
+        accepted = [
+            ("claude", ["claude", "-p", "--output-format", "text", "--tools", "", "--strict-mcp-config"]),
+            ("grok", ["grok", "-p"]),
+            ("codex", ["codex", "exec", "-s", "read-only", "--skip-git-repo-check", "-"]),
+        ]
+        for agent, argv in accepted:
+            with self.subTest(accepted=agent):
+                self._choose(agent)
+                before = self._log_text()
+                self.assertEqual(summary.resolve_command(_auto(allow_agent_tools=True)), argv)
+                self.assertEqual(self._log_text()[len(before):], "")
+        self.assertEqual(summary.NO_TOOLS, {"claude"})
+        self.assertTrue(set(summary.NO_TOOLS) <= set(summary.AGENTS))
+        self.assertFalse(summary.may_keep_tools("claude"))
+        self.assertTrue(summary.may_keep_tools("opencode"))
+        self.assertFalse(summary.may_keep_tools("pi"))
+        self.assertFalse(summary.may_keep_tools(None))
+        self._choose("claude")
+        before = self._log_text()
+        with mock.patch.object(summary.shutil, "which", return_value=None):
+            self.assertIsNone(summary.resolve_command(_auto()))
+        tail = self._log_text()[len(before):]
+        self.assertIn("'claude' is not on PATH; showing the count", tail)
 
     def test_body_sends_prompt_on_stdin_and_clips_the_reply(self):
         os.environ["DS_AGENT_REPLY"] = "Alice asked about lunch,\n  twice.  \n"
         self.assertEqual(summary.body(RECORDS, _auto()), "Alice asked about lunch, twice.")
         asked = self._asked()
         self.assertEqual(len(asked), 1)
-        self.assertEqual(asked[0]["argv"][1:], ["-p", "--output-format", "text"])
+        self.assertEqual(asked[0]["argv"][1:], ["-p", "--output-format", "text", "--tools", "", "--strict-mcp-config"])
+        # The agent runs in a fresh empty directory, removed once it answers.
+        self.assertEqual(asked[0]["files"], [])
+        self.assertNotEqual(os.path.realpath(asked[0]["cwd"]), os.path.realpath(os.getcwd()))
+        self.assertFalse(os.path.exists(asked[0]["cwd"]))
         self.assertTrue(asked[0]["stdin"].startswith(summary.PROMPT))
         self.assertIn("second person", asked[0]["stdin"])
         self.assertEqual([json.loads(ln) for ln in asked[0]["stdin"][len(summary.PROMPT):].splitlines()], RECORDS)
@@ -173,6 +201,17 @@ class SummaryUnitTests(_Env):
         os.environ["DS_AGENT_REPLY"] = "y" * summary.READ_CAP
         self.assertEqual(summary.body(RECORDS, _auto()), "y" * summary.CLIP)
 
+    def test_a_temp_dir_that_cannot_be_made_is_the_grouped_count(self):
+        for name in ("mkdtemp", "TemporaryFile"):
+            with self.subTest(fails=name):
+                before = self._log_text()
+                err = OSError(28, "No space left on device")
+                with mock.patch.object(summary.tempfile, name, side_effect=err):
+                    self.assertEqual(summary.body(RECORDS, _auto()), GROUPED)
+                tail = self._log_text()[len(before):]
+                self.assertIn("summary: claude: [Errno 28] No space left on device", tail)
+        self.assertEqual(self._asked(), [])
+
     def test_a_flooding_agent_is_cut_off_at_the_read_cap(self):
         os.environ["DS_AGENT_FLOOD"] = "1"
         t0 = time.monotonic()
@@ -181,6 +220,23 @@ class SummaryUnitTests(_Env):
             self.assertEqual(summary.ask(["claude", "-p"], "prompt", 10), "x" * summary.CLIP)
         self.assertLess(time.monotonic() - t0, 5.0)
         self.assertEqual(summary.body(RECORDS, _auto(timeout_seconds=10)), "x" * summary.CLIP)
+
+    def test_a_custom_command_keeps_the_callers_directory_for_relative_paths(self):
+        # The empty directory is for the built-in agent routes only: a custom argv such as ./summarize
+        # resolves against the directory the listener runs from, as it did before.
+        work = self.box.home / "work"
+        work.mkdir()
+        shutil.copy(self.box.bin / "grok", work / "summarize")
+        os.environ["DS_AGENT_REPLY"] = "From the custom command."
+        old = os.getcwd()
+        os.chdir(work)
+        try:
+            self.assertEqual(summary.body(RECORDS, _cfg(command=["./summarize"])), "From the custom command.")
+        finally:
+            os.chdir(old)
+        asked = self._asked()
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(os.path.realpath(asked[0]["cwd"]), os.path.realpath(work))
 
     def test_failure_timeout_empty_off_and_missing_fall_back_to_the_grouped_count(self):
         cases = [
@@ -417,7 +473,7 @@ class SummaryListenerTests(_Env):
         self.assertFalse(self._held_file().exists())
         self.assertTrue(_wait(lambda: self._state().get("held") == {}, 3), self._state())
         asked = json.loads(self.agent_log.read_text(encoding="utf-8").splitlines()[0])
-        self.assertEqual(asked["argv"][1:], ["-p", "--output-format", "text"])
+        self.assertEqual(asked["argv"][1:], summary.AGENTS["claude"][1:])
         self.assertEqual([json.loads(ln)["app"] for ln in asked["stdin"][len(summary.PROMPT):].splitlines()],
                          ["Telegram", "Telegram", "Discord"])
         self._go("2", 2)
