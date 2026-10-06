@@ -21,17 +21,21 @@ READ_CAP, ERR_CAP = 64 * 1024, 4 * 1024
 # Held records are one small JSON object per line, so a real claim is kilobytes: the cap sits far above any
 # genuine hold and bounds what a tampered or runaway file can push through the summary into the listener.
 HELD_READ_CAP = 4 * 1024 * 1024
-# The held text comes from whoever sent the notifications, so the agent that summarizes it gets no tools
-# at all: no shell, no files, no web, no MCP servers. A route ships only through a switch that allows no
-# tools (an allowlist given nothing, not a denylist of today's tool names), proven by the live canary probe
-# recorded in docs/internals.md. The prompt goes on stdin and the answer comes back on stdout.
+# The headless one-shot form of each Omarchy default agent: the prompt on stdin, the answer on stdout. The
+# held text comes from whoever sent the notifications, so a route that can run with no tools at all (no
+# shell, no files, no web, no MCP servers) does, through a switch that allows no tools: an allowlist given
+# nothing, not a denylist of today's tool names, proven by the live canary probe in docs/internals.md.
 AGENTS = {
+    "grok": ["grok", "-p"],
     "claude": ["claude", "-p", "--output-format", "text", "--tools", "", "--strict-mcp-config"],
+    "codex": ["codex", "exec", "-s", "read-only", "--skip-git-repo-check", "-"],
+    "gemini": ["gemini", "-p"],
+    "opencode": ["opencode", "run"],
+    "copilot": ["copilot", "-p"],
 }
-# Omarchy default agents with a one-shot form that cannot be shown to run without tools: codex and grok
-# have no switch that removes every tool (grok's allowlist leaves MCP servers in place), and gemini,
-# opencode and copilot have not passed the canary probe. Each shows the grouped count instead.
-NO_TOOLS_UNPROVEN = ("codex", "grok", "gemini", "opencode", "copilot")
+# The routes above that passed the probe. Every other one keeps whatever tools the person's agent has, so
+# `auto` runs it only once the person has accepted that risk with `summary.allow_agent_tools`.
+NO_TOOLS = frozenset({"claude"})
 PROMPT = (
     "The desktop notifications below were held while the person was focused. Each line is one JSON object "
     "with the app, the title, and the body. In one or two plain sentences, in the second person, tell them "
@@ -60,23 +64,41 @@ def agent_path():
     return config.omarchy_dir() / "defaults" / "agent"
 
 
-def default_agent():
-    """The argv for the Omarchy default agent, or None with one log line saying why the count is shown."""
+def default_name(log=True):
+    """The name recorded by `omarchy default agent`, or None, with one log line saying why when log is set."""
     path = agent_path()
     try:
-        name = path.read_text(encoding="utf-8").strip()
+        return path.read_text(encoding="utf-8").strip()
     except FileNotFoundError:
-        _log(f"no Omarchy default agent chosen ({path}); showing the count")
+        if log:
+            _log(f"no Omarchy default agent chosen ({path}); showing the count")
         return None
     except (OSError, UnicodeDecodeError) as e:
-        _log(f"cannot read {path}: {e}; showing the count")
+        if log:
+            _log(f"cannot read {path}: {e}; showing the count")
+        return None
+
+
+def may_keep_tools(name) -> bool:
+    """Whether `auto` with this agent runs it with tools it could not be shown to lack."""
+    return name in AGENTS and name not in NO_TOOLS
+
+
+def default_agent(allow_tools=False):
+    """The argv for the Omarchy default agent, or None with one log line saying why the count is shown.
+
+    A route that may keep its tools runs only when allow_tools says the person accepted that.
+    """
+    name = default_name()
+    if name is None:
         return None
     argv = AGENTS.get(name)
-    if argv is None and name in NO_TOOLS_UNPROVEN:
-        _log(f"Omarchy default agent {name!r} cannot be run without tools; showing the count")
-        return None
     if argv is None:
         _log(f"Omarchy default agent {name!r} has no headless one-shot form; showing the count")
+        return None
+    if name not in NO_TOOLS and not allow_tools:
+        _log(f"Omarchy default agent {name!r} may keep its tools and summary.allow_agent_tools is off; "
+             "showing the count")
         return None
     if not shutil.which(argv[0]):
         _log(f"Omarchy default agent {name!r} is not on PATH; showing the count")
@@ -87,15 +109,16 @@ def default_agent():
 def resolve_command(cfg):
     """The argv to ask, or None for the grouped count.
 
-    `auto` is the agent chosen with `omarchy default agent`; `off` never
-    asks; a custom argv is used as given.
+    `auto` is the agent chosen with `omarchy default agent`, held back to
+    the count when it may keep its tools and the person has not accepted
+    that; `off` never asks; a custom argv is used as given.
     """
     cmd = settings(cfg).get("command")
     if isinstance(cmd, list):
         return list(cmd)
     if cmd != "auto":
         return None
-    return default_agent()
+    return default_agent(settings(cfg).get("allow_agent_tools") is True)
 
 
 def _claimed_lines(claim) -> list:

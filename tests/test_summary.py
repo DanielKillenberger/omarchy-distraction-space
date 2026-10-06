@@ -133,9 +133,9 @@ class SummaryUnitTests(_Env):
         self.assertEqual(self._log_text(), "")
         cases = [
             ("claude", "claude", ["claude", "-p", "--output-format", "text", "--tools", "", "--strict-mcp-config"], None),
-            ("codex", "codex", None, "'codex' cannot be run without tools"),
-            ("grok", "grok", None, "'grok' cannot be run without tools"),
-            ("opencode", "opencode", None, "'opencode' cannot be run without tools"),
+            ("codex", "codex", None, "'codex' may keep its tools and summary.allow_agent_tools is off"),
+            ("grok", "grok", None, "'grok' may keep its tools and summary.allow_agent_tools is off"),
+            ("opencode", "opencode", None, "'opencode' may keep its tools and summary.allow_agent_tools is off"),
             ("unsupported", "pi", None, "'pi' has no headless one-shot form"),
             ("no file", None, None, "no Omarchy default agent chosen"),
             ("not utf-8", b"\xff\xfegrok\n", None, "cannot read"),
@@ -153,6 +153,23 @@ class SummaryUnitTests(_Env):
                     self.assertIn("summary: ", tail)
                     self.assertIn(log_bit, tail)
                     self.assertIn("showing the count", tail)
+        accepted = [
+            ("claude", ["claude", "-p", "--output-format", "text", "--tools", "", "--strict-mcp-config"]),
+            ("grok", ["grok", "-p"]),
+            ("codex", ["codex", "exec", "-s", "read-only", "--skip-git-repo-check", "-"]),
+        ]
+        for agent, argv in accepted:
+            with self.subTest(accepted=agent):
+                self._choose(agent)
+                before = self._log_text()
+                self.assertEqual(summary.resolve_command(_auto(allow_agent_tools=True)), argv)
+                self.assertEqual(self._log_text()[len(before):], "")
+        self.assertEqual(summary.NO_TOOLS, {"claude"})
+        self.assertTrue(set(summary.NO_TOOLS) <= set(summary.AGENTS))
+        self.assertFalse(summary.may_keep_tools("claude"))
+        self.assertTrue(summary.may_keep_tools("opencode"))
+        self.assertFalse(summary.may_keep_tools("pi"))
+        self.assertFalse(summary.may_keep_tools(None))
         self._choose("claude")
         before = self._log_text()
         with mock.patch.object(summary.shutil, "which", return_value=None):

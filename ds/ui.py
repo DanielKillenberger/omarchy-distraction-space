@@ -295,6 +295,38 @@ def _show_status():
     select("Distraction space: " + health["state"], rows)
 
 
+def _toggle_summary(cfg):
+    """Flip summary.command between auto and off; turning it on asks first when the agent may keep its tools.
+
+    The held notifications are text other people wrote. An agent route that could not be shown to run
+    without tools reads them with whatever the person's agent can do, so `auto` with that agent saves only
+    after the person accepts it here, and turning the summary off withdraws the acceptance.
+    """
+    from ds import summary
+    if config.get(cfg, "summary.command") == "auto":
+        def off(c):
+            config.set_value(c, "summary.command", "off")
+            config.set_value(c, "summary.allow_agent_tools", False)
+        return _mutate(off)
+    name = summary.default_name(log=False)
+    allow = False
+    if summary.may_keep_tools(name):
+        rows = [
+            _row("", f"Allow {name} with its tools",
+                 "Notification text from anyone who messages you reaches an agent that may run commands, "
+                 "read or write files, or use the web"),
+            _row("", "Cancel"),
+        ]
+        if select(f"{name} cannot be run without tools", rows) != 0:
+            return False
+        allow = True
+
+    def on(c):
+        config.set_value(c, "summary.command", "auto")
+        config.set_value(c, "summary.allow_agent_tools", allow)
+    return _mutate(on)
+
+
 def _settings():
     try:
         while True:
@@ -335,9 +367,7 @@ def _settings():
 
                 _mutate(cycle)
             elif kind == "cmd":
-                _mutate(lambda c: config.set_value(
-                    c, "summary.command", "off" if config.get(c, "summary.command") == "auto" else "auto",
-                ))
+                _toggle_summary(cfg)
             elif kind == "int":
                 raw = input(key)
                 if raw is None:
