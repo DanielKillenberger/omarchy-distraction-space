@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import signal
 import sys
 import time
@@ -219,6 +220,23 @@ class SummaryUnitTests(_Env):
             self.assertEqual(summary.ask(["claude", "-p"], "prompt", 10), "x" * summary.CLIP)
         self.assertLess(time.monotonic() - t0, 5.0)
         self.assertEqual(summary.body(RECORDS, _auto(timeout_seconds=10)), "x" * summary.CLIP)
+
+    def test_a_custom_command_keeps_the_callers_directory_for_relative_paths(self):
+        # The empty directory is for the built-in agent routes only: a custom argv such as ./summarize
+        # resolves against the directory the listener runs from, as it did before.
+        work = self.box.home / "work"
+        work.mkdir()
+        shutil.copy(self.box.bin / "grok", work / "summarize")
+        os.environ["DS_AGENT_REPLY"] = "From the custom command."
+        old = os.getcwd()
+        os.chdir(work)
+        try:
+            self.assertEqual(summary.body(RECORDS, _cfg(command=["./summarize"])), "From the custom command.")
+        finally:
+            os.chdir(old)
+        asked = self._asked()
+        self.assertEqual(len(asked), 1)
+        self.assertEqual(os.path.realpath(asked[0]["cwd"]), os.path.realpath(work))
 
     def test_failure_timeout_empty_off_and_missing_fall_back_to_the_grouped_count(self):
         cases = [

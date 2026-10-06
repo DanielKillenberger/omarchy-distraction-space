@@ -258,16 +258,20 @@ def _drain(proc, deadline):
     return {f: bufs[f][:caps[f]] for f in caps}
 
 
-def ask(argv, text, timeout):
-    """The command's reply as one line, or None when it failed, timed out, or answered nothing."""
+def ask(argv, text, timeout, isolate=False):
+    """The command's reply as one line, or None when it failed, timed out, or answered nothing.
+
+    isolate runs it from a fresh empty directory, so a built-in agent picks up no project instructions or
+    configuration; a custom command keeps the caller's directory, so its relative paths resolve as before.
+    """
     deadline = time.monotonic() + timeout
-    # A fresh empty directory, so the agent picks up no project instructions or configuration. Making it,
-    # like the stdin file, is inside the error path: a full or unwritable temp dir is the count, not a raise
-    # after the records were already claimed. Removing it never raises either.
+    # Making the directory, like the stdin file, is inside the error path: a full or unwritable temp dir is
+    # the count, not a raise after the records were already claimed. Removing it never raises either.
     cwd = None
     try:
         try:
-            cwd = tempfile.mkdtemp(prefix="ds-summary-")
+            if isolate:
+                cwd = tempfile.mkdtemp(prefix="ds-summary-")
             with tempfile.TemporaryFile() as stdin:
                 stdin.write(text.encode("utf-8"))
                 stdin.flush()
@@ -293,7 +297,8 @@ def ask(argv, text, timeout):
 
 def body(records, cfg) -> str:
     argv = resolve_command(cfg)
-    reply = ask(argv, prompt(records), settings(cfg).get("timeout_seconds")) if argv else None
+    s = settings(cfg)
+    reply = ask(argv, prompt(records), s.get("timeout_seconds"), isolate=s.get("command") == "auto") if argv else None
     return reply or grouped(counts(records))
 
 
