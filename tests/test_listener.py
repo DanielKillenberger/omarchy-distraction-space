@@ -158,7 +158,10 @@ from pathlib import Path
 args = sys.argv[1:]
 Path(os.environ["DS_XDG_LOG"]).open("a").write(" ".join(args) + "\n")
 if args == ["get", "default-web-browser"]:
-    print(Path(os.environ["DS_XDG_DEFAULT"]).read_text().strip())
+    current = Path(os.environ["DS_XDG_DEFAULT"]).read_text().strip()
+    if current == "UNANSWERED":
+        sys.exit(3)  # what the listener sees when xdg-settings fails or times out
+    print(current)
     sys.exit(0)
 sys.exit(1)
 """
@@ -805,6 +808,22 @@ time.sleep(3600)
         self.assertTrue(_wait(lambda: len(self._xdg_lines()) >= 4, timeout=8.0), self._xdg_lines())
         self.assertEqual(self._links(), "displaced")
         self.assertEqual(len(self._notices("distractions setup")), 1)
+
+    def test_an_unanswered_link_check_sends_no_setup_notice(self):
+        # A desktop stall makes xdg-settings time out. That says nothing about which browser is the
+        # default, so it must not tell the person another browser took over and to run setup.
+        self._cfg()
+        self._register_handler()
+        self._start(extra_env=self._period_env(1.0))
+        self.assertTrue(_wait(lambda: self._links() == "on"), self._state())
+        self.xdg_default.write_text("UNANSWERED\n", encoding="utf-8")
+        seen = len(self._xdg_lines())
+        self.assertTrue(_wait(lambda: len(self._xdg_lines()) >= seen + 2, timeout=8.0), self._xdg_lines())
+        self.assertEqual(self._notices("distractions setup"), [])
+        self.assertEqual(self._links(), "displaced", self._state())
+        # A real displacement afterwards still gets its one notice.
+        self.xdg_default.write_text("google-chrome.desktop\n", encoding="utf-8")
+        self.assertTrue(_wait(lambda: len(self._notices("distractions setup")) == 1, timeout=8.0))
 
     def test_links_off_without_a_registered_handler_or_with_the_switch_off(self):
         # Nothing registered: the state says off and xdg-settings is never asked.
