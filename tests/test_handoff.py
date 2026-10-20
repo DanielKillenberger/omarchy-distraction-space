@@ -114,5 +114,61 @@ class EngineTests(unittest.TestCase):
         self.assertEqual([r.app for r, _ in handoff.matches("https://demo.example/item/x1", [a, b])], ["A", "B"])
 
 
+class PersonRuleTests(unittest.TestCase):
+    """R4: the person's rules in config `handoff`, merged with the shipped ones."""
+
+    TRACK = "https://open.spotify.com/track/abc"
+
+    def _load(self, rules=(), off=()):
+        return handoff.load_rules({"handoff": {"rules": list(rules), "off": list(off)}})
+
+    def test_a_person_rule_maps_a_link_no_shipped_rule_knows(self):
+        rules, skipped = self._load([_rule()])
+        self.assertEqual(skipped, [])
+        self.assertEqual(_uris("https://demo.example/item/x1", rules), ["demo:item:x1"])
+        self.assertEqual(_uris(self.TRACK, rules), ["spotify:track:abc"])
+
+    def test_same_app_name_replaces_the_shipped_rule_and_comes_first(self):
+        own = _rule(app=" spotify ", scheme="spotify-alt", hosts=["open.spotify.com"],
+                    shapes=[{"path": "/track/(?P<id>[a-z]+)", "uri": "spotify-alt:{id}"}])
+        rules, _ = self._load([_rule(), own])
+        self.assertEqual([r.app for r in rules], ["Demo", "spotify"])
+        self.assertEqual(_uris(self.TRACK, rules), ["spotify-alt:abc"])
+
+    def test_off_turns_a_shipped_rule_off_by_name(self):
+        rules, _ = self._load(off=["SPOTIFY"])
+        self.assertEqual(_uris(self.TRACK, rules), [])
+        rules, _ = self._load(off=["Someone else"])
+        self.assertEqual(_uris(self.TRACK, rules), ["spotify:track:abc"])
+
+    def test_a_person_rule_is_checked_before_a_shipped_rule_for_the_same_link(self):
+        own = _rule(app="Mine", scheme="mine", hosts=["open.spotify.com"],
+                    shapes=[{"path": "/track/(?P<id>[a-z]+)", "uri": "mine:{id}"}])
+        rules, _ = self._load([own])
+        self.assertEqual(_uris(self.TRACK, rules), ["mine:abc", "spotify:track:abc"])
+
+    def test_a_bad_rule_is_skipped_with_a_reason_and_the_others_apply(self):
+        bad = [_rule(app="Typo", host=["x.example"]), _rule(app="Js", scheme="javascript"),
+               _rule(app="Re", shapes=[{"path": "(", "uri": "demo:x"}]), "nope"]
+        rules, skipped = self._load(bad + [_rule()])
+        self.assertEqual(len(skipped), 4, skipped)
+        for reason, name in zip(skipped, ("Typo", "Js", "Re", "#4")):
+            self.assertTrue(reason.startswith(f"rule {name}: "), reason)
+        self.assertEqual(_uris("https://demo.example/item/x1", rules), ["demo:item:x1"])
+        self.assertEqual(_uris(self.TRACK, rules), ["spotify:track:abc"])
+
+    def test_a_broken_rule_named_after_a_shipped_app_still_replaces_it(self):
+        rules, skipped = self._load([_rule(app="Spotify", scheme="https")])
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(_uris(self.TRACK, rules), [])
+
+    def test_a_section_of_the_wrong_shape_counts_as_no_person_rules(self):
+        for cfg in (None, {}, {"handoff": []}, {"handoff": {"rules": "x", "off": 3}}):
+            with self.subTest(cfg=cfg):
+                rules, skipped = handoff.load_rules(cfg)
+                self.assertEqual(skipped, [])
+                self.assertEqual(_uris(self.TRACK, rules), ["spotify:track:abc"])
+
+
 if __name__ == "__main__":
     unittest.main()

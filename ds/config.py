@@ -27,6 +27,7 @@ DEFAULTS = {
     "site_block": {"enabled": True, "pass_through": True},
     "browser": "auto",
     "open_links_in_space": True,
+    "handoff": {"rules": [], "off": []},
     "containment": {"snap_back": True, "release_minutes": 30},
     "hold_notifications": "off-space",
     "mute_sounds": True,
@@ -166,6 +167,12 @@ def validate(cfg):
     browser = cfg.get("browser")
     _need(browser == "auto" or _argv(browser), "browser")
     _need(_bool(cfg.get("open_links_in_space")), "open_links_in_space")
+    # Only the outer shape: a rule that does not parse is skipped with a log line
+    # when links are opened, so one bad rule never stops the config from loading.
+    ho = cfg.get("handoff")
+    _need(isinstance(ho, dict), "handoff")
+    _need(isinstance(ho.get("rules"), list) and all(isinstance(r, dict) for r in ho["rules"]), "handoff.rules")
+    _need(isinstance(ho.get("off"), list) and all(isinstance(n, str) for n in ho["off"]), "handoff.off")
     containment = cfg.get("containment")
     _need(isinstance(containment, dict), "containment")
     _need(_bool(containment.get("snap_back")), "containment.snap_back")

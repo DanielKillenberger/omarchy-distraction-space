@@ -437,6 +437,26 @@ class LaunchTests(unittest.TestCase):
         self.assertFalse(self.mime_log.exists())
         self.assertEqual(self._lines(self.handoff_log), [])
 
+    def test_a_person_rule_from_config_hands_off_and_a_bad_one_is_logged(self):
+        # R4 end to end: `config set` stores the rules, `open` uses the good one
+        # and writes one line for the one it skipped.
+        self._spotify_ready()
+        self._desktop("demo", "spotify-fake --demo %u")
+        os.environ["DS_XDG_MIME"] = "demo=demo.desktop"
+        rules = [
+            {"app": "Broken", "scheme": "javascript", "hosts": ["demo.example"],
+             "shapes": [{"path": "/.*", "uri": "javascript:x"}]},
+            {"app": "Demo", "scheme": "demo", "hosts": ["demo.example"],
+             "shapes": [{"path": "/item/(?P<id>[a-z0-9]+)", "uri": "demo:item:{id}"}]},
+        ]
+        r = self.box.run("config", "set", "handoff.rules", json.dumps(rules))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.box.run("open", "https://demo.example/item/x1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._wait_lines(self.handoff_log, 1), [["spotify-fake", "--demo", "demo:item:x1"]])
+        skipped = [line for line in self._plugin_log() if "skipped" in line]
+        self.assertEqual(skipped, ["open: handoff rule skipped: rule Broken: scheme 'javascript' is refused"])
+
     def test_scheme_handler_is_empty_when_xdg_mime_cannot_run(self):
         for exc in (OSError("no such file"), subprocess.TimeoutExpired(["xdg-mime"], 10)):
             with self.subTest(exc=type(exc).__name__), mock.patch("ds.net.run_command", side_effect=exc):

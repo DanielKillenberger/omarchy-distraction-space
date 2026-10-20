@@ -133,7 +133,34 @@ def _label(obj, index):
 
 
 def load_rules(cfg=None):
-    """(rules in match order, [reason for each rule that did not load])."""
+    """(rules in match order, [reason for each rule that did not load]).
+
+    The person's rules (config `handoff.rules`) come first, in file order; then
+    each shipped rule that is neither turned off by app name (`handoff.off`)
+    nor replaced by a person rule of the same app name. Names compare without
+    case. A value of the wrong shape counts as no rules, never as an error.
+    """
+    section = (cfg or {}).get("handoff") if isinstance(cfg, dict) else None
+    section = section if isinstance(section, dict) else {}
+    own_raw = section.get("rules") if isinstance(section.get("rules"), list) else []
+    off_raw = section.get("off") if isinstance(section.get("off"), list) else []
+    rules, skipped = [], []
+    for i, obj in enumerate(own_raw):
+        rule = parse_rule(obj)
+        if isinstance(rule, str):
+            skipped.append(f"rule {_label(obj, i)}: {rule}")
+        else:
+            rules.append(rule)
+    # A person rule that did not parse still claims its app name: the person
+    # meant to replace that shipped rule, and the log says why theirs is not used.
+    taken = {_label(obj, i).strip().casefold() for i, obj in enumerate(own_raw)}
+    taken |= {n.strip().casefold() for n in off_raw if isinstance(n, str)}
+    shipped_rules, shipped_skipped = _load_shipped()
+    rules.extend(r for r in shipped_rules if r.app.casefold() not in taken)
+    return rules, skipped + shipped_skipped
+
+
+def _load_shipped():
     rules, skipped = [], []
     try:
         raw = shipped()
