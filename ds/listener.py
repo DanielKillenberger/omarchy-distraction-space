@@ -264,11 +264,15 @@ class _Ctx:
         if hypr.snap_back:
             for address in gone:
                 hypr.contain_address(address)
-    def check_links(self, result, observed):
-        """Whether listed links still route here; a displaced handler is noticed once per lifetime."""
+    def check_links(self, result, observed, answered=True):
+        """Whether listed links still route here; a displaced handler is noticed once per lifetime.
+
+        Only an answered check is noticed: xdg-settings timing out while the desktop stalls says nothing
+        about which browser is the default, so it leaves the one notice for a real displacement.
+        """
         self.links = result
         self.observed_at["links"] = observed
-        if self.links == "displaced" and not self.links_noted:
+        if self.links == "displaced" and answered and not self.links_noted:
             ui.notify("Links no longer open in the space", "Another browser is the default. Run: distractions setup")
             self.links_noted = True
     def hold_table(self):
@@ -443,7 +447,7 @@ class _Ctx:
         net.site_block = result or "unavailable"
         self.observed_at.update(item["observed"])
         if item["links"] is not None:
-            self.check_links(item["links"], item["observed"]["links"])
+            self.check_links(item["links"], item["observed"]["links"], item["links_ok"])
         if item["browser_dirty"]:
             self.browser, self.browser_dirty = item["browser"], False
         if item["failed"]:
@@ -583,7 +587,8 @@ def _observe_links(cfg):
         return "off", True
     answered, handler = setup.default_handler()
     # An unanswered query is not proof of displacement, but it is not proof the
-    # handler still holds either; the notice tells the person to run setup.
+    # handler still holds either: the state reads displaced, and the notice
+    # waits for an answer that names another browser.
     return ("on" if answered and handler == setup.HANDLER_ID else "displaced"), answered
 
 def _read_cfg():
