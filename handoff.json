@@ -1,0 +1,13 @@
+[
+  {
+    "app": "Spotify",
+    "scheme": "spotify",
+    "hosts": ["open.spotify.com"],
+    "shapes": [
+      {
+        "path": "/(?:intl-[a-z]{2}(?:-[a-z]{2})?/)?(?P<type>track|album|playlist|artist|episode|show)/(?P<id>[A-Za-z0-9]+)",
+        "uri": "spotify:{type}:{id}"
+      }
+    ]
+  }
+]

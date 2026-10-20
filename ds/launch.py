@@ -11,7 +11,9 @@ target at all (Omarchy's browser
 keybind runs the default browser's Exec with nothing, or with a private-window
 flag), and `--app <url>` for an unlisted URL (what `omarchy-launch-webapp`
 does). Browser flags pass through to the forward unchanged; a launch into the
-space has its own flags and ignores them.
+space has its own flags and ignores them. Before an unlisted http(s) link is
+forwarded, the handoff rules (`ds.handoff`) may hand it to the native app that
+can show it, through that app's own URI scheme; `--app` links skip them.
 """
 
 from __future__ import annotations
@@ -26,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
-from ds import catalog, cgroup, config, hypr, state, ui
+from ds import catalog, cgroup, config, handoff, hypr, state, ui
 
 PROFILE = "Distraction"
 HANDLER_ID = "io.github.danielkillenberger.distraction-space.desktop"
@@ -806,6 +808,65 @@ def forward(url=None, flags=(), app=False):
     return 1
 
 
+def _desktop_id(value):
+    return value if value.endswith(".desktop") else value + ".desktop"
+
+
+def scheme_handler(scheme):
+    """The desktop id `xdg-mime` names for `x-scheme-handler/<scheme>`, or "" when it names none or fails."""
+    from ds.net import run_command
+    try:
+        r = run_command(
+            ["xdg-mime", "query", "default", f"x-scheme-handler/{scheme}"],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return (r.stdout or "").strip() if r.returncode == 0 else ""
+
+
+def _handoff_argv(scheme, uri):
+    """(argv, desktop id) that opens `uri` in the scheme's handler, or (None, None) when it has no usable one.
+
+    Usable means: a default handler is named, its desktop file exists, it is
+    neither this plugin's entry nor the recorded browser (either would only
+    open the web page), and its Exec carries a URL field code, so the URI
+    reaches the app as the argument it expects.
+    """
+    found = scheme_handler(scheme)
+    if not found or "/" in found:
+        return None, None
+    hid = _desktop_id(found)
+    previous = state.read_entries()["previous_handler"]
+    if hid == HANDLER_ID or (previous and hid == _desktop_id(previous)):
+        return None, None
+    path = desktop_file(hid)
+    argv = parse_exec(read_exec(path)) if path else None
+    if not argv or _is_own_launcher(argv):
+        return None, None
+    if not any(m.group(1) in "uU" for arg in argv for m in _FIELD_CODE.finditer(arg)):
+        return None, None
+    return expand_fields(argv, uri), hid
+
+
+def _hand_off(url, cfg, flags):
+    """True when a native app took `url` through a handoff rule; False sends it on to the browser."""
+    rules, skipped = handoff.load_rules(cfg)
+    for reason in skipped:
+        _log(f"handoff rule skipped: {reason}")
+    for rule, uri in handoff.matches(url, rules):
+        argv, hid = _handoff_argv(rule.scheme, uri)
+        if argv is None:
+            continue
+        if flags:
+            _log(f"{rule.app}: {' '.join(flags)} not applied; a handoff has no browser flags")
+        if not _detached(argv, env=_forward_env()):
+            return False
+        _log(f"handoff {rule.app} via {hid}")
+        return True
+    return False
+
+
 def _read_cfg():
     try:
         return config.load()
@@ -857,6 +918,11 @@ def open_target(argv):
         print(USAGE, file=sys.stderr)
         return 2
     if target.kind == "forward":
+        # A web app the person installed (`--app`) stays a web app; `file:`, `about:`
+        # and local files never name a native app.
+        if not app and urlsplit(target.url or "").scheme.lower() in ("http", "https"):
+            if _hand_off(target.url, cfg, flags):
+                return 0
         return forward(target.url, flags, app)
     if flags:
         _log(f"{target.entry.get('name')}: {' '.join(flags)} not applied; a space launch has its own flags")
