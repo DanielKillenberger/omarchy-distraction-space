@@ -25,6 +25,9 @@ BANNER_DEBOUNCE_S = 60
 SPLICE_PORT_MIN = 61000
 SPLICE_PORT_MAX = 61999
 MAX_SPLICES = 256
+# Live connection handlers across both ports and families. Every splice the cap
+# allows keeps its handler, with room beside them for block-path reads.
+MAX_CONNS = MAX_SPLICES + 64
 CONNECT_TIMEOUT = 5.0
 IDLE_TIMEOUT = 120.0
 SO_ORIGINAL_DST = 80
@@ -46,6 +49,8 @@ _is_locked = lambda: False
 _LOG_LIMIT_S = 60
 _splices = 0
 _splice_lock = threading.Lock()
+_conns = 0
+_conn_lock = threading.Lock()
 # Source ports held by live splices. SO_REUSEADDR stays on the splice sockets so
 # a port in TIME_WAIT toward one destination can serve another, which means bind
 # alone cannot tell two live splices apart; this registry does.
@@ -733,6 +738,28 @@ def _tls_conn(conn):
         _close_sock(conn)
 
 
+def _claim_conn():
+    global _conns
+    with _conn_lock:
+        if _conns >= MAX_CONNS:
+            return False
+        _conns += 1
+        return True
+
+
+def _release_conn():
+    global _conns
+    with _conn_lock:
+        _conns = max(0, _conns - 1)
+
+
+def _serve(handler, conn):
+    try:
+        handler(conn)
+    finally:
+        _release_conn()
+
+
 def _accept_loop(sock, handler):
     while not _stop.is_set():
         try:
@@ -743,7 +770,16 @@ def _accept_loop(sock, handler):
             if _stop.is_set():
                 break
             continue
-        threading.Thread(target=handler, args=(conn,), daemon=True).start()
+        if not _claim_conn():
+            _log_limited("conn-cap", f"connection cap {MAX_CONNS} reached; connection closed")
+            _close_sock(conn)
+            continue
+        try:
+            threading.Thread(target=_serve, args=(handler, conn), daemon=True).start()
+        except RuntimeError:
+            _release_conn()
+            _log_limited("conn-thread", "connection handler could not start; connection closed")
+            _close_sock(conn)
 
 
 def _http_loop(sock):
