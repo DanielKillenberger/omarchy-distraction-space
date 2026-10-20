@@ -851,17 +851,21 @@ def _handoff_argv(scheme, uri):
 
 def _hand_off(url, cfg, flags):
     """True when a native app took `url` through a handoff rule; False sends it on to the browser."""
-    rules, skipped = handoff.load_rules(cfg)
+    try:
+        rules, skipped = handoff.load_rules(cfg)
+    except Exception as e:  # a rule that breaks loading must never stop the link reaching the browser
+        _log(f"handoff rules not loaded: {e}")
+        return False
     for reason in skipped:
         _log(f"handoff rule skipped: {reason}")
     for rule, uri in handoff.matches(url, rules):
         argv, hid = _handoff_argv(rule.scheme, uri)
         if argv is None:
             continue
-        if flags:
-            _log(f"{rule.app}: {' '.join(flags)} not applied; a handoff has no browser flags")
         if not _detached(argv, env=_forward_env()):
             return False
+        if flags:
+            _log(f"{rule.app}: {' '.join(flags)} not applied; a handoff has no browser flags")
         _log(f"handoff {rule.app} via {hid}")
         return True
     return False

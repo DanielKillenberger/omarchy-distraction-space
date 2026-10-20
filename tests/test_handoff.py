@@ -97,8 +97,20 @@ class EngineTests(unittest.TestCase):
         ]))
         self.assertEqual(_uris("https://demo.example/j/12?pwd=ab.c&pwd=zz", [rule]), ["demo:join?id=12&pwd=ab.c"])
         self.assertEqual(_uris("https://demo.example/j/12", [rule]), ["demo:join?id=12"])
-        # An encoded or out-of-pattern parameter refuses the first shape; the second still maps.
-        self.assertEqual(_uris("https://demo.example/j/12?pwd=a%26b", [rule]), ["demo:join?id=12"])
+        # An encoded or out-of-pattern parameter refuses the whole rule: the later shape
+        # would drop it, so the link goes to the browser instead.
+        self.assertEqual(_uris("https://demo.example/j/12?pwd=a%26b", [rule]), [])
+        self.assertEqual(_uris("https://demo.example/j/12?pwd=", [rule]), [])
+
+    def test_a_pattern_too_large_to_compile_is_a_reason_not_a_crash(self):
+        huge = "a{99999999999999999999999999}"
+        for shape in ({"path": huge, "uri": "demo:x"},
+                      {"path": "/x", "uri": "demo:{p}", "query": {"p": {"pattern": huge}}}):
+            with self.subTest(shape=shape):
+                self.assertIsInstance(handoff.parse_rule(_rule(shapes=[shape])), str)
+        rules, skipped = handoff.load_rules({"handoff": {"rules": [_rule(app="Huge", shapes=[{"path": huge, "uri": "demo:x"}])], "off": []}})
+        self.assertEqual(len(skipped), 1)
+        self.assertEqual(_uris("https://open.spotify.com/track/abc", rules), ["spotify:track:abc"])
 
     def test_whole_url_placeholder_refuses_forbidden_characters(self):
         rule = handoff.parse_rule(_rule(shapes=[{"path": "/.*", "uri": "demo://open/{url}"}]))

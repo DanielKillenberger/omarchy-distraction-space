@@ -54,11 +54,13 @@ class ZoomTests(_Table):
         ("https://zoom.us/j/1234567890?pwd=AbC.12-x", "zoommtg://zoom.us/join?action=join&confno=1234567890&pwd=AbC.12-x"),
         ("https://us02web.zoom.us/j/98765432101?pwd=xyz&from=addon", "zoommtg://zoom.us/join?action=join&confno=98765432101&pwd=xyz"),
         ("https://zoom.us/w/123456789", "zoommtg://zoom.us/join?action=join&confno=123456789"),
-        ("https://zoom.us/j/123456789?pwd=a%20b", "zoommtg://zoom.us/join?action=join&confno=123456789"),
     )
     LEAVES = (
         "https://zoom.us/", "https://zoom.us/j/abc", "https://zoom.us/j/12345", "https://zoom.us/signin",
         "https://acme.zoom.us/j/123456789", "https://zoom.us/rec/share/abc",
+        # A password the rule will not pass on refuses the link; it never joins without it.
+        "https://zoom.us/j/123456789?pwd=a%20b", "https://zoom.us/j/123456789?pwd=ab%63",
+        "https://zoom.us/j/123456789?pwd=",
     )
 
 

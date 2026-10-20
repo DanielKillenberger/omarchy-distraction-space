@@ -401,9 +401,10 @@ class LaunchTests(unittest.TestCase):
             with self.subTest(label):
                 self._desktop("spotify", exec_line)
                 before = len(self._plugin_log())
-                r = self.box.run("open", self.SPOTIFY)
+                # Browser flags go on to the forward, so nothing says they were not applied.
+                r = self.box.run("open", self.SPOTIFY, "--incognito")
                 self.assertEqual(r.returncode, 0, r.stderr)
-                self.assertEqual(self._wait_lines(self.forward_log, n)[-1], ["firefox-fake", self.SPOTIFY])
+                self.assertEqual(self._wait_lines(self.forward_log, n)[-1], ["firefox-fake", self.SPOTIFY, "--incognito"])
                 self.assertEqual(self._plugin_log()[before:], [line])
 
     def test_links_no_rule_maps_and_app_links_forward_without_asking(self):
@@ -456,6 +457,14 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(self._wait_lines(self.handoff_log, 1), [["spotify-fake", "--demo", "demo:item:x1"]])
         skipped = [line for line in self._plugin_log() if "skipped" in line]
         self.assertEqual(skipped, ["open: handoff rule skipped: rule Broken: scheme 'javascript' is refused"])
+
+    def test_rules_that_fail_to_load_still_forward_the_link(self):
+        self._spotify_ready()
+        with mock.patch("ds.handoff.load_rules", side_effect=RuntimeError("boom")), \
+                mock.patch.object(launch, "forward", return_value=0) as fwd:
+            self.assertEqual(launch.open_target([self.SPOTIFY]), 0)
+        fwd.assert_called_once_with(self.SPOTIFY, [], False)
+        self.assertIn("open: handoff rules not loaded: boom", self._plugin_log())
 
     def test_scheme_handler_is_empty_when_xdg_mime_cannot_run(self):
         for exc in (OSError("no such file"), subprocess.TimeoutExpired(["xdg-mime"], 10)):

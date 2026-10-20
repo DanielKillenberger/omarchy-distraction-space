@@ -76,7 +76,7 @@ def _parse_shape(obj):
         return "a shape needs a path and a uri"
     try:
         path = re.compile(obj["path"])
-    except re.error:
+    except (re.error, OverflowError, RecursionError):
         return "a shape path is not a valid pattern"
     query = []
     raw_query = obj.get("query", {})
@@ -89,7 +89,7 @@ def _parse_shape(obj):
             return f"query parameter {name} is malformed"
         try:
             query.append((name, re.compile(spec["pattern"]), spec.get("required", False)))
-        except re.error:
+        except (re.error, OverflowError, RecursionError):
             return f"query parameter {name} is not a valid pattern"
     known = set(path.groupindex) | {q[0] for q in query} | {"url"}
     for m in _PLACEHOLDER.finditer(obj["uri"]):
@@ -188,7 +188,13 @@ def _query_values(query):
     return out
 
 
+# A link a shape recognises but whose values it will not pass on: the whole rule
+# refuses it, so a crafted value never falls through to a shape that would drop it.
+_REFUSED = object()
+
+
 def _render(shape, url, parts):
+    """The URI, None when the shape does not recognise the link, or _REFUSED."""
     path = parts.path or "/"
     m = shape.path.fullmatch(path)
     if m is None and len(path) > 1 and path.endswith("/"):
@@ -204,14 +210,14 @@ def _render(shape, url, parts):
             values[name] = ""
             continue
         if not pattern.fullmatch(params[name]):
-            return None
+            return _REFUSED
         values[name] = params[name]
     for value in values.values():
         if value and not _SAFE_VALUE.fullmatch(value):
-            return None
+            return _REFUSED
     if "{url}" in shape.uri:
         if _URL_FORBIDDEN.search(url):
-            return None
+            return _REFUSED
         values["url"] = url
     return _PLACEHOLDER.sub(lambda p: values.get(p.group(1), ""), shape.uri)
 
@@ -234,6 +240,8 @@ def matches(url, rules):
             continue
         for shape in rule.shapes:
             uri = _render(shape, url, parts)
+            if uri is _REFUSED:
+                break
             if uri is not None:
                 yield rule, uri
                 break
