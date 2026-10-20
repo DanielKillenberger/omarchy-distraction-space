@@ -9,5 +9,62 @@
         "uri": "spotify:{type}:{id}"
       }
     ]
+  },
+  {
+    "app": "Zoom",
+    "scheme": "zoommtg",
+    "hosts": ["zoom.us", "us01web.zoom.us", "us02web.zoom.us", "us03web.zoom.us", "us04web.zoom.us", "us05web.zoom.us", "us06web.zoom.us"],
+    "shapes": [
+      {
+        "path": "/[jw]/(?P<confno>[0-9]{9,12})",
+        "query": {"pwd": {"pattern": "[A-Za-z0-9._-]+", "required": true}},
+        "uri": "zoommtg://zoom.us/join?action=join&confno={confno}&pwd={pwd}"
+      },
+      {
+        "path": "/[jw]/(?P<confno>[0-9]{9,12})",
+        "uri": "zoommtg://zoom.us/join?action=join&confno={confno}"
+      }
+    ]
+  },
+  {
+    "app": "Slack",
+    "scheme": "slack",
+    "hosts": ["app.slack.com"],
+    "shapes": [
+      {
+        "path": "/client/(?P<team>T[A-Z0-9]+)/(?P<channel>[CGD][A-Z0-9]+)",
+        "uri": "slack://channel?team={team}&id={channel}"
+      },
+      {
+        "path": "/client/(?P<team>T[A-Z0-9]+)",
+        "uri": "slack://open?team={team}"
+      }
+    ]
+  },
+  {
+    "app": "Steam",
+    "scheme": "steam",
+    "hosts": ["store.steampowered.com"],
+    "shapes": [
+      {
+        "path": "/app/(?P<id>[0-9]+)(?:/[A-Za-z0-9_-]*)?",
+        "uri": "steam://store/{id}"
+      }
+    ]
+  },
+  {
+    "app": "Telegram",
+    "scheme": "tg",
+    "hosts": ["t.me", "telegram.me"],
+    "shapes": [
+      {
+        "path": "/(?!(?:joinchat|addstickers|addemoji|addtheme|addlist|setlanguage|share|proxy|socks|login|invoice|confirmphone|boost|contact|giftcode|nft)(?:/|$))(?P<name>[A-Za-z][A-Za-z0-9_]{3,31})/(?P<post>[0-9]+)",
+        "uri": "tg://resolve?domain={name}&post={post}"
+      },
+      {
+        "path": "/(?!(?:joinchat|addstickers|addemoji|addtheme|addlist|setlanguage|share|proxy|socks|login|invoice|confirmphone|boost|contact|giftcode|nft)(?:/|$))(?P<name>[A-Za-z][A-Za-z0-9_]{3,31})",
+        "uri": "tg://resolve?domain={name}"
+      }
+    ]
   }
 ]

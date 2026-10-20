@@ -132,7 +132,8 @@ class PersonRuleTests(unittest.TestCase):
         own = _rule(app=" spotify ", scheme="spotify-alt", hosts=["open.spotify.com"],
                     shapes=[{"path": "/track/(?P<id>[a-z]+)", "uri": "spotify-alt:{id}"}])
         rules, _ = self._load([_rule(), own])
-        self.assertEqual([r.app for r in rules], ["Demo", "spotify"])
+        self.assertEqual([r.app for r in rules][:2], ["Demo", "spotify"])
+        self.assertNotIn("Spotify", [r.app for r in rules])
         self.assertEqual(_uris(self.TRACK, rules), ["spotify-alt:abc"])
 
     def test_off_turns_a_shipped_rule_off_by_name(self):
