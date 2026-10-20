@@ -294,6 +294,50 @@ class FeedbackTests(unittest.TestCase):
         self.assertIn(b"x.com", locked_page)
         self.assertIn(b"is locked", locked_page)
 
+    def _wait_conns(self, want, timeout=4.0):
+        deadline = time.monotonic() + timeout
+        while feedback._conns != want and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return feedback._conns
+
+    def test_connection_cap_closes_over_the_bound_and_the_acceptor_survives(self):
+        with patch.object(feedback, "MAX_CONNS", 1):
+            self._start()
+            held = socket.create_connection(("127.0.0.1", HTTP_PORT), timeout=2.0)
+            try:
+                self.assertEqual(self._wait_conns(1), 1)
+                over = _exchange("127.0.0.1", HTTP_PORT, b"GET / HTTP/1.1\r\nHost: x.com\r\n\r\n")
+                self.assertEqual(over, b"")
+                over = _exchange("::1", TLS_PORT, b"\x16\x03\x01")
+                self.assertEqual(over, b"")
+            finally:
+                held.close()
+            self.assertEqual(self._wait_conns(0), 0)
+            page = _http_get("x.com")
+        self.assertIn(b"200", page.split(b"\r\n", 1)[0])
+        log = state.state_path("log").read_text(encoding="utf-8")
+        self.assertEqual(log.count("connection cap 1 reached"), 1)
+
+    def test_failed_handler_start_closes_that_connection_and_keeps_accepting(self):
+        self._start()
+        real_start = threading.Thread.start
+        calls = {"n": 0}
+
+        def flaky_start(thread):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise RuntimeError("can't start new thread")
+            return real_start(thread)
+
+        with patch.object(threading.Thread, "start", flaky_start):
+            failed = _exchange("127.0.0.1", HTTP_PORT, b"GET / HTTP/1.1\r\nHost: x.com\r\n\r\n")
+            page = _http_get("x.com")
+        self.assertEqual(failed, b"")
+        self.assertIn(b"200", page.split(b"\r\n", 1)[0])
+        self.assertEqual(self._wait_conns(0), 0)
+        log = state.state_path("log").read_text(encoding="utf-8")
+        self.assertIn("connection handler could not start", log)
+
     def test_non_http_input_closes_without_exception(self):
         self._start()
         junk = _exchange("127.0.0.1", HTTP_PORT, b"x" * 20000, timeout=1.0)
