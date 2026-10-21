@@ -1471,6 +1471,10 @@ def _class_prefix(cfg: dict, handler: str | None) -> str:
         stem = Path(raw[0]).name
     else:
         stem = (handler or "").removesuffix(".desktop")
+        if not stem.startswith(launch.CHROMIUM_FAMILY + ("chromium",)):
+            # `open` keeps the profile's own browser for a default it cannot classify.
+            last = state.read_profile_browser()
+            stem = Path(last).name if last and shutil.which(last) else stem
     if stem.startswith("google-chrome") or stem == "chrome":
         return "chrome"
     for family in ("brave", "microsoft-edge", "opera", "vivaldi", "helium", "chromium"):

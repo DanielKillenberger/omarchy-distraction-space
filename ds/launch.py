@@ -473,7 +473,14 @@ def _default_browser_id():
 
 def pick_browser(cfg):
     """The browser argv: config `browser` when it is an argv list, else the Omarchy default
-    when it is Chromium-family, else `chromium`; None when no desktop file yields a binary."""
+    when it is Chromium-family, else the browser that last ran the profile while it is
+    still installed, else `chromium`; None when no desktop file yields a binary.
+
+    Chrome and Chromium encrypt cookies under different keyring keys, so a profile
+    one of them wrote looks logged out everywhere in the other. A default this
+    cannot classify (a wrapper script, Firefox) therefore keeps the profile's own
+    browser rather than switching it to chromium.
+    """
     raw = (cfg or {}).get("browser")
     if isinstance(raw, list) and raw and all(isinstance(x, str) and x for x in raw):
         return list(raw)
@@ -481,10 +488,26 @@ def pick_browser(cfg):
     if browser_id == HANDLER_ID:
         # Setup made this plugin the default; the browser it displaced is on record.
         browser_id = state.read_entries().get("previous_handler") or ""
-    if not browser_id.startswith(CHROMIUM_FAMILY):
+    if not browser_id.startswith(CHROMIUM_FAMILY + ("chromium",)):
+        last = state.read_profile_browser()
+        if last and shutil.which(last):
+            return [last]
         browser_id = DEFAULT_BROWSER_ID
     argv = exec_argv(browser_id)
     return argv[:1] if argv else None
+
+
+def _remember_browser(binary):
+    """Record the binary that ran the profile; a change of binary is one log line."""
+    last = state.read_profile_browser()
+    if last == binary:
+        return
+    if last:
+        _log(f"distraction profile now runs in {binary}, was {last}")
+    try:
+        state.write_profile_browser(binary)
+    except OSError as e:
+        _log(f"browser.json: {e}")
 
 
 def profile_dir():
@@ -754,6 +777,7 @@ def _open_web(target, cfg):
         return 1
     ensure_profile()
     if _launch_browser_in_slice(browser + profile_flags(target.url)):
+        _remember_browser(browser[0])
         return 0
     _notice("Distraction space", f"{browser[0]} could not be started in the slice.")
     return 1

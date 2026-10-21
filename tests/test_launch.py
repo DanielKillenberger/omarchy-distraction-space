@@ -785,12 +785,48 @@ class LaunchTests(unittest.TestCase):
         r = self.box.run("open", "https://youtu.be/abc", extra_env={"DS_XDG_BROWSER": launch.HANDLER_ID})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self._launches()[0][len(SLICE_PREFIX)], "google-chrome-stable")
-        # No record behind the handler: the chromium fallback, as for any unknown id.
+        # No record behind the handler, and no browser on record for the profile:
+        # the chromium fallback, as for any unknown id.
         self._desktop("chromium", "chromium %U")
         state.write_entries({"files": [], "previous_handler": None})
+        state.state_path("browser.json").unlink()
         r = self.box.run("open", "https://youtu.be/abc", extra_env={"DS_XDG_BROWSER": launch.HANDLER_ID})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self._launches(2)[1][len(SLICE_PREFIX)], "chromium")
+
+    def test_an_unclassifiable_default_keeps_the_browser_that_ran_the_profile(self):
+        # A wrapper script as the default (a link router, say) is not Chromium-family by
+        # name; switching the profile to chromium would hide every Chrome login.
+        self._desktop("chromium", "chromium %U")
+        self._desktop("workspace-browser", "workspace-browser %u")
+        url = "https://youtu.be/abc"
+        r = self.box.run("open", url)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(state.read_profile_browser(), "google-chrome-stable")
+        self.assertEqual(oct(state.state_path("browser.json").stat().st_mode & 0o777), "0o600")
+        state.write_entries({"files": [], "previous_handler": "workspace-browser.desktop"})
+        for n, default in enumerate(("workspace-browser.desktop", launch.HANDLER_ID, "firefox.desktop"), start=2):
+            with self.subTest(default=default):
+                r = self.box.run("open", url, extra_env={"DS_XDG_BROWSER": default})
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self._launches(n)[-1][len(SLICE_PREFIX)], "google-chrome-stable")
+        # A default the plugin knows still decides, chromium included, and the change is logged once.
+        r = self.box.run("open", url, extra_env={"DS_XDG_BROWSER": "chromium.desktop"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches(5)[-1][len(SLICE_PREFIX)], "chromium")
+        self.assertEqual(state.read_profile_browser(), "chromium")
+        log = state.state_path("log").read_text(encoding="utf-8")
+        self.assertEqual(log.count("distraction profile now runs in chromium, was google-chrome-stable"), 1)
+        # A recorded browser that is no longer installed falls back to chromium.
+        state.write_profile_browser("/no/such/chrome")
+        r = self.box.run("open", url, extra_env={"DS_XDG_BROWSER": "workspace-browser.desktop"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches(6)[-1][len(SLICE_PREFIX)], "chromium")
+        # An unreadable or malformed record counts as none.
+        for raw in ("{", "[]", '{"binary": 3}', '{"binary": ""}'):
+            with self.subTest(raw=raw):
+                state.state_path("browser.json").write_text(raw, encoding="utf-8")
+                self.assertIsNone(state.read_profile_browser())
 
     def test_launch_reports_a_browser_that_did_not_start(self):
         # A matching youtu.be profile window must not hide a missing binary or a
@@ -824,6 +860,8 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self._launches()[0][len(SLICE_PREFIX):len(SLICE_PREFIX) + 2], ["brave", "--foo"])
         self.box.config_file.unlink()
+        # Forget that brave ran the profile, or the firefox default below would keep it.
+        state.state_path("browser.json").unlink()
         r = self.box.run("open", "https://youtu.be/abc", extra_env={"DS_XDG_BROWSER": "firefox.desktop"})
         self.assertEqual(r.returncode, 1)
         self.assertEqual(len(self._lines(self.notify_log)), 1)

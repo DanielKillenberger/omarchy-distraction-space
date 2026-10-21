@@ -19,6 +19,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -1156,6 +1157,16 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(self._install(), (0, ""))
         youtube = (self.apps / "YouTube.desktop").read_text(encoding="utf-8")
         self.assertIn("StartupWMClass=brave-youtube.com__-Distraction\n", youtube)
+
+    def test_wm_class_follows_the_profile_browser_behind_an_unclassifiable_default(self):
+        cfg = json.loads(json.dumps(DEFAULTS))
+        state.write_profile_browser("google-chrome-stable")
+        with mock.patch.object(setup.shutil, "which", return_value="/usr/bin/google-chrome-stable"):
+            self.assertEqual(setup._class_prefix(cfg, "workspace-browser.desktop"), "chrome")
+            self.assertEqual(setup._class_prefix(cfg, "chromium.desktop"), "chromium")
+            self.assertEqual(setup._class_prefix(cfg, "brave-browser.desktop"), "brave")
+        with mock.patch.object(setup.shutil, "which", return_value=None):
+            self.assertEqual(setup._class_prefix(cfg, "workspace-browser.desktop"), "chromium")
 
     def test_switching_links_off_hands_the_default_back_before_the_handler_goes(self):
         self.assertEqual(self._install(), (0, ""))
