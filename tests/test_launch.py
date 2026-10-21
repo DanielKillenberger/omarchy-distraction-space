@@ -370,6 +370,34 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(len(self._lines(self.forward_log)), 2)
         self.assertEqual(self.box.run("open", "--app", "https://[::1").returncode, 2)
 
+    def test_a_bare_url_or_file_without_open_is_opened(self):
+        # #44: `omarchy-launch-browser` ($BROWSER) runs only the Exec first token, so a
+        # link arrives as `distractions <url>`; argparse used to reject it, silently.
+        state.write_entries({"files": [], "previous_handler": "firefox.desktop"})
+        page = self.box.runtime / "page.html"
+        page.write_text("<p>x</p>", encoding="utf-8")
+        cases = (
+            (["https://example.com/"], ["firefox-fake", "https://example.com/"]),
+            (["file:///abs/page.html"], ["firefox-fake", "file:///abs/page.html"]),
+            (["https://example.com/", "--incognito"], ["firefox-fake", "https://example.com/", "--incognito"]),
+            ([str(page)], ["firefox-fake", page.as_uri()]),
+        )
+        for n, (argv, want) in enumerate(cases, start=1):
+            with self.subTest(argv=argv):
+                r = self.box.run(*argv)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self._wait_lines(self.forward_log, n)[-1], want)
+        # A listed URL opens in the space, as with `open`.
+        r = self.box.run("https://www.youtube.com/")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches()[0], SLICE_PREFIX + ["google-chrome-stable", *self._profile_flags("https://www.youtube.com/")])
+        # A mistyped command is still reported, and commands still run.
+        r = self.box.run("stauts")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("invalid choice: 'stauts'", r.stderr)
+        self.assertEqual(self.box.run("status").returncode, 0)
+        self.assertEqual(len(self._lines(self.forward_log)), len(cases))
+
     def _run_in(self, cwd, *args):
         return subprocess.run(
             [sys.executable, str(ROOT / "distractions"), *args],
