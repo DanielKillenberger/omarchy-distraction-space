@@ -20,8 +20,31 @@ def state_dir() -> Path:
     raw = os.environ.get("XDG_STATE_HOME")
     base = Path(raw) if raw else Path.home() / ".local" / "state"
     path = base / "omarchy" / "distraction-space"
-    path.mkdir(parents=True, exist_ok=True)
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    _owner_only(path, 0o700)
     return path
+
+
+def _owner_only(path, mode):
+    # Held notifications and the log are private: the umask does not decide who reads
+    # them, and a directory or file left wider by an older version is tightened.
+    try:
+        if stat.S_IMODE(os.stat(path).st_mode) & 0o077:
+            os.chmod(path, mode)
+    except OSError:
+        pass
+
+
+def open_private(path, mode="a"):
+    """Open a state file for appending ("a") or rewriting ("w"), created 0600."""
+    flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if mode == "a" else os.O_TRUNC)
+    fd = os.open(path, flags, 0o600)
+    try:
+        if stat.S_IMODE(os.fstat(fd).st_mode) & 0o077:
+            os.fchmod(fd, 0o600)
+    except OSError:
+        pass
+    return os.fdopen(fd, mode, encoding="utf-8")
 
 
 def runtime_dir() -> Path:

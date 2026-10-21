@@ -50,7 +50,7 @@ def _log(msg):
     path = state.state_path("log")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as f:
+        with state.open_private(path) as f:
             f.write(f"{state.now_iso()} hold: {msg}\n")
     except OSError:
         pass
@@ -252,7 +252,8 @@ def _trim(path):
     while len(data) > FILE_CAP and b"\n" in data:
         data = data.split(b"\n", 1)[1]
     tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_bytes(data)
+    with state.open_private(tmp, "w") as f:
+        f.buffer.write(data)
     os.replace(tmp, path)
 
 
@@ -261,7 +262,7 @@ def append_held(app, title, body) -> bool:
     record = {"at": state.now_iso(), "app": _clip(app), "title": _clip(title), "body": _clip(body)}
     try:
         path = held_path()
-        with path.open("a", encoding="utf-8") as f:
+        with state.open_private(path) as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
         _trim(path)
     except OSError:

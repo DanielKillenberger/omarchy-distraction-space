@@ -281,7 +281,7 @@ def _open_log():
     try:
         path = _log_path()
         path.parent.mkdir(parents=True, exist_ok=True)
-        return open(path, "a", encoding="utf-8")
+        return state.open_private(path)
     except OSError:
         return None
 
@@ -289,7 +289,7 @@ def _open_log():
 def _append_log(line):
     path = _log_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a", encoding="utf-8") as f:
+    with state.open_private(path) as f:
         f.write(line + "\n")
 
 
