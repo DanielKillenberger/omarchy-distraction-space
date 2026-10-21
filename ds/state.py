@@ -196,6 +196,17 @@ def write_expansion(obj):
     write_json(state_path("expansion.json"), obj)
 
 
+def read_profile_browser():
+    """The browser binary that last ran the distraction profile, or None."""
+    data = read_json(state_path("browser.json"), None)
+    binary = data.get("binary") if isinstance(data, dict) else None
+    return binary if isinstance(binary, str) and binary else None
+
+
+def write_profile_browser(binary):
+    write_json(state_path("browser.json"), {"binary": binary, "updated": now_iso()})
+
+
 def entries_path():
     return state_path("entries.json")
 
