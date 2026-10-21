@@ -396,6 +396,11 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(r.returncode, 2)
         self.assertIn("invalid choice: 'stauts'", r.stderr)
         self.assertEqual(self.box.run("status").returncode, 0)
+        # A file named like the help flag does not hide the command list.
+        (self.box.runtime / "--help").write_text("", encoding="utf-8")
+        r = self._run_in(self.box.runtime, "--help")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("status", r.stdout)
         self.assertEqual(len(self._lines(self.forward_log)), len(cases))
 
     def _run_in(self, cwd, *args):

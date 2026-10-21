@@ -112,7 +112,9 @@ _SCHEME = re.compile(r"[A-Za-z][A-Za-z0-9+.-]*:")
 def _bare_target(arg):
     # `omarchy-launch-browser` ($BROWSER) also drops `open` before a URL or file. Only
     # those are taken: any other unknown word stays an error, so a typo is reported.
-    return arg not in COMMANDS and arg != "open" and (_SCHEME.match(arg) is not None or os.path.exists(arg))
+    if arg in COMMANDS or arg == "open" or arg.startswith("-"):
+        return False
+    return _SCHEME.match(arg) is not None or os.path.exists(arg)
 
 
 
