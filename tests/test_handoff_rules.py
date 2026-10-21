@@ -61,6 +61,10 @@ class ZoomTests(_Table):
         # A password the rule will not pass on refuses the link; it never joins without it.
         "https://zoom.us/j/123456789?pwd=a%20b", "https://zoom.us/j/123456789?pwd=ab%63",
         "https://zoom.us/j/123456789?pwd=",
+        # Meaning the URI would drop stays with the browser: a registration token,
+        # or any other parameter the shapes do not declare (both shapes are strict).
+        "https://zoom.us/w/123456789?tk=registrant_token", "https://zoom.us/j/123456789?pwd=abc&tk=t",
+        "https://zoom.us/j/123456789?uname=x",
     )
 
 
@@ -101,11 +105,18 @@ class TelegramTests(_Table):
         ("https://t.me/durov", "tg://resolve?domain=durov"),
         ("https://t.me/telegram/123", "tg://resolve?domain=telegram&post=123"),
         ("https://telegram.me/some_name/", "tg://resolve?domain=some_name"),
+        # Bot links keep their start payload ("Bot links").
+        ("https://t.me/example_bot?start=onboarding_token", "tg://resolve?domain=example_bot&start=onboarding_token"),
     )
     LEAVES = (
         "https://t.me/", "https://t.me/joinchat/AbCdEf", "https://t.me/joinchat", "https://t.me/+AbCdEf",
         "https://t.me/addstickers/pack", "https://t.me/share/url?url=x", "https://t.me/s/channel",
         "https://t.me/c/123/45", "https://t.me/abc", "https://t.me/1abcde",
+        # Parameters the URI would drop stay with the browser: comments, threads, other
+        # bot starts, and a start payload outside Telegram's alphabet.
+        "https://t.me/telegram/123?comment=7", "https://t.me/telegram/123?thread=2",
+        "https://t.me/example_bot?startgroup=x", "https://t.me/example_bot?start=a.b",
+        "https://t.me/example_bot?start=ok&admin=x",
     )
 
 

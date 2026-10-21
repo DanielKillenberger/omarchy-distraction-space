@@ -102,6 +102,21 @@ class EngineTests(unittest.TestCase):
         self.assertEqual(_uris("https://demo.example/j/12?pwd=a%26b", [rule]), [])
         self.assertEqual(_uris("https://demo.example/j/12?pwd=", [rule]), [])
 
+    def test_a_strict_shape_refuses_parameters_it_does_not_declare(self):
+        loose = handoff.parse_rule(_rule())
+        strict = handoff.parse_rule(_rule(shapes=[
+            {"path": "/item/(?P<id>[a-z0-9]+)", "query": {"ref": {"pattern": "[a-z]*"}}, "strict": True, "uri": "demo:item:{id}"},
+        ]))
+        self.assertEqual(_uris("https://demo.example/item/a1?si=x", [loose]), ["demo:item:a1"])
+        self.assertEqual(_uris("https://demo.example/item/a1?ref=x", [strict]), ["demo:item:a1"])
+        self.assertEqual(_uris("https://demo.example/item/a1", [strict]), ["demo:item:a1"])
+        self.assertEqual(_uris("https://demo.example/item/a1?si=x", [strict]), [])
+        self.assertEqual(_uris("https://demo.example/item/a1?ref=x&si=y", [strict]), [])
+        for value in ("yes", 1, None):
+            with self.subTest(strict=value):
+                shape = {"path": "/x", "uri": "demo:x", "strict": value}
+                self.assertIsInstance(handoff.parse_rule(_rule(shapes=[shape])), str)
+
     def test_a_pattern_too_large_to_compile_is_a_reason_not_a_crash(self):
         huge = "a{99999999999999999999999999}"
         for shape in ({"path": huge, "uri": "demo:x"},

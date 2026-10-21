@@ -3,7 +3,9 @@
 A rule names an app, the URI scheme its handler takes, the hosts it covers, and
 one or more link shapes. A shape's `path` is a regular expression matched
 against the whole raw path (never percent-decoded); `query` maps a parameter
-name to `{"pattern": ..., "required": ...}`; `uri` is a template whose `{name}`
+name to `{"pattern": ..., "required": ...}`; with `strict`, any other query
+parameter makes the shape refuse the link, for apps whose link carries meaning
+the URI would drop; `uri` is a template whose `{name}`
 placeholders come from the path's named groups and the query parameters, with
 `{url}` standing for the whole original link. Every captured value must also be
 free of `%`, `/`, whitespace and control characters, so a crafted link cannot
@@ -26,7 +28,7 @@ REFUSED_SCHEMES = frozenset({
 })
 _SCHEME_NAME = re.compile(r"[a-z][a-z0-9+.-]*")
 _RULE_KEYS = frozenset({"app", "scheme", "hosts", "shapes"})
-_SHAPE_KEYS = frozenset({"path", "query", "uri"})
+_SHAPE_KEYS = frozenset({"path", "query", "strict", "uri"})
 _QUERY_KEYS = frozenset({"pattern", "required"})
 _PLACEHOLDER = re.compile(r"\{([^{}]*)\}")
 _NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -42,6 +44,7 @@ class Shape:
     path: re.Pattern
     query: tuple  # ((name, pattern, required), ...)
     uri: str
+    strict: bool = False
 
 
 @dataclass(frozen=True)
@@ -78,6 +81,8 @@ def _parse_shape(obj):
         path = re.compile(obj["path"])
     except (re.error, OverflowError, RecursionError):
         return "a shape path is not a valid pattern"
+    if not isinstance(obj.get("strict", False), bool):
+        return "a shape strict is not true or false"
     query = []
     raw_query = obj.get("query", {})
     if not isinstance(raw_query, dict):
@@ -97,7 +102,7 @@ def _parse_shape(obj):
             return f"uri placeholder {{{m.group(1)}}} names nothing the shape captures"
     if "{" in _PLACEHOLDER.sub("", obj["uri"]) or "}" in _PLACEHOLDER.sub("", obj["uri"]):
         return "uri has an unbalanced brace"
-    return Shape(path, tuple(query), obj["uri"])
+    return Shape(path, tuple(query), obj["uri"], obj.get("strict", False))
 
 
 def parse_rule(obj):
@@ -203,6 +208,8 @@ def _render(shape, url, parts):
         return None
     values = {k: v for k, v in m.groupdict().items() if v is not None}
     params = _query_values(parts.query)
+    if shape.strict and set(params) - {q[0] for q in shape.query}:
+        return _REFUSED
     for name, pattern, required in shape.query:
         if name not in params:
             if required:
