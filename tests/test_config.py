@@ -65,6 +65,9 @@ GOOD_VALUES = [
     ("hooks.enter", '[["echo","hi"]]', [["echo", "hi"]]),
     ("hooks.leave", "[]", []),
     ("log", "~/custom.log", "~/custom.log"),
+    ("handoff.rules", '[{"app": "Demo", "scheme": "demo", "hosts": ["demo.example"], "shapes": []}]',
+     [{"app": "Demo", "scheme": "demo", "hosts": ["demo.example"], "shapes": []}]),
+    ("handoff.off", '["Spotify"]', ["Spotify"]),
 ]
 
 BAD_VALUES = [
@@ -94,6 +97,11 @@ BAD_VALUES = [
     ("keep_reachable", '["nodots"]'),
     ("hooks.enter", '["notlist"]'),
     ("log", ""),
+    ("handoff", "[]"),
+    ("handoff.rules", '{"app": "Demo"}'),
+    ("handoff.rules", '["Demo"]'),
+    ("handoff.off", '"Spotify"'),
+    ("handoff.off", "[1]"),
 ]
 
 

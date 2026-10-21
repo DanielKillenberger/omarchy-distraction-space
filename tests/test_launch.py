@@ -29,6 +29,7 @@ _ENV_KEYS = (
     "DS_SYSTEMD_RUN_LOG", "DS_BROWSER_LOG", "DS_FORWARD_LOG", "DS_NOTIFY_LOG", "DS_HYPR_LOG",
     "DS_HYPR_STATE", "DS_XDG_BROWSER", "XDG_DATA_HOME", "XDG_DATA_DIRS", "DS_LAUNCH_SETTLE",
     "DS_FAKE_RC", "CHROME_VERSION_EXTRA", "PULSE_PROP", "PULSE_SINK",
+    "DS_XDG_MIME", "DS_XDG_MIME_RC", "DS_XDG_MIME_LOG", "DS_HANDOFF_LOG",
 )
 
 LOGGER = r"""
@@ -130,6 +131,24 @@ if sys.argv[1:3] == ["get", "default-web-browser"]:
 sys.exit(1)
 """
 
+# `xdg-mime query default x-scheme-handler/<scheme>` answers from DS_XDG_MIME
+# (`scheme=desktop-id` pairs, comma-separated), exits DS_XDG_MIME_RC when set,
+# and logs every call so a test can prove a link never asked.
+XDG_MIME = r"""
+import json, os, sys
+from pathlib import Path
+log = Path(os.environ["DS_XDG_MIME_LOG"])
+with log.open("a", encoding="utf-8") as f:
+    f.write(json.dumps(sys.argv[1:]) + "\n")
+rc = int(os.environ.get("DS_XDG_MIME_RC", "0"))
+if rc:
+    sys.exit(rc)
+pairs = dict(p.split("=", 1) for p in os.environ.get("DS_XDG_MIME", "").split(",") if "=" in p)
+if sys.argv[1:3] == ["query", "default"] and sys.argv[3].startswith("x-scheme-handler/"):
+    print(pairs.get(sys.argv[3].split("/", 1)[1], ""))
+sys.exit(0)
+"""
+
 HYPRCTL = r"""
 import json, os, sys
 from pathlib import Path
@@ -196,6 +215,13 @@ class LaunchTests(unittest.TestCase):
         self.box.fake_bin("firefox-fake", LOGGER % "DS_FORWARD_LOG")
         self.box.fake_bin("omarchy-notification-send", LOGGER % "DS_NOTIFY_LOG")
         self.box.fake_bin("xdg-settings", XDG_SETTINGS)
+        self.mime_log = self.box.runtime / "xdg-mime.log"
+        self.handoff_log = self.box.runtime / "handoff.log"
+        os.environ.update({"DS_XDG_MIME_LOG": str(self.mime_log), "DS_HANDOFF_LOG": str(self.handoff_log)})
+        os.environ.pop("DS_XDG_MIME", None)
+        os.environ.pop("DS_XDG_MIME_RC", None)
+        self.box.fake_bin("xdg-mime", XDG_MIME)
+        self.box.fake_bin("spotify-fake", LOGGER % "DS_HANDOFF_LOG")
         self.box.fake_bin("hyprctl", HYPRCTL)
         self._desktop("google-chrome", "google-chrome-stable %U")
         self._desktop("firefox", "firefox-fake %u")
@@ -314,6 +340,136 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
         self.assertEqual(len(self._lines(self.notify_log)), 2)
         self.assertEqual(len(self._lines(self.forward_log)), 4)
+
+    SPOTIFY = "https://open.spotify.com/intl-de/track/4uLU6hMCjMI75M1A2tKUQC?si=abc"
+
+    def _plugin_log(self):
+        path = state.state_path("log")
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        return [line.split(" ", 1)[1] if " " in line else line for line in lines]  # drop the timestamp
+
+    def _spotify_ready(self):
+        state.write_entries({"files": [], "previous_handler": "firefox.desktop"})
+        self._desktop("spotify", "spotify-fake --uri=%u")
+        os.environ["DS_XDG_MIME"] = "spotify=spotify.desktop"
+
+    def test_a_spotify_link_hands_off_to_the_scheme_handler(self):
+        # R1: the mapped URI reaches the app, no browser opens, and the log names
+        # the app and its entry but never the link or the URI.
+        self._spotify_ready()
+        r = self.box.run("open", self.SPOTIFY, "--incognito")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._wait_lines(self.handoff_log, 1), [["spotify-fake", "--uri=spotify:track:4uLU6hMCjMI75M1A2tKUQC"]])
+        self.assertEqual(self._lines(self.forward_log), [])
+        self.assertFalse(self.run_log.exists())
+        log = self._plugin_log()
+        self.assertIn("open: handoff Spotify via spotify.desktop", log)
+        self.assertTrue(any("--incognito not applied" in line for line in log), log)
+        self.assertFalse(any("spotify:track" in line or "open.spotify.com" in line for line in log), log)
+
+    def test_an_unusable_scheme_handler_forwards_the_link(self):
+        # R1: no answer, a failing query, a missing file, the plugin, the recorded
+        # browser, an Exec with no URL code, and the plugin's launcher all forward.
+        self._spotify_ready()
+        self._desktop("noarg", "spotify-fake")
+        self._desktop("shadow", f"{ROOT / 'distractions'} open %u")
+        cases = (
+            ("no answer", {"DS_XDG_MIME": ""}),
+            ("query fails", {"DS_XDG_MIME_RC": "4"}),
+            ("missing file", {"DS_XDG_MIME": "spotify=gone.desktop"}),
+            ("the plugin", {"DS_XDG_MIME": f"spotify={launch.HANDLER_ID}"}),
+            ("the browser", {"DS_XDG_MIME": "spotify=firefox"}),
+            ("no url code", {"DS_XDG_MIME": "spotify=noarg.desktop"}),
+            ("own launcher", {"DS_XDG_MIME": "spotify=shadow.desktop"}),
+        )
+        for n, (label, env) in enumerate(cases, start=1):
+            with self.subTest(label):
+                r = self.box.run("open", self.SPOTIFY, extra_env=env)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self._wait_lines(self.forward_log, n)[-1], ["firefox-fake", self.SPOTIFY])
+        self.assertEqual(self._lines(self.handoff_log), [])
+        self.assertEqual(len(self._lines(self.mime_log)), len(cases))
+
+    def test_a_handler_that_does_not_start_forwards_with_one_line(self):
+        # R1: not spawned, or a non-zero exit inside the settle window, is one log line and a forward.
+        self._spotify_ready()
+        self.box.fake_bin("spotify-fail", "import sys\nsys.exit(3)\n")
+        for n, (label, exec_line, line) in enumerate((
+            ("exits non-zero", "spotify-fail --uri=%u", "open: spotify-fail: exited 3 at start"),
+            ("not spawned", "spotify-missing --uri=%u", "open: spotify-missing: not an executable on PATH"),
+        ), start=1):
+            with self.subTest(label):
+                self._desktop("spotify", exec_line)
+                before = len(self._plugin_log())
+                # Browser flags go on to the forward, so nothing says they were not applied.
+                r = self.box.run("open", self.SPOTIFY, "--incognito")
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self._wait_lines(self.forward_log, n)[-1], ["firefox-fake", self.SPOTIFY, "--incognito"])
+                self.assertEqual(self._plugin_log()[before:], [line])
+
+    def test_links_no_rule_maps_and_app_links_forward_without_asking(self):
+        # R2: an unmappable path, an unrelated host, and `--app` never query xdg-mime.
+        self._spotify_ready()
+        cases = (
+            (["open", "https://open.spotify.com/user/someone"], ["firefox-fake", "https://open.spotify.com/user/someone"]),
+            (["open", "https://open.spotify.com/"], ["firefox-fake", "https://open.spotify.com/"]),
+            (["open", "https://example.com/track/abc"], ["firefox-fake", "https://example.com/track/abc"]),
+            (["open", "--app", self.SPOTIFY], ["firefox-fake", f"--app={self.SPOTIFY}"]),
+        )
+        for n, (argv, want) in enumerate(cases, start=1):
+            with self.subTest(argv=argv):
+                r = self.box.run(*argv)
+                self.assertEqual(r.returncode, 0, r.stderr)
+                self.assertEqual(self._wait_lines(self.forward_log, n)[-1], want)
+        self.assertFalse(self.mime_log.exists())
+        self.assertEqual(self._lines(self.handoff_log), [])
+
+    def test_a_listed_host_opens_in_the_space_even_when_a_rule_maps_it(self):
+        # R3: containment wins; the rule is never consulted.
+        self._spotify_ready()
+        state.write_expansion({
+            "list": [{"name": "Spotify", "classes": [], "hosts": ["open.spotify.com"]}],
+            "keep_reachable": [], "nudges": {"app_banner": True, "block_page": True},
+            "site_block": {"enabled": True},
+        })
+        r = self.box.run("open", self.SPOTIFY)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._launches()[0][:len(SLICE_PREFIX)], SLICE_PREFIX)
+        self.assertFalse(self.mime_log.exists())
+        self.assertEqual(self._lines(self.handoff_log), [])
+
+    def test_a_person_rule_from_config_hands_off_and_a_bad_one_is_logged(self):
+        # R4 end to end: `config set` stores the rules, `open` uses the good one
+        # and writes one line for the one it skipped.
+        self._spotify_ready()
+        self._desktop("demo", "spotify-fake --demo %u")
+        os.environ["DS_XDG_MIME"] = "demo=demo.desktop"
+        rules = [
+            {"app": "Broken", "scheme": "javascript", "hosts": ["demo.example"],
+             "shapes": [{"path": "/.*", "uri": "javascript:x"}]},
+            {"app": "Demo", "scheme": "demo", "hosts": ["demo.example"],
+             "shapes": [{"path": "/item/(?P<id>[a-z0-9]+)", "uri": "demo:item:{id}"}]},
+        ]
+        r = self.box.run("config", "set", "handoff.rules", json.dumps(rules))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        r = self.box.run("open", "https://demo.example/item/x1")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._wait_lines(self.handoff_log, 1), [["spotify-fake", "--demo", "demo:item:x1"]])
+        skipped = [line for line in self._plugin_log() if "skipped" in line]
+        self.assertEqual(skipped, ["open: handoff rule skipped: rule Broken: scheme 'javascript' is refused"])
+
+    def test_rules_that_fail_to_load_still_forward_the_link(self):
+        self._spotify_ready()
+        with mock.patch("ds.handoff.load_rules", side_effect=RuntimeError("boom")), \
+                mock.patch.object(launch, "forward", return_value=0) as fwd:
+            self.assertEqual(launch.open_target([self.SPOTIFY]), 0)
+        fwd.assert_called_once_with(self.SPOTIFY, [], False)
+        self.assertIn("open: handoff rules not loaded: boom", self._plugin_log())
+
+    def test_scheme_handler_is_empty_when_xdg_mime_cannot_run(self):
+        for exc in (OSError("no such file"), subprocess.TimeoutExpired(["xdg-mime"], 10)):
+            with self.subTest(exc=type(exc).__name__), mock.patch("ds.net.run_command", side_effect=exc):
+                self.assertEqual(launch.scheme_handler("spotify"), "")
 
     def test_no_target_forwards_the_bare_browser_with_flags_in_any_order(self):
         state.write_entries({"files": [], "previous_handler": "firefox.desktop"})
