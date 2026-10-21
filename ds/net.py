@@ -197,7 +197,7 @@ def _append_log(line: str) -> None:
     for path in (configured, default):
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "a", encoding="utf-8") as f:
+            with state.open_private(path) as f:
                 f.write(line + "\n")
             return
         except OSError:

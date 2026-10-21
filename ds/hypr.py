@@ -114,7 +114,7 @@ def _log(msg):
 def _log_to(path, msg):
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "a", encoding="utf-8") as f:
+        with state.open_private(path) as f:
             f.write(f"{state.now_iso()} {msg}\n")
     except OSError:
         pass
