@@ -49,6 +49,13 @@ class PrivateStateTests(unittest.TestCase):
         self.assertTrue(hold.append_held("Telegram", "title", "body"))
         self.assertEqual(_mode(hold.held_path()), 0o600)
 
+    def test_a_umask_masking_owner_bits_still_leaves_a_writable_0600_file(self):
+        os.umask(0o277)
+        self.assertTrue(hold.append_held("Telegram", "one", "body"))
+        self.assertEqual(_mode(hold.held_path()), 0o600)
+        self.assertTrue(hold.append_held("Telegram", "two", "body"))
+        self.assertEqual(len(hold.held_path().read_text(encoding="utf-8").splitlines()), 2)
+
     def test_an_older_wider_held_file_is_tightened_on_the_next_append(self):
         hold.held_path().write_text("", encoding="utf-8")
         os.chmod(hold.held_path(), 0o644)

@@ -40,7 +40,8 @@ def open_private(path, mode="a"):
     flags = os.O_WRONLY | os.O_CREAT | (os.O_APPEND if mode == "a" else os.O_TRUNC)
     fd = os.open(path, flags, 0o600)
     try:
-        if stat.S_IMODE(os.fstat(fd).st_mode) & 0o077:
+        # Exactly 0600: a umask that masks owner bits would leave a file unwritable later.
+        if stat.S_IMODE(os.fstat(fd).st_mode) != 0o600:
             os.fchmod(fd, 0o600)
     except OSError:
         pass
