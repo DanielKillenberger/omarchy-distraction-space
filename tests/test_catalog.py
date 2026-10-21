@@ -78,10 +78,14 @@ class CatalogTests(unittest.TestCase):
 
     def test_desktop_id_on_native_products_only(self):
         self.assertEqual(expand_entry("Telegram")["desktop"], "org.telegram.desktop")
-        self.assertEqual(expand_entry("Signal")["desktop"], "signal-desktop")
+        # Arch's signal-desktop package installs signal.desktop, not signal-desktop.desktop.
+        self.assertEqual(expand_entry("Signal")["desktop"], "signal")
+        self.assertEqual(expand_entry("Signal")["icon"], "signal-desktop")
+        self.assertIsNone(expand_entry("Telegram")["icon"])
         for entry in ("YouTube", "Discord", "x.com", "class=^Slack$", {"name": "Site", "hosts": ["example.com"]}):
             with self.subTest(entry=entry):
                 self.assertIsNone(expand_entry(entry)["desktop"])
+                self.assertIsNone(expand_entry(entry)["icon"])
 
     def test_unknown_catalog_name_skipped(self):
         self.assertIsNone(expand_entry("NotAProduct"))

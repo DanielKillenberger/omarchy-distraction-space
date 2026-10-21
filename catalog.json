@@ -17,7 +17,8 @@
   },
   "Signal": {
     "class": "^signal$",
-    "desktop": "signal-desktop",
+    "desktop": "signal",
+    "icon": "signal-desktop",
     "pwa": "signal.org",
     "hosts": [],
     "senders": ["Signal", "signal"],
