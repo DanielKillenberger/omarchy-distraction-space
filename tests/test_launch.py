@@ -804,12 +804,18 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(state.read_profile_browser(), "google-chrome-stable")
         self.assertEqual(oct(state.state_path("browser.json").stat().st_mode & 0o777), "0o600")
+        old = {"binary": "google-chrome-stable", "updated": "2000-01-01T00:00:00+00:00"}
+        state.state_path("browser.json").write_text(json.dumps(old), encoding="utf-8")
         state.write_entries({"files": [], "previous_handler": "workspace-browser.desktop"})
         for n, default in enumerate(("workspace-browser.desktop", launch.HANDLER_ID, "firefox.desktop"), start=2):
             with self.subTest(default=default):
                 r = self.box.run("open", url, extra_env={"DS_XDG_BROWSER": default})
                 self.assertEqual(r.returncode, 0, r.stderr)
                 self.assertEqual(self._launches(n)[-1][len(SLICE_PREFIX)], "google-chrome-stable")
+        # Every launch writes the record, not only a change of binary.
+        self.assertNotEqual(json.loads(state.state_path("browser.json").read_text(encoding="utf-8"))["updated"], old["updated"])
+        log = state.state_path("log")
+        self.assertNotIn("distraction profile now runs in", log.read_text(encoding="utf-8") if log.exists() else "")
         # A default the plugin knows still decides, chromium included, and the change is logged once.
         r = self.box.run("open", url, extra_env={"DS_XDG_BROWSER": "chromium.desktop"})
         self.assertEqual(r.returncode, 0, r.stderr)

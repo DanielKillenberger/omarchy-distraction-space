@@ -500,9 +500,7 @@ def pick_browser(cfg):
 def _remember_browser(binary):
     """Record the binary that ran the profile; a change of binary is one log line."""
     last = state.read_profile_browser()
-    if last == binary:
-        return
-    if last:
+    if last and last != binary:
         _log(f"distraction profile now runs in {binary}, was {last}")
     try:
         state.write_profile_browser(binary)

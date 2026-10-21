@@ -1165,6 +1165,9 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(setup._class_prefix(cfg, "workspace-browser.desktop"), "chrome")
             self.assertEqual(setup._class_prefix(cfg, "chromium.desktop"), "chromium")
             self.assertEqual(setup._class_prefix(cfg, "brave-browser.desktop"), "brave")
+            # Omarchy's Chrome wrapper, which `open` already knows, makes Chrome windows.
+            state.write_profile_browser("omarchy-open-chrome")
+            self.assertEqual(setup._class_prefix(cfg, "workspace-browser.desktop"), "chrome")
         with mock.patch.object(setup.shutil, "which", return_value=None):
             self.assertEqual(setup._class_prefix(cfg, "workspace-browser.desktop"), "chromium")
 
