@@ -107,7 +107,11 @@ def render_destroy() -> str:
     return f"destroy table {FAMILY} {TABLE}\n"
 
 
-def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
+def render_table(v4: list[str], v6: list[str], cgroup: str, uid: int) -> str:
+    # The block is the invoking person's own. A socket another account owns, root's
+    # included, passes both output chains before any reject or redirect, so its
+    # requests never reach a router this person runs.
+    uid_accept = f"meta skuid != {uid} accept"
     slice_accept = f'socket cgroupv2 level {SLICE_LEVEL} "{cgroup}" accept'
     login = "/".join(cgroup.split("/")[:LOGIN_LEVEL])
     # Only connections this table's own redirect produced are judged: the
@@ -138,6 +142,7 @@ def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
         f"  }}\n"
         f"  chain output {{\n"
         f"    type filter hook output priority filter; policy accept;\n"
+        f"    {uid_accept}\n"
         f"    {slice_accept}\n"
         f"    meta nfproto ipv4 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    meta nfproto ipv6 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
@@ -148,6 +153,7 @@ def render_table(v4: list[str], v6: list[str], cgroup: str) -> str:
         f"  }}\n"
         f"  chain output_nat {{\n"
         f"    type nat hook output priority dstnat; policy accept;\n"
+        f"    {uid_accept}\n"
         f"    {slice_accept}\n"
         f"    meta nfproto ipv4 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    meta nfproto ipv6 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
@@ -269,13 +275,13 @@ def canonical_policy(text: str) -> tuple[tuple[str, ...], ...]:
     return tuple(tuple(re.findall(token, line)) for line in text.splitlines() if line.strip())
 
 
-def check_policy(v4: list[str], v6: list[str], cgroup: str) -> int:
+def check_policy(v4: list[str], v6: list[str], cgroup: str, uid: int) -> int:
     before = slice_identity(cgroup)
     actual = list_policy()
     after = slice_identity(cgroup)
     if before != after:
         _fail("unverified: slice identity changed", 1)
-    expected = render_table(v4, v6, cgroup).removeprefix(render_destroy())
+    expected = render_table(v4, v6, cgroup, uid).removeprefix(render_destroy())
     expected = (expected.replace("priority filter;", "priority 0;")
                 .replace("priority dstnat;", "priority -100;")
                 .replace(f"@{SET4} reject\n", f"@{SET4} reject with icmp port-unreachable\n")
@@ -295,7 +301,8 @@ def main(argv: list[str] | None = None) -> int:
         _fail("refused: only target ds is allowed")
     if command not in {"replace", "flush", "check"}:
         _fail("usage: distractions-nft replace|flush|check ds")
-    cgroup = slice_path(_invoking_uid())
+    uid = _invoking_uid()
+    cgroup = slice_path(uid)
     text = _read_stdin()
     if command == "flush":
         if text.strip():
@@ -303,9 +310,9 @@ def main(argv: list[str] | None = None) -> int:
         return commit(render_destroy())
     v4, v6 = parse_replace_stdin(text)
     if command == "check":
-        return check_policy(v4, v6, cgroup)
+        return check_policy(v4, v6, cgroup, uid)
     _require_slice(cgroup)
-    return commit(render_table(v4, v6, cgroup))
+    return commit(render_table(v4, v6, cgroup, uid))
 
 
 if __name__ == "__main__":
