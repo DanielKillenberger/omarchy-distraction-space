@@ -24,7 +24,7 @@ The record does not let an unprivileged caller inspect arbitrary later edits to 
 
 The helper accepts only `replace ds`, `check ds`, and `flush ds`. It bounds stdin at 256 KiB and permits at most 4096 unique parsed IP addresses, with no prefixes or nft syntax accepted. It derives the user slice path from the validated invoking UID rather than accepting a cgroup path from stdin. `replace` requires the slice and loads the fixed `inet omarchy_ds` table; `flush` removes that table and rejects non-whitespace stdin. `check` compares the live normalized policy with the expected policy, with bounded output and a timeout. The listener can skip an unchanged replacement only after a fresh successful check; missing or drifted policy is repaired. Workspace transitions do not invoke sudo or rewrite the table.
 
-The table retains IPv4/IPv6 sets, output filtering and HTTP/HTTPS redirects to the local block-page routers. The cgroup exemption is placed before the rejects and redirects. Review the full helper, including its existing router source-port exemptions; this is an attention aid, not a hostile-user security boundary.
+The table retains IPv4/IPv6 sets, output filtering and HTTP/HTTPS redirects to the local block-page routers. Both output chains begin with `meta skuid != <invoking uid> accept`, so the rejects, redirects and source-port exemptions apply only to the installing user's own sockets; another account's traffic, root's included, is never redirected to this user's routers. The cgroup exemption follows it, before the rejects and redirects. Review the full helper, including its existing router source-port exemptions; this is an attention aid, not a hostile-user security boundary.
 
 ### User-level setup and data
 

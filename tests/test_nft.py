@@ -26,6 +26,7 @@ WRAPPER = ROOT / "distractions-nft"
 UID = 1000
 CGROUP = f"user.slice/user-{UID}.slice/user@{UID}.service/app.slice/app-distraction.slice"
 SLICE_ACCEPT = f'socket cgroupv2 level 5 "{CGROUP}" accept'
+UID_ACCEPT = f"meta skuid != {UID} accept"
 
 FAKE_NFT = r"""
 import os, sys
@@ -93,7 +94,7 @@ class NftTests(unittest.TestCase):
         return payload
 
     def test_render_has_redirect_per_family_and_reject(self):
-        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP, UID)
         self.assertIn("chain output_nat", script)
         self.assertIn("type nat hook output priority dstnat", script)
         self.assertIn("ip daddr @omarchy_ds_v4 tcp dport 80 redirect to :28080", script)
@@ -113,7 +114,7 @@ class NftTests(unittest.TestCase):
         self.assertIn("meta l4proto tcp reject with tcp reset", logged)
 
     def test_feedback_ports_reset_a_redirected_connection_outside_the_login(self):
-        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP, UID)
         body = script[script.index("chain input {") :]
         rules = "".join(
             f"    ct original {ip} daddr @{addr_set} "
@@ -128,12 +129,13 @@ class NftTests(unittest.TestCase):
         ), body)
 
     def test_splice_source_port_accept_precedes_redirect_and_reject(self):
-        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP, UID)
         filter_body = script[
             script.index("chain output {") : script.index("chain output_nat {")
         ]
         nat_body = script[script.index("chain output_nat {") :]
         first_rules = (
+            f"\n    {UID_ACCEPT}"
             f"\n    {SLICE_ACCEPT}"
             "\n    meta nfproto ipv4 tcp sport 61000-61999 accept"
             "\n    meta nfproto ipv6 tcp sport 61000-61999 accept\n"
@@ -185,8 +187,28 @@ class NftTests(unittest.TestCase):
                     nat_body.index(f"{daddr} tcp dport 443 redirect"),
                 )
 
-    def test_cgroup_accept_is_the_first_rule_and_names_the_invoking_uid(self):
-        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP)
+    def test_output_chains_pass_every_other_accounts_sockets_first(self):
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP, UID)
+        self.assertEqual(script.count(UID_ACCEPT), 2)
+        for chain, type_line in (
+            ("output", "type filter hook output priority filter; policy accept;"),
+            ("output_nat", "type nat hook output priority dstnat; policy accept;"),
+        ):
+            with self.subTest(chain=chain):
+                body = script[script.index(f"chain {chain} {{") :]
+                after_type = body[body.index(type_line) + len(type_line) :]
+                self.assertTrue(after_type.startswith(f"\n    {UID_ACCEPT}\n"), after_type[:200])
+        result = self.run_wrapper(["replace", "ds"], "203.0.113.5\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.stdin_log().count(UID_ACCEPT), 2)
+        self.env["SUDO_UID"] = str(UID + 1)
+        (self.cgroup_root / self.nft.slice_path(UID + 1)).mkdir(parents=True)
+        result = self.run_wrapper(["replace", "ds"], "203.0.113.5\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"meta skuid != {UID + 1} accept\n", self.stdin_log())
+
+    def test_cgroup_accept_follows_the_uid_accept_and_names_the_invoking_uid(self):
+        script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP, UID)
         self.assertEqual(self.nft.slice_path(UID), CGROUP)
         self.assertEqual(script.count(SLICE_ACCEPT), 2)
         for chain, type_line, later in (
@@ -196,7 +218,7 @@ class NftTests(unittest.TestCase):
             with self.subTest(chain=chain):
                 body = script[script.index(f"chain {chain} {{") :]
                 after_type = body[body.index(type_line) + len(type_line) :]
-                self.assertTrue(after_type.startswith(f"\n    {SLICE_ACCEPT}\n"), after_type[:200])
+                self.assertTrue(after_type.startswith(f"\n    {UID_ACCEPT}\n    {SLICE_ACCEPT}\n"), after_type[:200])
                 self.assertLess(body.index(SLICE_ACCEPT), body.index("tcp sport 61000-61999 accept"))
                 self.assertLess(body.index(SLICE_ACCEPT), body.index(later))
         # Another uid, another slice: the path is derived from SUDO_UID and nothing else.
@@ -242,7 +264,7 @@ class NftTests(unittest.TestCase):
         self.assertEqual(self.stdin_log().strip(), "destroy table inet omarchy_ds")
 
     def test_empty_sets_render_table_that_matches_nothing(self):
-        script = self.nft.render_table([], [], CGROUP)
+        script = self.nft.render_table([], [], CGROUP, UID)
         self.assertIn("table inet omarchy_ds", script)
         self.assertIn("set omarchy_ds_v4", script)
         self.assertIn("set omarchy_ds_v6", script)
@@ -318,7 +340,7 @@ class NftTests(unittest.TestCase):
                 self.assertIn(addr, logged)
 
     def listed_policy(self):
-        return (self.nft.render_table(["203.0.113.8", "203.0.113.2"], ["2001:db8::8"], CGROUP)
+        return (self.nft.render_table(["203.0.113.8", "203.0.113.2"], ["2001:db8::8"], CGROUP, UID)
                 .split("\n", 1)[1]
                 .replace("priority filter;", "priority 0;")
                 .replace("priority dstnat;", "priority -100;")
@@ -338,6 +360,9 @@ class NftTests(unittest.TestCase):
         changes = [
             ("level 5", "level 4"), (CGROUP, CGROUP + "x"),
             (f'"{CGROUP}"', "123456"),
+            (UID_ACCEPT, f"meta skuid != {UID + 1} accept"),
+            (f"    {UID_ACCEPT}\n", ""),
+            ("skuid !=", "skuid =="),
             ("61000-61999", "60000-61999"), ("priority -100", "priority -99"),
             ("hook output", "hook input"), ("203.0.113.8", "203.0.113.9"),
             ("type ipv4_addr", "type ipv4_addr; flags interval"),
@@ -365,7 +390,7 @@ class NftTests(unittest.TestCase):
                 output = io.StringIO()
                 with patch.object(self.nft, "slice_identity", return_value=(1, 2)), patch.object(self.nft, "list_policy", return_value=actual), patch("sys.stdout", output):
                     with self.assertRaises(SystemExit):
-                        self.nft.check_policy(["203.0.113.8", "203.0.113.2"], ["2001:db8::8"], CGROUP)
+                        self.nft.check_policy(["203.0.113.8", "203.0.113.2"], ["2001:db8::8"], CGROUP, UID)
                 self.assertEqual(output.getvalue(), "")
         lines = text.splitlines()
         i = next(i for i, line in enumerate(lines) if 'tcp sport' in line)
@@ -378,7 +403,7 @@ class NftTests(unittest.TestCase):
         with patch.dict(os.environ, self.env), patch.object(self.nft, "list_policy", return_value=self.listed_policy()):
             with patch.object(self.nft, "slice_identity", side_effect=[(1, 2), (1, 3)]):
                 with self.assertRaises(SystemExit):
-                    self.nft.check_policy(["203.0.113.8", "203.0.113.2"], ["2001:db8::8"], CGROUP)
+                    self.nft.check_policy(["203.0.113.8", "203.0.113.2"], ["2001:db8::8"], CGROUP, UID)
         shutil.rmtree(self.cgroup_root / CGROUP)
         result = self.run_wrapper(["check", "ds"])
         self.assertNotEqual(result.returncode, 0)
@@ -435,7 +460,7 @@ class NftTests(unittest.TestCase):
         nft = shutil.which("nft")
         if not nft:
             self.skipTest("nft not on PATH")
-        script = self.nft.render_table(["203.0.113.8"], ["2001:db8::8"], CGROUP)
+        script = self.nft.render_table(["203.0.113.8"], ["2001:db8::8"], CGROUP, UID)
         result = subprocess.run(
             [nft, "-c", "-f", "-"],
             input=script,
@@ -571,6 +596,70 @@ def live_feedback_gate(call, nft: str, uid: int) -> None:
           " foreign forward and crossed forward untouched, IPv4 and IPv6", flush=True)
 
 
+def live_other_account(call, nft: str, uid: int) -> None:
+    """Another account's sockets are neither redirected nor rejected."""
+    assert os.getuid() == uid, f"test process runs as {os.getuid()}, not {uid}"
+
+    def landed(family, loopback, dst, port):
+        """Which listener a connection to dst:port reaches: "direct", "router", or "reset"."""
+        servers = {}
+        for name, address, listen in (("direct", dst, port), ("router", loopback, 28080)):
+            server = socket.socket(family)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                server.bind((address, listen))
+            except OSError:
+                # dst is not local yet; only the router can be reached.
+                server.close()
+                continue
+            server.listen()
+            server.setblocking(False)
+            servers[name] = server
+        try:
+            try:
+                client = socket.create_connection((dst, port), timeout=2)
+            except ConnectionRefusedError:
+                return "reset"
+            with client:
+                time.sleep(0.1)
+                reached = []
+                for name, server in servers.items():
+                    try:
+                        server.accept()[0].close()
+                        reached.append(name)
+                    except BlockingIOError:
+                        pass
+                assert len(reached) == 1, f"connection reached {reached}"
+                return reached[0]
+        finally:
+            for server in servers.values():
+                server.close()
+
+    pairs = ((socket.AF_INET, "127.0.0.1", "203.0.113.8"), (socket.AF_INET6, "::1", "2001:db8::8"))
+    for family, loopback, dst in pairs:
+        assert landed(family, loopback, dst, 80) == "router", f"{family.name}: own request not redirected"
+        assert landed(family, loopback, dst, 8080) == "reset", f"{family.name}: own connection not rejected"
+    # Listed addresses made local, so a connection the table leaves alone lands on them.
+    for argv in (["ip", "addr", "add", "203.0.113.8/32", "dev", "lo"],
+                 ["ip", "-6", "addr", "add", "2001:db8::8/128", "dev", "lo", "nodad"]):
+        done = call(argv)
+        assert done.returncode == 0, done.stderr
+    # The same table naming another uid stands in for a socket another account owns.
+    listed = call([nft, "list", "table", "inet", "omarchy_ds"]).stdout
+    foreign = listed.replace(f"meta skuid != {uid} accept", f"meta skuid != {uid + 1} accept")
+    assert foreign.count(f"meta skuid != {uid + 1} accept") == 2, listed
+    swapped = call([nft, "-f", "-"], "destroy table inet omarchy_ds\n" + foreign)
+    assert swapped.returncode == 0, swapped.stderr
+    for family, loopback, dst in pairs:
+        assert landed(family, loopback, dst, 80) == "direct", f"{family.name}: other account's request redirected"
+        assert landed(family, loopback, dst, 8080) == "direct", f"{family.name}: other account's connection rejected"
+    for argv in (["ip", "addr", "del", "203.0.113.8/32", "dev", "lo"],
+                 ["ip", "-6", "addr", "del", "2001:db8::8/128", "dev", "lo"]):
+        done = call(argv)
+        assert done.returncode == 0, done.stderr
+    print("LIVE_NFT_UID: own sockets redirected and rejected, another account's untouched, IPv4 and IPv6", flush=True)
+
+
 def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
     """Invoked only by LiveNftTests inside a disposable user/network namespace."""
     if os.readlink("/proc/self/ns/net") == parent_namespace:
@@ -602,6 +691,8 @@ def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
     print("Real installed policy:\n" + listed.stdout, flush=True)
     live_feedback_gate(call, nft, uid)
     apply_and_check()
+    live_other_account(call, nft, uid)
+    apply_and_check()
     for mutation in ([nft, "add", "rule", "inet", "omarchy_ds", "output", "accept"],
                      [nft, "delete", "table", "inet", "omarchy_ds"]):
         changed = call(mutation)
@@ -629,13 +720,13 @@ class LiveNftTests(unittest.TestCase):
         env = os.environ.copy()
         env.pop("DS_CGROUP_ROOT", None)
         env.pop("PYTHONOPTIMIZE", None)
-        probe = subprocess.run([unshare, "--user", "--map-root-user", "--net", sys.executable,
+        probe = subprocess.run([unshare, "--user", "--map-current-user", "--keep-caps", "--net", sys.executable,
                                 "-c", "pass"], capture_output=True, text=True, timeout=10, env=env)
         if probe.returncode:
             self.skipTest("user/network namespace unavailable: " + probe.stderr.strip())
         code = ("from tests.test_nft import live_nft_scenario; "
                 "import sys; live_nft_scenario(sys.argv[1],sys.argv[2],int(sys.argv[3]))")
-        result = subprocess.run([unshare, "--user", "--map-root-user", "--net", sys.executable,
+        result = subprocess.run([unshare, "--user", "--map-current-user", "--keep-caps", "--net", sys.executable,
                                  "-c", code, str(WRAPPER), os.readlink("/proc/self/ns/net"), str(uid)],
                                 capture_output=True, text=True, timeout=90, env=env, cwd=ROOT)
         print(result.stdout, end="")
