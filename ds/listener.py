@@ -735,10 +735,6 @@ def _dispatch_client(c, ctx, verb):
     words = verb.split()
     if verb == "ping":
         result = True
-    elif verb == "stop":
-        # The same way out as a TERM from the session: the loop ends on its next pass.
-        os.kill(os.getpid(), signal.SIGTERM)
-        result = True
     elif words[:1] == ["release"] and len(words) == 3:
         result = ctx.release(words[1], words[2])
     else:

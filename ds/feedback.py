@@ -416,12 +416,13 @@ def _original_dst(conn):
         return None
 
 
-def _redirected(conn):
-    """Whether this connection came through a redirect. Every one the block path serves
-    did, and another account can no longer produce one, so a direct connection gets
-    nothing: no page, no log line, no banner, no slot."""
+def _redirected(conn, original_port):
+    """Whether this connection came through this table's redirect, from 80 to the HTTP
+    port or 443 to the TLS port. Every one the block path serves did, and another account
+    can no longer produce one, so anything else gets nothing: a direct connection or
+    another firewall's forward costs no page, log line, banner or slot."""
     dst = _original_dst(conn)
-    return dst is not None and not _is_self(conn, dst)
+    return dst is not None and dst[1] == original_port and not _is_self(conn, dst)
 
 
 def _is_self(conn, dst):
@@ -773,7 +774,7 @@ def _serve(handler, conn):
         _release_conn()
 
 
-def _accept_loop(sock, handler):
+def _accept_loop(sock, handler, original_port):
     while not _stop.is_set():
         try:
             conn, _addr = sock.accept()
@@ -783,7 +784,7 @@ def _accept_loop(sock, handler):
             if _stop.is_set():
                 break
             continue
-        if not _redirected(conn):
+        if not _redirected(conn, original_port):
             _close_sock(conn)
             continue
         if not _claim_conn():
@@ -799,8 +800,8 @@ def _accept_loop(sock, handler):
 
 
 def _http_loop(sock):
-    _accept_loop(sock, _http_conn)
+    _accept_loop(sock, _http_conn, 80)
 
 
 def _tls_loop(sock):
-    _accept_loop(sock, _tls_conn)
+    _accept_loop(sock, _tls_conn, 443)

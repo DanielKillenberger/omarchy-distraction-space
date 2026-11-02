@@ -12,6 +12,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -172,7 +173,7 @@ class FeedbackTests(unittest.TestCase):
         self.notices: list[tuple[str, str, list | None]] = []
         # These tests connect directly and stand in for a redirect; the test named
         # below runs the real check.
-        self.redirected = patch.object(feedback, "_redirected", lambda conn: True)
+        self.redirected = patch.object(feedback, "_redirected", lambda conn, port: True)
         self.redirected.start()
         self.addCleanup(self.redirected.stop)
 
@@ -314,6 +315,18 @@ class FeedbackTests(unittest.TestCase):
                 self.assertEqual(_exchange(family_host, port, payload), b"")
         self.assertEqual(feedback._conns, 0)
         self.assertEqual(self._banners(), [])
+
+    def test_only_this_tables_port_pairs_count_as_redirected(self):
+        self.redirected.stop()
+        conn = mock.Mock()
+        conn.getsockname.return_value = ("127.0.0.1", HTTP_PORT)
+        for dst, port, want in ((("203.0.113.8", 80), 80, True),
+                                (("203.0.113.8", 8080), 80, False),
+                                (("203.0.113.8", 443), 80, False),
+                                (("127.0.0.1", HTTP_PORT), 80, False),
+                                (None, 80, False)):
+            with self.subTest(dst=dst), patch.object(feedback, "_original_dst", lambda c, d=dst: d):
+                self.assertEqual(feedback._redirected(conn, port), want)
 
     def test_a_field_from_a_clienthello_cannot_reach_the_terminal(self):
         self.assertEqual(feedback._field("a\x1b]52;c;QUJD\x07.example"), "a]52;c;QUJD.example")

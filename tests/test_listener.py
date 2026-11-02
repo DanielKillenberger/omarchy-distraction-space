@@ -21,7 +21,7 @@ from test_cgroup import SESSION_PATH, SLICE_PATH, FakeProc
 from test_hypr import OPEN
 
 sys.path.insert(0, str(ROOT))
-from ds import feedback, hypr, listener, setup
+from ds import feedback, hypr, listener, setup, state
 from ds.catalog import expand_entry
 from ds.config import DEFAULTS
 from ds.state import write_json
@@ -815,12 +815,13 @@ time.sleep(3600)
         self._start()
         self.assertTrue(_wait(lambda: self._notices("Site blocking needs setup")), self._state())
 
-    def test_stop_ends_the_listener(self):
+    def test_remove_ends_a_running_listener_and_waits_for_it(self):
         self._cfg()
         self._start()
         self.assertEqual(self._reload("ping", timeout=1), b"ok")
-        self.assertEqual(self._reload("stop", timeout=2), b"ok")
-        self.assertTrue(_wait(lambda: self.proc.poll() is not None), self._state())
+        self.assertTrue(_wait(lambda: state.listener_pid() == self.proc.pid), self._state())
+        self.assertTrue(setup._stop_listener())
+        self.assertIsNotNone(self.proc.poll())
 
     def test_an_unanswered_link_check_sends_no_setup_notice(self):
         # A desktop stall makes xdg-settings time out. That says nothing about which browser is the

@@ -10,6 +10,7 @@ import os
 import pwd
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from ds import catalog, cgroup, config, launch, state, wp
 ROOT = Path(__file__).resolve().parent.parent
 WRAPPER_DEFAULT = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
 SUDOERS_DEFAULT = "/etc/sudoers.d/omarchy-distraction-space"
+LISTENER_STOP_SECONDS = 15.0
 NOTIFICATIONS_SOURCE_DEFAULT = "/usr/share/omarchy/shell/plugins/notifications"
 CLONE_SOURCE_ID = "omarchy.notifications"
 PATCH = ROOT / "shell" / "notifications-silenced-senders.patch"
@@ -2284,13 +2286,60 @@ def install(assume_yes: bool = False):
                  or hook_rc != 0 or hypr_rc != 0 or root_rc != 0) else 0
 
 
+def _listener_lock_free() -> bool:
+    """Whether no listener holds its lock. It holds it until after its workers have
+    joined, so this is the one answer that also covers a reconcile still running."""
+    try:
+        fd = os.open(state.runtime_path("distraction-space.lock"), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def _stop_listener() -> bool:
+    """End a running listener before removal, and wait until it has gone.
+
+    Left running, it holds the router ports and can apply the table again between
+    the flush and the wrapper's removal. SIGTERM rather than a socket verb, because
+    the listener still running after a plugin update is the previous version's. The
+    pid comes from a file, so the process has to read as this plugin's listener.
+    """
+    if _listener_lock_free():
+        return True
+    pid = state.listener_pid()
+    if pid is None:
+        return False
+    try:
+        argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        if b"listen" not in argv or not any(a.endswith(b"distractions") for a in argv):
+            return False
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    deadline = time.monotonic() + LISTENER_STOP_SECONDS
+    while time.monotonic() < deadline:
+        if _listener_lock_free():
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def remove():
     destinations = _canonical_destinations()
     if destinations is None:
         return 1
-    # A listener left running would hold the router ports and could apply the table
-    # again between the flush below and the wrapper's removal.
-    state.request_reload("stop")
+    if not _stop_listener():
+        print("the listener did not stop, so nothing was removed: log out, then run "
+              "distractions setup --remove again", file=sys.stderr)
+        return 1
     wrapper, sudoers = destinations
     # The user-level half first, in reverse of install: nothing here needs root,
     # so a person whose grant is already gone still gets their launcher back.

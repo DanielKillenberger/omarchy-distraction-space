@@ -1428,12 +1428,27 @@ class SetupTests(unittest.TestCase):
             installed.write_bytes((ROOT / "distractions-nft").read_bytes())
             self.assertIsNone(setup.helper_drift())
 
-    def test_remove_stops_the_listener_first(self):
+    def test_remove_touches_nothing_when_a_listener_cannot_be_stopped(self):
         self.assertEqual(setup.install(), 0)
-        calls = []
-        with patch.object(setup.state, "request_reload", lambda verb="reload", timeout=2.0: calls.append(verb) or False):
-            self.assertEqual(setup.remove(), 0)
-        self.assertEqual(calls[0], "stop")
+        self.sudo_log.write_text("", encoding="utf-8")
+        held = subprocess.Popen(
+            [sys.executable, "-c",
+             "import fcntl, sys, time\n"
+             "f = open(sys.argv[1], 'a+')\n"
+             "fcntl.flock(f, fcntl.LOCK_EX)\n"
+             "print('held', flush=True)\n"
+             "time.sleep(30)\n",
+             str(setup.state.runtime_path("distraction-space.lock"))],
+            stdout=subprocess.PIPE, text=True)
+        self.addCleanup(held.wait)
+        self.addCleanup(held.kill)
+        self.assertEqual(held.stdout.readline().strip(), "held")
+        # Its pid in the state file is not enough: this process is no listener.
+        with patch.object(setup.state, "listener_pid", lambda: held.pid):
+            self.assertEqual(setup.remove(), 1)
+        self.assertIsNone(held.poll())
+        self.assertEqual(self._sudo_lines(), [])
+        self.assertTrue(self.wrapper.is_file())
 
     def test_remove_destroys_what_the_flush_left_before_the_root_files_go(self):
         self.assertEqual(setup.install(), 0)
