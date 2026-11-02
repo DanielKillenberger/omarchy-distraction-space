@@ -9,6 +9,7 @@ import io
 import time
 from unittest.mock import patch
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -660,6 +661,113 @@ def live_other_account(call, nft: str, uid: int) -> None:
     print("LIVE_NFT_UID: own sockets redirected and rejected, another account's untouched, IPv4 and IPv6", flush=True)
 
 
+def live_held_across_update(call, nft: str, wrapper: str, uid: int) -> None:
+    """A connection redirected before the update carries nothing to the router after it."""
+    assert os.getuid() == uid, f"test process runs as {os.getuid()}, not {uid}"
+    pairs = ((socket.AF_INET, "127.0.0.1", "203.0.113.8"), (socket.AF_INET6, "::1", "2001:db8::8"))
+    ports = ((80, 28080), (443, 28443))
+    listed = call([nft, "list", "table", "inet", "omarchy_ds"]).stdout
+    # 3.5.2's policy: the same table with no check on who owns the socket, so this
+    # process's connections are redirected the way another account's were.
+    old = re.sub(rf"\n\s*meta skuid != {uid} .*", "", listed)
+    assert f"skuid != {uid}" not in old, old
+    # The same table naming another uid makes this process's socket another account's.
+    foreign = listed.replace(f"meta skuid != {uid} ", f"meta skuid != {uid + 1} ")
+    assert foreign != listed
+
+    def load(text):
+        done = call([nft, "-f", "-"], "destroy table inet omarchy_ds\n" + text)
+        assert done.returncode == 0, done.stderr
+
+    def hold():
+        """One open, proven redirected connection per family and port pair."""
+        load(old)
+        held = []
+        for family, loopback, dst in pairs:
+            for port, listen in ports:
+                server = socket.socket(family)
+                server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                server.bind((loopback, listen))
+                server.listen()
+                server.settimeout(2)
+                client = socket.create_connection((dst, port), timeout=2)
+                peer, _ = server.accept()
+                server.close()
+                client.sendall(b"a")
+                assert peer.recv(1) == b"a", f"{family.name} {port}: not redirected before the swap"
+                held.append((f"{family.name} {port}", client, peer))
+        return held
+
+    def assert_cut(held, when):
+        for name, client, peer in held:
+            with client, peer:
+                peer.settimeout(1)
+                try:
+                    client.sendall(b"b")
+                    got = peer.recv(1)
+                except OSError:
+                    got = None
+                assert got != b"b", f"{name}: carried to the router {when}"
+                client.settimeout(1)
+                try:
+                    assert client.recv(1) == b"", f"{name}: client not closed {when}"
+                except ConnectionResetError:
+                    pass
+
+    held = hold()
+    load(foreign)
+    assert_cut(held, "after the table swap")
+    # The person flushes while the connection sits idle, then it speaks again.
+    held = hold()
+    load(foreign)
+    flushed = subprocess.run([sys.executable, wrapper, "flush", "ds"], input="", text=True, capture_output=True,
+                             env=dict(os.environ, SUDO_UID=str(uid + 1)), timeout=10, check=False)
+    assert flushed.returncode == 0, flushed.stderr
+    assert_cut(held, "after a flush")
+    # The person's own connection still carries, across the swap and across a flush.
+    held = hold()
+    load(listed)
+    for name, client, peer in held:
+        client.sendall(b"c")
+        peer.settimeout(1)
+        assert peer.recv(1) == b"c", f"{name}: own connection cut by the swap"
+    own = call([sys.executable, wrapper, "flush", "ds"])
+    assert own.returncode == 0, own.stderr
+    for name, client, peer in held:
+        with client, peer:
+            client.sendall(b"d")
+            assert peer.recv(1) == b"d", f"{name}: own connection cut by a flush"
+    # Another account's unrelated traffic: a direct connection, another firewall's
+    # forward, and a forward crossing a listed address's ports.
+    load(foreign)
+    forward = call([nft, "-f", "-"], (
+        "table inet ds_test_forward {\n"
+        "  chain out { type nat hook output priority -110; policy accept;\n"
+        "    ip daddr 198.51.100.7 tcp dport 8080 redirect to :28080\n"
+        "    ip6 daddr 2001:db8:1::7 tcp dport 8080 redirect to :28080\n"
+        "    ip daddr 198.51.100.7 tcp dport 80 redirect to :28443\n"
+        "    ip6 daddr 2001:db8:1::7 tcp dport 80 redirect to :28443\n"
+        "  }\n"
+        "}\n"))
+    assert forward.returncode == 0, forward.stderr
+    for (family, loopback, _), other in zip(pairs, ("198.51.100.7", "2001:db8:1::7")):
+        for dst, port, listen in ((loopback, 28080, 28080), (other, 8080, 28080), (other, 80, 28443)):
+            server = socket.socket(family)
+            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            server.bind((loopback, listen))
+            server.listen()
+            server.settimeout(2)
+            with server, socket.create_connection((dst, port), timeout=2) as client:
+                peer, _ = server.accept()
+                with peer:
+                    client.sendall(b"e")
+                    assert peer.recv(1) == b"e", f"{family.name} {dst}:{port}: unrelated connection cut"
+    dropped = call([nft, "delete", "table", "inet", "ds_test_forward"])
+    assert dropped.returncode == 0, dropped.stderr
+    print("LIVE_NFT_HELD: another account's held connection cut by the swap and after a flush, own connection"
+          " and unrelated traffic carried, 80 and 443, IPv4 and IPv6", flush=True)
+
+
 def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
     """Invoked only by LiveNftTests inside a disposable user/network namespace."""
     if os.readlink("/proc/self/ns/net") == parent_namespace:
@@ -692,6 +800,8 @@ def live_nft_scenario(wrapper: str, parent_namespace: str, uid: int) -> None:
     live_feedback_gate(call, nft, uid)
     apply_and_check()
     live_other_account(call, nft, uid)
+    apply_and_check()
+    live_held_across_update(call, nft, wrapper, uid)
     apply_and_check()
     for mutation in ([nft, "add", "rule", "inet", "omarchy_ds", "output", "accept"],
                      [nft, "delete", "table", "inet", "omarchy_ds"]):
