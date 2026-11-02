@@ -448,12 +448,13 @@ class NftTests(unittest.TestCase):
                     child = original(*a, **kw)
                     launched.append(child)
                     return child
-                with patch.dict(os.environ, self.env), patch.object(self.nft, "CHECK_TIMEOUT", 0.15), patch.object(self.nft, "MAX_OUTPUT_BYTES", 1024), patch.object(self.nft.subprocess, "Popen", side_effect=launch):
+                with patch.dict(os.environ, self.env), patch.object(self.nft, "NFT", str(self.bin / "nft")), patch.object(self.nft, "CHECK_TIMEOUT", 0.15), patch.object(self.nft, "MAX_OUTPUT_BYTES", 1024), patch.object(self.nft.subprocess, "Popen", side_effect=launch):
                     start = time.monotonic()
                     with self.assertRaises(SystemExit):
                         self.nft.list_policy()
                     self.assertLess(time.monotonic() - start, 2)
                 self.assertTrue(launched)
+                self.assertEqual(launched[0].args[0], str(self.bin / "nft"))
                 self.assertIsNotNone(launched[0].poll())
 
     def test_successful_listing_does_not_signal_reaped_pid(self):
