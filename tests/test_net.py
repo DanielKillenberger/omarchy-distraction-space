@@ -534,5 +534,13 @@ class NetTests(unittest.TestCase):
         self.assertIn("apply=applied", text)
 
 
+
+class ParseAhostsTests(unittest.TestCase):
+    def test_this_machines_own_addresses_never_enter_the_set(self):
+        text = "\n".join(f"{a} STREAM x" for a in (
+            "127.0.0.53", "::1", "169.254.1.1", "fe80::1", "224.0.0.1", "ff02::1", "0.0.0.0", "203.0.113.5", "10.0.0.5"))
+        self.assertEqual(net._parse_ahosts(text), ["203.0.113.5", "10.0.0.5"])
+
+
 if __name__ == "__main__":
     unittest.main()

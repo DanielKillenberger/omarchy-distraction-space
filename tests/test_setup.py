@@ -1419,6 +1419,22 @@ class SetupTests(unittest.TestCase):
         self.assertIn('visudo = "/usr/bin/visudo"', seen[0][4])
         self.assertNotIn('which("visudo")', seen[0][4])
 
+    def test_helper_drift_names_a_helper_this_version_did_not_ship(self):
+        self.assertIsNone(setup.helper_drift())
+        installed = self.box.runtime / "installed-helper"
+        with patch.object(setup, "wrapper_dest", lambda: installed):
+            installed.write_bytes(b"#!/usr/bin/env python3\n# an older helper\n")
+            self.assertIn("firewall helper", setup.helper_drift())
+            installed.write_bytes((ROOT / "distractions-nft").read_bytes())
+            self.assertIsNone(setup.helper_drift())
+
+    def test_remove_stops_the_listener_first(self):
+        self.assertEqual(setup.install(), 0)
+        calls = []
+        with patch.object(setup.state, "request_reload", lambda verb="reload", timeout=2.0: calls.append(verb) or False):
+            self.assertEqual(setup.remove(), 0)
+        self.assertEqual(calls[0], "stop")
+
     def test_remove_destroys_what_the_flush_left_before_the_root_files_go(self):
         self.assertEqual(setup.install(), 0)
         self.sudo_log.write_text("", encoding="utf-8")

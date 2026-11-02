@@ -72,7 +72,8 @@ class Sandbox:
         behaves as it did before the question existed.
         """
         if installed:
-            self.wrapper.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            # The shipped bytes, so a listener here reads the helper as current.
+            self.wrapper.write_bytes((ROOT / "distractions-nft").read_bytes())
             self.wrapper.chmod(0o755)
         elif self.wrapper.exists() or self.wrapper.is_symlink():
             self.wrapper.unlink()

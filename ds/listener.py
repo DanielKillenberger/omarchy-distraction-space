@@ -130,6 +130,7 @@ def _listen():
     try:
         ctx.boot("start")
         _clone_check()
+        _helper_check()
         ctx.capture.tick()
         rs = _bind_reload()
         sock2 = _connect_socket2()
@@ -563,6 +564,12 @@ def _clone_check():
     if why:
         ui.notify("Notification hold needs setup", f"{why[0].upper()}{why[1:]}. Run: distractions setup")
 
+def _helper_check():
+    """Notice only: a plugin update never replaces the root helper, `setup` does."""
+    why = setup.helper_drift()
+    if why:
+        ui.notify("Site blocking needs setup", f"{why[0].upper()}{why[1:]}. Run: distractions setup")
+
 def _browser_name(cfg):
     """The distraction browser's basename for `state.json`, or None when none resolves.
 
@@ -672,9 +679,8 @@ def _connect_socket2():
         sig = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
         if not sig:
             return None
-        found = next((p for p in (state.runtime_dir() / "hypr" / sig / ".socket2.sock",
-                                  Path("/tmp/hypr") / sig / ".socket2.sock") if p.exists()), None)
-        if not found:
+        found = state.runtime_dir() / "hypr" / sig / ".socket2.sock"
+        if not found.exists():
             return None
         path = str(found)
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -728,6 +734,10 @@ def _accept_reload(rs, ctx):
 def _dispatch_client(c, ctx, verb):
     words = verb.split()
     if verb == "ping":
+        result = True
+    elif verb == "stop":
+        # The same way out as a TERM from the session: the loop ends on its next pass.
+        os.kill(os.getpid(), signal.SIGTERM)
         result = True
     elif words[:1] == ["release"] and len(words) == 3:
         result = ctx.release(words[1], words[2])

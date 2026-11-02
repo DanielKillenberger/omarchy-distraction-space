@@ -809,6 +809,19 @@ time.sleep(3600)
         self.assertEqual(self._links(), "displaced")
         self.assertEqual(len(self._notices("distractions setup")), 1)
 
+    def test_a_helper_this_version_did_not_ship_gets_a_setup_notice(self):
+        self._cfg()
+        self.box.wrapper.write_bytes(b"#!/usr/bin/env python3\n# an older helper\n")
+        self._start()
+        self.assertTrue(_wait(lambda: self._notices("Site blocking needs setup")), self._state())
+
+    def test_stop_ends_the_listener(self):
+        self._cfg()
+        self._start()
+        self.assertEqual(self._reload("ping", timeout=1), b"ok")
+        self.assertEqual(self._reload("stop", timeout=2), b"ok")
+        self.assertTrue(_wait(lambda: self.proc.poll() is not None), self._state())
+
     def test_an_unanswered_link_check_sends_no_setup_notice(self):
         # A desktop stall makes xdg-settings time out. That says nothing about which browser is the
         # default, so it must not tell the person another browser took over and to run setup.

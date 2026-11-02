@@ -114,7 +114,7 @@ def _parse_ahosts(text: str) -> list[str]:
             addr = ipaddress.ip_address(token)
         except ValueError:
             continue
-        if addr.is_unspecified:
+        if addr.is_unspecified or addr.is_loopback or addr.is_link_local or addr.is_multicast:
             continue
         rendered = str(addr)
         if rendered in seen:

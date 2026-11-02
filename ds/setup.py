@@ -678,6 +678,22 @@ def remove_clone() -> int:
     return 0
 
 
+def helper_drift() -> str | None:
+    """Why the installed firewall helper is not the one this version ships, or None.
+
+    Read-only, like clone_drift: a plugin update replaces the shipped file and nothing
+    else, and `check ds` compares against the installed helper's own rendering, so an
+    old helper reads as healthy. Only `setup` replaces it, because that takes a password.
+    """
+    if not helper_installed():
+        return None
+    installed = state.read_bounded(wrapper_dest(), cap=MAX_PAYLOAD)
+    shipped = state.read_bounded(ROOT / "distractions-nft", cap=MAX_PAYLOAD)
+    if installed is None or shipped is None or installed == shipped:
+        return None
+    return "the installed firewall helper is not the one this version ships"
+
+
 def clone_drift() -> str | None:
     """Why the recorded clone no longer matches the first-party files, or None.
 
@@ -2272,6 +2288,9 @@ def remove():
     destinations = _canonical_destinations()
     if destinations is None:
         return 1
+    # A listener left running would hold the router ports and could apply the table
+    # again between the flush below and the wrapper's removal.
+    state.request_reload("stop")
     wrapper, sudoers = destinations
     # The user-level half first, in reverse of install: nothing here needs root,
     # so a person whose grant is already gone still gets their launcher back.

@@ -49,7 +49,14 @@ def open_private(path, mode="a"):
 
 
 def runtime_dir() -> Path:
-    return Path(os.environ["XDG_RUNTIME_DIR"]) if os.environ.get("XDG_RUNTIME_DIR") else Path("/tmp")
+    raw = os.environ.get("XDG_RUNTIME_DIR")
+    if raw:
+        return Path(raw)
+    # Never a shared directory: another account could take these names first. The
+    # state directory is 0700 and this person's own.
+    path = state_dir() / "run"
+    path.mkdir(mode=0o700, exist_ok=True)
+    return path
 
 
 def state_path(name):

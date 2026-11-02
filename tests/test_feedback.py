@@ -170,6 +170,11 @@ class FeedbackTests(unittest.TestCase):
         self.addCleanup(self.box.cleanup)
         self.box.apply_env()
         self.notices: list[tuple[str, str, list | None]] = []
+        # These tests connect directly and stand in for a redirect; the test named
+        # below runs the real check.
+        self.redirected = patch.object(feedback, "_redirected", lambda conn: True)
+        self.redirected.start()
+        self.addCleanup(self.redirected.stop)
 
         def fake_notify(title, body, *, glyph=None, action=None, urgent=False):
             self.notices.append((title, body, action))
@@ -299,6 +304,21 @@ class FeedbackTests(unittest.TestCase):
         while feedback._conns != want and time.monotonic() < deadline:
             time.sleep(0.02)
         return feedback._conns
+
+    def test_a_direct_connection_gets_nothing_and_takes_no_slot(self):
+        self.redirected.stop()
+        self._start(config=CFG_ON)
+        for family_host, port, payload in (("127.0.0.1", HTTP_PORT, b"GET / HTTP/1.1\r\nHost: youtube.com\r\n\r\n"),
+                                           ("::1", TLS_PORT, b"\x16\x03\x01")):
+            with self.subTest(host=family_host, port=port):
+                self.assertEqual(_exchange(family_host, port, payload), b"")
+        self.assertEqual(feedback._conns, 0)
+        self.assertEqual(self._banners(), [])
+
+    def test_a_field_from_a_clienthello_cannot_reach_the_terminal(self):
+        self.assertEqual(feedback._field("a\x1b]52;c;QUJD\x07.example"), "a]52;c;QUJD.example")
+        self.assertEqual(len(feedback._field("x" * 70000)), feedback.FIELD_CAP)
+        self.assertEqual(feedback._field("\x1b\x07"), "-")
 
     def test_connection_cap_closes_over_the_bound_and_the_acceptor_survives(self):
         with patch.object(feedback, "MAX_CONNS", 1):

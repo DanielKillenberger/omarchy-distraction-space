@@ -416,6 +416,14 @@ def _original_dst(conn):
         return None
 
 
+def _redirected(conn):
+    """Whether this connection came through a redirect. Every one the block path serves
+    did, and another account can no longer produce one, so a direct connection gets
+    nothing: no page, no log line, no banner, no slot."""
+    dst = _original_dst(conn)
+    return dst is not None and not _is_self(conn, dst)
+
+
 def _is_self(conn, dst):
     try:
         local = conn.getsockname()
@@ -631,8 +639,13 @@ def _entry_by_name(name):
     return None
 
 
+FIELD_CAP = 253
+
+
 def _field(v):
     s = "_".join(str(v).split()) if v is not None else ""
+    # A hostname from a ClientHello is the sender's bytes, and `banners` prints this.
+    s = "".join(c for c in s if c.isprintable())[:FIELD_CAP]
     return s or "-"
 
 
@@ -769,6 +782,9 @@ def _accept_loop(sock, handler):
         except OSError:
             if _stop.is_set():
                 break
+            continue
+        if not _redirected(conn):
+            _close_sock(conn)
             continue
         if not _claim_conn():
             _log_limited("conn-cap", f"connection cap {MAX_CONNS} reached; connection closed")

@@ -27,7 +27,8 @@ WRAPPER = ROOT / "distractions-nft"
 UID = 1000
 CGROUP = f"user.slice/user-{UID}.slice/user@{UID}.service/app.slice/app-distraction.slice"
 SLICE_ACCEPT = f'socket cgroupv2 level 5 "{CGROUP}" accept'
-UID_ACCEPT = f"meta skuid != {UID} accept"
+ENTER_BLOCK = f"meta skuid {UID} jump block"
+ENTER_NAT = f"meta skuid {UID} jump block_nat"
 GUARD = (f"meta skuid != {UID} meta l4proto tcp ct direction original ct status dnat "
          "ct original proto-dst . ct reply proto-src { 80 . 28080, 443 . 28443 } reject with tcp reset")
 
@@ -139,98 +140,58 @@ class NftTests(unittest.TestCase):
 
     def test_splice_source_port_accept_precedes_redirect_and_reject(self):
         script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP, UID)
-        filter_body = script[
-            script.index("chain output {") : script.index("chain output_nat {")
-        ]
-        nat_body = script[script.index("chain output_nat {") :]
-        self.assertTrue(filter_body.split("policy accept;", 1)[1].startswith(f"\n    {GUARD}\n"))
-        filter_body = filter_body.replace(f"    {GUARD}\n", "", 1)
-        self.assertNotIn(GUARD, nat_body)
+        block = script[script.index("chain block {") : script.index("chain output {")]
+        nat = script[script.index("chain block_nat {") : script.index("chain output_nat {")]
         first_rules = (
-            f"\n    {UID_ACCEPT}"
             f"\n    {SLICE_ACCEPT}"
             "\n    meta nfproto ipv4 tcp sport 61000-61999 accept"
             "\n    meta nfproto ipv6 tcp sport 61000-61999 accept\n"
         )
-        for body, type_line, chain in (
-            (
-                filter_body,
-                "type filter hook output priority filter; policy accept;",
-                "output",
-            ),
-            (
-                nat_body,
-                "type nat hook output priority dstnat; policy accept;",
-                "output_nat",
-            ),
+        for body, head in ((block, "chain block {"), (nat, "chain block_nat {")):
+            with self.subTest(chain=head):
+                self.assertTrue(body[len(head):].startswith(first_rules), body[:200])
+        for family, accept, daddr in (
+            ("ipv4", "meta nfproto ipv4 tcp sport 61000-61999 accept", "ip daddr @omarchy_ds_v4"),
+            ("ipv6", "meta nfproto ipv6 tcp sport 61000-61999 accept", "ip6 daddr @omarchy_ds_v6"),
         ):
-            with self.subTest(chain=chain, check="first_rules"):
-                after_type = body[body.index(type_line) + len(type_line) :]
-                self.assertTrue(after_type.startswith(first_rules), after_type[:200])
-        families = (
-            (
-                "ipv4",
-                "meta nfproto ipv4 tcp sport 61000-61999 accept",
-                "ip daddr @omarchy_ds_v4",
-            ),
-            (
-                "ipv6",
-                "meta nfproto ipv6 tcp sport 61000-61999 accept",
-                "ip6 daddr @omarchy_ds_v6",
-            ),
-        )
-        for family, accept, daddr in families:
-            with self.subTest(family=family, chain="output"):
-                self.assertLess(
-                    filter_body.index(accept),
-                    filter_body.index(f"{daddr} meta l4proto tcp reject with tcp reset"),
-                )
-                self.assertLess(
-                    filter_body.index(accept),
-                    filter_body.index(f"{daddr} reject\n"),
-                )
-            with self.subTest(family=family, chain="output_nat"):
-                self.assertLess(
-                    nat_body.index(accept),
-                    nat_body.index(f"{daddr} tcp dport 80 redirect"),
-                )
-                self.assertLess(
-                    nat_body.index(accept),
-                    nat_body.index(f"{daddr} tcp dport 443 redirect"),
-                )
+            with self.subTest(family=family):
+                self.assertLess(block.index(accept), block.index(f"{daddr} meta l4proto tcp reject with tcp reset"))
+                self.assertLess(block.index(accept), block.index(f"{daddr} reject\n"))
+                self.assertLess(nat.index(accept), nat.index(f"{daddr} tcp dport 80 redirect"))
+                self.assertLess(nat.index(accept), nat.index(f"{daddr} tcp dport 443 redirect"))
 
-    def test_output_chains_pass_every_other_accounts_sockets_first(self):
+    def test_only_the_person_enters_the_block(self):
         script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP, UID)
-        self.assertEqual(script.count(UID_ACCEPT), 2)
-        for chain, type_line in (
-            ("output", "type filter hook output priority filter; policy accept;"),
-            ("output_nat", "type nat hook output priority dstnat; policy accept;"),
-        ):
-            with self.subTest(chain=chain):
-                body = script[script.index(f"chain {chain} {{") :]
-                after_type = body[body.index(type_line) + len(type_line) :].replace(f"    {GUARD}\n", "", 1)
-                self.assertTrue(after_type.startswith(f"\n    {UID_ACCEPT}\n"), after_type[:200])
+        output = script[script.index("chain output {") : script.index("chain block_nat {")]
+        nat = script[script.index("chain output_nat {") : script.index("chain input {")]
+        self.assertEqual(output, (
+            "chain output {\n"
+            "    type filter hook output priority filter; policy accept;\n"
+            f"    {GUARD}\n"
+            f"    {ENTER_BLOCK}\n"
+            "  }\n  "))
+        self.assertEqual(nat, (
+            "chain output_nat {\n"
+            "    type nat hook output priority dstnat; policy accept;\n"
+            f"    {ENTER_NAT}\n"
+            "  }\n  "))
         result = self.run_wrapper(["replace", "ds"], "203.0.113.5\n")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(self.stdin_log().count(UID_ACCEPT), 2)
+        self.assertIn(ENTER_BLOCK, self.stdin_log())
         self.env["SUDO_UID"] = str(UID + 1)
         (self.cgroup_root / self.nft.slice_path(UID + 1)).mkdir(parents=True)
         result = self.run_wrapper(["replace", "ds"], "203.0.113.5\n")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn(f"meta skuid != {UID + 1} accept\n", self.stdin_log())
+        self.assertIn(f"meta skuid {UID + 1} jump block\n", self.stdin_log())
 
-    def test_cgroup_accept_follows_the_uid_accept_and_names_the_invoking_uid(self):
+    def test_cgroup_accept_opens_the_block_and_names_the_invoking_uid(self):
         script = self.nft.render_table(["203.0.113.5"], ["2001:db8::5"], CGROUP, UID)
         self.assertEqual(self.nft.slice_path(UID), CGROUP)
         self.assertEqual(script.count(SLICE_ACCEPT), 2)
-        for chain, type_line, later in (
-            ("output", "type filter hook output priority filter; policy accept;", " reject"),
-            ("output_nat", "type nat hook output priority dstnat; policy accept;", " redirect to"),
-        ):
+        for chain, later in (("block", " reject"), ("block_nat", " redirect to")):
             with self.subTest(chain=chain):
-                body = script[script.index(f"chain {chain} {{") :].replace(f"    {GUARD}\n", "", 1)
-                after_type = body[body.index(type_line) + len(type_line) :]
-                self.assertTrue(after_type.startswith(f"\n    {UID_ACCEPT}\n    {SLICE_ACCEPT}\n"), after_type[:200])
+                body = script[script.index(f"chain {chain} {{") :]
+                self.assertTrue(body.startswith(f"chain {chain} {{\n    {SLICE_ACCEPT}\n"), body[:200])
                 self.assertLess(body.index(SLICE_ACCEPT), body.index("tcp sport 61000-61999 accept"))
                 self.assertLess(body.index(SLICE_ACCEPT), body.index(later))
         # Another uid, another slice: the path is derived from SUDO_UID and nothing else.
@@ -310,6 +271,14 @@ class NftTests(unittest.TestCase):
                        cwd=planted, check=False, timeout=10,
                        env=dict(os.environ, PATH=f"{planted}:/usr/bin", PYTHONPATH=str(planted), SUDO_UID=str(UID)))
         self.assertFalse(marker.exists())
+
+    def test_refuses_this_machines_own_addresses_before_any_nft_call(self):
+        for token in ("127.0.0.53", "::1", "169.254.1.1", "fe80::1", "224.0.0.1", "ff02::1", "0.0.0.0", "::"):
+            with self.subTest(token=token):
+                result = self.run_wrapper(["replace", "ds"], f"203.0.113.5\n{token}\n")
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("not a site address", result.stderr)
+                self.assertFalse((self.root / "calls.log").exists())
 
     def test_refuses_argv_outside_contract(self):
         cases = [
@@ -397,8 +366,10 @@ class NftTests(unittest.TestCase):
         changes = [
             ("level 5", "level 4"), (CGROUP, CGROUP + "x"),
             (f'"{CGROUP}"', "123456"),
-            (UID_ACCEPT, f"meta skuid != {UID + 1} accept"),
-            (f"    {UID_ACCEPT}\n", ""),
+            (ENTER_BLOCK, f"meta skuid {UID + 1} jump block"),
+            (ENTER_NAT, f"meta skuid != {UID} jump block_nat"),
+            (f"    {ENTER_BLOCK}\n", ""),
+            (ENTER_NAT, "jump block_nat"),
             ("skuid !=", "skuid =="),
             (f"    {GUARD}\n", ""),
             (GUARD, GUARD.replace(f"skuid != {UID}", f"skuid != {UID + 1}")),
@@ -687,8 +658,8 @@ def live_other_account(call, nft: str, uid: int) -> None:
         assert done.returncode == 0, done.stderr
     # The same table naming another uid stands in for a socket another account owns.
     listed = call([nft, "list", "table", "inet", "omarchy_ds"]).stdout
-    foreign = listed.replace(f"meta skuid != {uid} accept", f"meta skuid != {uid + 1} accept")
-    assert foreign.count(f"meta skuid != {uid + 1} accept") == 2, listed
+    foreign = listed.replace(f"meta skuid {uid} jump", f"meta skuid {uid + 1} jump")
+    assert foreign.count(f"meta skuid {uid + 1} jump") == 2, listed
     swapped = call([nft, "-f", "-"], "destroy table inet omarchy_ds\n" + foreign)
     assert swapped.returncode == 0, swapped.stderr
     for family, loopback, dst in pairs:
@@ -709,10 +680,11 @@ def live_held_across_update(call, nft: str, wrapper: str, uid: int) -> None:
     listed = call([nft, "list", "table", "inet", "omarchy_ds"]).stdout
     # 3.5.2's policy: the same table with no check on who owns the socket, so this
     # process's connections are redirected the way another account's were.
-    old = re.sub(rf"\n\s*meta skuid != {uid} .*", "", listed)
-    assert f"skuid != {uid}" not in old, old
+    old = re.sub(rf"\n\s*meta skuid != {uid} .*", "", listed).replace(f"meta skuid {uid} jump", "jump")
+    assert f"skuid" not in old, old
     # The same table naming another uid makes this process's socket another account's.
-    foreign = listed.replace(f"meta skuid != {uid} ", f"meta skuid != {uid + 1} ")
+    foreign = listed.replace(f"meta skuid != {uid} ", f"meta skuid != {uid + 1} ").replace(
+        f"meta skuid {uid} jump", f"meta skuid {uid + 1} jump")
     assert foreign != listed
     # The kernel translates an old binding only while a loaded rule holds conntrack and
     # NAT on, so another firewall's NAT rule (Docker's, say) keeps a binding live after a
