@@ -39,6 +39,11 @@ nflag = False
 if args[:1] == ["-n"]:
     nflag = True
     args = args[1:]
+if args[:3] == ["/usr/bin/python3", "-I", "-c"]:
+    # Root's interpreter and visudo are absolute. Here the transaction runs under the
+    # test's python, whose sitecustomize pins the destinations, with the fake visudo.
+    import shutil
+    args = ["python3", "-c", args[3].replace('"/usr/bin/visudo"', repr(shutil.which("visudo"))), *args[4:]]
 log = Path(os.environ["DS_SETUP_SUDO_LOG"])
 log.parent.mkdir(parents=True, exist_ok=True)
 lock = os.environ.get("DS_LOCK_PREFIX")
@@ -88,7 +93,7 @@ if args[:2] == ["python3", "-c"] and len(args) == 5:
     finally:
         relock()
     sys.exit(rc)
-if args[:2] == ["nft", "destroy"]:
+if args[:2] == ["/usr/bin/nft", "destroy"]:
     sys.exit(int(os.environ.get("DS_DESTROY_RC", "0")))
 if args[:1] == ["rm"]:
     for token in args[1:]:
@@ -1403,6 +1408,17 @@ class SetupTests(unittest.TestCase):
         last_sudo = lines[-1] if lines else ""
         self.assertFalse(last_sudo.endswith("rescanPlugins"))
 
+    def test_the_root_transaction_imports_nothing_from_where_setup_runs(self):
+        seen = []
+        def record(argv, **_kwargs):
+            seen.append(argv)
+            return subprocess.CompletedProcess(argv, 0)
+        with patch.object(setup.subprocess, "run", record):
+            setup._root_transaction(b"w", b"g", self.wrapper, self.sudoers)
+        self.assertEqual(seen[0][:4], ["sudo", "/usr/bin/python3", "-I", "-c"])
+        self.assertIn('visudo = "/usr/bin/visudo"', seen[0][4])
+        self.assertNotIn('which("visudo")', seen[0][4])
+
     def test_remove_destroys_what_the_flush_left_before_the_root_files_go(self):
         self.assertEqual(setup.install(), 0)
         self.sudo_log.write_text("", encoding="utf-8")
@@ -1415,7 +1431,7 @@ class SetupTests(unittest.TestCase):
         self.sudo_log.write_text("", encoding="utf-8")
         self.assertEqual(setup.remove(), 0)
         lines = self._sudo_lines()
-        destroy = lines.index("nft destroy table inet omarchy_ds")
+        destroy = lines.index("/usr/bin/nft destroy table inet omarchy_ds")
         self.assertTrue(any(ln.endswith("flush ds") for ln in lines[:destroy]), lines)
         self.assertTrue(lines[destroy + 1].startswith("rm "), lines)
         self.assertFalse(self.wrapper.exists())

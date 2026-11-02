@@ -137,7 +137,6 @@ RECORD_NAME = ".installed.sha256"
 ROOT_TRANSACTION = r'''
 import hashlib
 import os
-import shutil
 import stat
 import subprocess
 import sys
@@ -268,7 +267,7 @@ def main():
         if installed(sudoers_dest) != grant:
             grant_fd, grant_tmp = stage(grant, sudoers_dir, 0o440)
             staged.append((grant_fd, grant_tmp))
-            visudo = shutil.which("visudo") or "/usr/sbin/visudo"
+            visudo = "/usr/bin/visudo"
             try:
                 checked = subprocess.run([visudo, "-cf", grant_tmp], capture_output=True, text=True)
             except OSError:
@@ -412,7 +411,7 @@ def _root_transaction(wrapper: bytes, grant: bytes, wrapper_path: Path, sudoers_
     """
     header = f"{PAYLOAD_MAGIC}\n{len(wrapper)}\n{len(grant)}\n".encode("ascii")
     proc = subprocess.run(
-        ["sudo", *([] if prompt else ["-n"]), "python3", "-c", _transaction_script(), str(wrapper_path), str(sudoers_path)],
+        ["sudo", *([] if prompt else ["-n"]), "/usr/bin/python3", "-I", "-c", _transaction_script(), str(wrapper_path), str(sudoers_path)],
         input=header + wrapper + grant,
         check=False,
     )
@@ -2307,7 +2306,7 @@ def remove():
         return 1
     if root_half:
         proc = subprocess.run(
-            ["sudo", "nft", "destroy", "table", "inet", "omarchy_ds"],
+            ["sudo", "/usr/bin/nft", "destroy", "table", "inet", "omarchy_ds"],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

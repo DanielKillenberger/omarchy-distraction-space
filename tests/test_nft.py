@@ -69,10 +69,16 @@ class NftTests(unittest.TestCase):
         self.env["SUDO_UID"] = str(UID)
         self.env["DS_CGROUP_ROOT"] = str(self.cgroup_root)
         self.nft = load_nft()
+        # The helper names nft absolutely and takes no override, so the fake goes in
+        # by rewriting a private copy of it.
+        text = WRAPPER.read_text(encoding="utf-8")
+        self.assertEqual(text.count('NFT = "/usr/bin/nft"'), 1)
+        self.wrapper = self.root / "distractions-nft"
+        self.wrapper.write_text(text.replace('NFT = "/usr/bin/nft"', f"NFT = {str(fake)!r}"), encoding="utf-8")
 
     def run_wrapper(self, args, stdin=""):
         return subprocess.run(
-            [sys.executable, str(WRAPPER), *args],
+            [sys.executable, str(self.wrapper), *args],
             input=stdin,
             text=True,
             capture_output=True,
@@ -286,6 +292,25 @@ class NftTests(unittest.TestCase):
         for absent in ("set omarchy", "redirect", "cgroup", "accept\n"):
             self.assertNotIn(absent, log)
 
+    def test_a_planted_nft_or_module_runs_nothing(self):
+        """What sudo can preserve from the caller (PATH, the directory) reaches no code."""
+        self.assertEqual(WRAPPER.read_text(encoding="utf-8").split("\n", 1)[0], "#!/usr/bin/python3 -I")
+        if os.geteuid() == 0:
+            self.skipTest("would really load the table")
+        planted = self.root / "planted"
+        planted.mkdir()
+        marker = self.root / "ran"
+        for name in ("nft", "python3"):
+            tool = planted / name
+            tool.write_text(f"#!/bin/sh\ntouch {marker}\n", encoding="utf-8")
+            tool.chmod(0o755)
+        (planted / "ipaddress.py").write_text(f"open({str(marker)!r}, 'w').close()\n", encoding="utf-8")
+        interpreter = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
+        subprocess.run([interpreter, "-I", str(WRAPPER), "flush", "ds"], input="", text=True, capture_output=True,
+                       cwd=planted, check=False, timeout=10,
+                       env=dict(os.environ, PATH=f"{planted}:/usr/bin", PYTHONPATH=str(planted), SUDO_UID=str(UID)))
+        self.assertFalse(marker.exists())
+
     def test_refuses_argv_outside_contract(self):
         cases = [
             [],
@@ -462,7 +487,7 @@ class NftTests(unittest.TestCase):
 
     def test_successful_listing_does_not_signal_reaped_pid(self):
         (self.bin / "nft").write_text("#!/usr/bin/env python3\nprint('listed')\n")
-        with patch.dict(os.environ, self.env), patch.object(self.nft.os, "killpg") as kill:
+        with patch.dict(os.environ, self.env), patch.object(self.nft, "NFT", str(self.bin / "nft")), patch.object(self.nft.os, "killpg") as kill:
             self.assertEqual(self.nft.list_policy(), "listed\n")
             kill.assert_not_called()
 
