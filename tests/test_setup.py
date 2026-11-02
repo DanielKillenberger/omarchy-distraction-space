@@ -39,6 +39,11 @@ nflag = False
 if args[:1] == ["-n"]:
     nflag = True
     args = args[1:]
+if args[:3] == ["/usr/bin/python3", "-I", "-c"]:
+    # Root's interpreter and visudo are absolute. Here the transaction runs under the
+    # test's python, whose sitecustomize pins the destinations, with the fake visudo.
+    import shutil
+    args = ["python3", "-c", args[3].replace('"/usr/bin/visudo"', repr(shutil.which("visudo"))), *args[4:]]
 log = Path(os.environ["DS_SETUP_SUDO_LOG"])
 log.parent.mkdir(parents=True, exist_ok=True)
 lock = os.environ.get("DS_LOCK_PREFIX")
@@ -62,7 +67,7 @@ def unlock(path: Path):
 def is_wrapper_flush(a):
     return len(a) >= 2 and a[-2:] == ["flush", "ds"] and Path(a[0]).name == "distractions-nft"
 
-# Interactive session or grant: the setup transaction, the wrapper flush, rm.
+# Interactive session or grant: the setup transaction, the wrapper flush, nft destroy, rm.
 # Nothing else is accepted, and only the flush runs passwordless.
 if nflag and not is_wrapper_flush(args):
     sys.exit(1)
@@ -88,6 +93,8 @@ if args[:2] == ["python3", "-c"] and len(args) == 5:
     finally:
         relock()
     sys.exit(rc)
+if args[:2] == ["/usr/bin/nft", "destroy"]:
+    sys.exit(int(os.environ.get("DS_DESTROY_RC", "0")))
 if args[:1] == ["rm"]:
     for token in args[1:]:
         if token.startswith("-"):
@@ -1400,6 +1407,65 @@ class SetupTests(unittest.TestCase):
         self.assertLess(self._rescan_text().find("rescanPlugins"), len(self._rescan_text()))
         last_sudo = lines[-1] if lines else ""
         self.assertFalse(last_sudo.endswith("rescanPlugins"))
+
+    def test_the_root_transaction_imports_nothing_from_where_setup_runs(self):
+        seen = []
+        def record(argv, **_kwargs):
+            seen.append(argv)
+            return subprocess.CompletedProcess(argv, 0)
+        with patch.object(setup.subprocess, "run", record):
+            setup._root_transaction(b"w", b"g", self.wrapper, self.sudoers)
+        self.assertEqual(seen[0][:4], ["sudo", "/usr/bin/python3", "-I", "-c"])
+        self.assertIn('visudo = "/usr/bin/visudo"', seen[0][4])
+        self.assertNotIn('which("visudo")', seen[0][4])
+
+    def test_helper_drift_names_a_helper_this_version_did_not_ship(self):
+        self.assertIsNone(setup.helper_drift())
+        installed = self.box.runtime / "installed-helper"
+        with patch.object(setup, "wrapper_dest", lambda: installed):
+            installed.write_bytes(b"#!/usr/bin/env python3\n# an older helper\n")
+            self.assertIn("firewall helper", setup.helper_drift())
+            installed.write_bytes((ROOT / "distractions-nft").read_bytes())
+            self.assertIsNone(setup.helper_drift())
+
+    def test_remove_touches_nothing_when_a_listener_cannot_be_stopped(self):
+        self.assertEqual(setup.install(), 0)
+        self.sudo_log.write_text("", encoding="utf-8")
+        held = subprocess.Popen(
+            [sys.executable, "-c",
+             "import fcntl, sys, time\n"
+             "f = open(sys.argv[1], 'a+')\n"
+             "fcntl.flock(f, fcntl.LOCK_EX)\n"
+             "print('held', flush=True)\n"
+             "time.sleep(30)\n",
+             str(setup.state.runtime_path("distraction-space.lock"))],
+            stdout=subprocess.PIPE, text=True)
+        self.addCleanup(held.wait)
+        self.addCleanup(held.kill)
+        self.assertEqual(held.stdout.readline().strip(), "held")
+        # Its pid in the state file is not enough: this process is no listener.
+        with patch.object(setup.state, "listener_pid", lambda: held.pid):
+            self.assertEqual(setup.remove(), 1)
+        self.assertIsNone(held.poll())
+        self.assertEqual(self._sudo_lines(), [])
+        self.assertTrue(self.wrapper.is_file())
+
+    def test_remove_destroys_what_the_flush_left_before_the_root_files_go(self):
+        self.assertEqual(setup.install(), 0)
+        self.sudo_log.write_text("", encoding="utf-8")
+        os.environ["DS_DESTROY_RC"] = "1"
+        self.assertEqual(setup.remove(), 1)
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self.sudoers.is_file())
+        self.assertFalse(any(ln.startswith("rm ") for ln in self._sudo_lines()))
+        del os.environ["DS_DESTROY_RC"]
+        self.sudo_log.write_text("", encoding="utf-8")
+        self.assertEqual(setup.remove(), 0)
+        lines = self._sudo_lines()
+        destroy = lines.index("/usr/bin/nft destroy table inet omarchy_ds")
+        self.assertTrue(any(ln.endswith("flush ds") for ln in lines[:destroy]), lines)
+        self.assertTrue(lines[destroy + 1].startswith("rm "), lines)
+        self.assertFalse(self.wrapper.exists())
 
     def test_remove_aborts_on_flush_failure(self):
         self.assertEqual(setup.install(), 0)

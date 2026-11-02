@@ -12,6 +12,7 @@ import os
 import shutil
 import stat
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -95,6 +96,19 @@ class PrivateStateTests(unittest.TestCase):
         with mock.patch("os.fchmod", side_effect=PermissionError):
             self.assertTrue(hold.append_held("Telegram", "title", "body"))
         self.assertIn("title", hold.held_path().read_text(encoding="utf-8"))
+
+
+
+class RuntimeDirTests(unittest.TestCase):
+    def test_without_a_runtime_dir_nothing_lands_in_a_shared_directory(self):
+        with tempfile.TemporaryDirectory() as base:
+            env = {"XDG_STATE_HOME": base, "XDG_RUNTIME_DIR": ""}
+            with mock.patch.dict(os.environ, env):
+                path = state.runtime_dir()
+                self.assertTrue(path.is_relative_to(base), path)
+                self.assertEqual(stat.S_IMODE(state.state_dir().stat().st_mode), 0o700)
+                self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o700)
+                self.assertTrue(state.runtime_path("distraction-space.sock").is_relative_to(path))
 
 
 if __name__ == "__main__":

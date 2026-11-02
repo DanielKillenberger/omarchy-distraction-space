@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python3 -I
 """Privileged helper: own table inet omarchy_ds and the ds address sets.
 
 One-time `distractions setup` copies this file to
@@ -21,6 +21,9 @@ import os
 import subprocess
 import sys
 
+# Absolute, and the interpreter above with -I: sudo can preserve the caller's PATH
+# (no secure_path), and this runs as root without a password.
+NFT = "/usr/bin/nft"
 FAMILY = "inet"
 TABLE = "omarchy_ds"
 SET4 = "omarchy_ds_v4"
@@ -70,9 +73,14 @@ def _parse_address(token: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address:
     if not token or token.startswith("/") or "/" in token or "\\" in token:
         _fail(f"refused: not an address: {token}")
     try:
-        return ipaddress.ip_address(token)
+        addr = ipaddress.ip_address(token)
     except ValueError:
         _fail(f"refused: not an address: {token}")
+    # This machine's own addresses are never a site: blocking one would cut the
+    # person's DNS stub, and a DNS answer is what fills this list.
+    if addr.is_loopback or addr.is_link_local or addr.is_multicast or addr.is_unspecified:
+        _fail(f"refused: not a site address: {token}")
+    return addr
 
 
 def slice_path(uid: int) -> str:
@@ -101,17 +109,42 @@ def _elements(addrs: list[str]) -> str:
 
 
 def render_destroy() -> str:
-    """`flush ds`: the table goes away outright. Nothing is rendered in its place, so
-    switching the block off needs neither the slice nor a kernel that takes the
-    cgroup matcher; the next `replace` rebuilds the table from scratch."""
     return f"destroy table {FAMILY} {TABLE}\n"
 
 
+def _foreign_redirect_reset(uid: int) -> str:
+    # A NAT binding lives in conntrack and outlives every table, and later packets
+    # of its connection skip output_nat. A table from before the skuid rule redirected
+    # other accounts too, so their open connections would go on reaching this person's
+    # router. This resets their packets by the pair the redirect left in conntrack,
+    # with no address set, because a listed address can have left the set since.
+    pairs = f"{{ 80 . {HTTP_PORT}, 443 . {TLS_PORT} }}"
+    return (f"meta skuid != {uid} meta l4proto tcp ct direction original ct status dnat "
+            f"ct original proto-dst . ct reply proto-src {pairs} reject with tcp reset")
+
+
+def render_flush(uid: int) -> str:
+    """`flush ds`: every block is gone and only the reset above stays, so turning the
+    block off cannot hand an idle connection its old binding back. It needs neither
+    the slice nor a kernel that takes the cgroup matcher; the next `replace` rebuilds
+    the table from scratch. `setup --remove` destroys what is left."""
+    return (
+        render_destroy() +
+        f"table {FAMILY} {TABLE} {{\n"
+        f"  chain output {{\n"
+        f"    type filter hook output priority filter; policy accept;\n"
+        f"    {_foreign_redirect_reset(uid)}\n"
+        f"  }}\n"
+        f"}}\n"
+    )
+
+
 def render_table(v4: list[str], v6: list[str], cgroup: str, uid: int) -> str:
-    # The block is the invoking person's own. A socket another account owns, root's
-    # included, passes both output chains before any reject or redirect, so its
-    # requests never reach a router this person runs.
-    uid_accept = f"meta skuid != {uid} accept"
+    # The block is the invoking person's own. Both output chains enter it only on a
+    # positive match of this uid. A socket another account owns, root's included, never
+    # reaches a reject or redirect, and neither does a packet with no full socket, for
+    # which a skuid match neither holds nor fails: kernel-owned sockets and replies.
+    enter = f"meta skuid {uid} jump"
     slice_accept = f'socket cgroupv2 level {SLICE_LEVEL} "{cgroup}" accept'
     login = "/".join(cgroup.split("/")[:LOGIN_LEVEL])
     # Only connections this table's own redirect produced are judged: the
@@ -140,9 +173,7 @@ def render_table(v4: list[str], v6: list[str], cgroup: str, uid: int) -> str:
         f"    type ipv6_addr\n"
         f"{_elements(v6)}"
         f"  }}\n"
-        f"  chain output {{\n"
-        f"    type filter hook output priority filter; policy accept;\n"
-        f"    {uid_accept}\n"
+        f"  chain block {{\n"
         f"    {slice_accept}\n"
         f"    meta nfproto ipv4 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    meta nfproto ipv6 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
@@ -151,9 +182,12 @@ def render_table(v4: list[str], v6: list[str], cgroup: str, uid: int) -> str:
         f"    ip6 daddr @{SET6} meta l4proto tcp reject with tcp reset\n"
         f"    ip6 daddr @{SET6} reject\n"
         f"  }}\n"
-        f"  chain output_nat {{\n"
-        f"    type nat hook output priority dstnat; policy accept;\n"
-        f"    {uid_accept}\n"
+        f"  chain output {{\n"
+        f"    type filter hook output priority filter; policy accept;\n"
+        f"    {_foreign_redirect_reset(uid)}\n"
+        f"    {enter} block\n"
+        f"  }}\n"
+        f"  chain block_nat {{\n"
         f"    {slice_accept}\n"
         f"    meta nfproto ipv4 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
         f"    meta nfproto ipv6 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
@@ -161,6 +195,10 @@ def render_table(v4: list[str], v6: list[str], cgroup: str, uid: int) -> str:
         f"    ip daddr @{SET4} tcp dport 443 redirect to :{TLS_PORT}\n"
         f"    ip6 daddr @{SET6} tcp dport 80 redirect to :{HTTP_PORT}\n"
         f"    ip6 daddr @{SET6} tcp dport 443 redirect to :{TLS_PORT}\n"
+        f"  }}\n"
+        f"  chain output_nat {{\n"
+        f"    type nat hook output priority dstnat; policy accept;\n"
+        f"    {enter} block_nat\n"
         f"  }}\n"
         f"  chain input {{\n"
         f"    type filter hook input priority filter; policy accept;\n"
@@ -197,7 +235,7 @@ def parse_replace_stdin(text: str) -> tuple[list[str], list[str]]:
 def commit(script: str) -> int:
     if f"table {FAMILY} {TABLE}" not in script:
         _fail("refused: table confinement")
-    proc = subprocess.run(["nft", "-f", "-"], input=script, text=True, check=False)
+    proc = subprocess.run([NFT, "-f", "-"], input=script, text=True, check=False)
     return proc.returncode
 
 
@@ -217,7 +255,7 @@ def list_policy() -> str:
     try:
         deadline = time.monotonic() + CHECK_TIMEOUT
         proc = subprocess.Popen(
-            ["nft", "-y", "list", "table", FAMILY, TABLE],
+            [NFT, "-y", "list", "table", FAMILY, TABLE],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT, start_new_session=True,
         )
@@ -307,7 +345,7 @@ def main(argv: list[str] | None = None) -> int:
     if command == "flush":
         if text.strip():
             _fail("refused: flush takes no stdin")
-        return commit(render_destroy())
+        return commit(render_flush(uid))
     v4, v6 = parse_replace_stdin(text)
     if command == "check":
         return check_policy(v4, v6, cgroup, uid)

@@ -21,7 +21,7 @@ from test_cgroup import SESSION_PATH, SLICE_PATH, FakeProc
 from test_hypr import OPEN
 
 sys.path.insert(0, str(ROOT))
-from ds import feedback, hypr, listener, setup
+from ds import feedback, hypr, listener, setup, state
 from ds.catalog import expand_entry
 from ds.config import DEFAULTS
 from ds.state import write_json
@@ -808,6 +808,21 @@ time.sleep(3600)
         self.assertTrue(_wait(lambda: len(self._xdg_lines()) >= 4, timeout=8.0), self._xdg_lines())
         self.assertEqual(self._links(), "displaced")
         self.assertEqual(len(self._notices("distractions setup")), 1)
+
+    def test_a_helper_this_version_did_not_ship_gets_a_setup_notice(self):
+        self._cfg()
+        self.box.wrapper.write_bytes(b"#!/usr/bin/env python3\n# an older helper\n")
+        self._start()
+        self.assertTrue(_wait(lambda: self._notices("Site blocking needs setup")), self._state())
+
+    def test_remove_ends_a_running_listener_and_waits_for_it(self):
+        self._cfg()
+        self._start()
+        self.assertEqual(self._reload("ping", timeout=1), b"ok")
+        self.assertTrue(_wait(lambda: state.listener_pid() == self.proc.pid), self._state())
+        self.assertTrue(setup._stop_listener())
+        # The lock comes free as the listener leaves; the process ends just after it.
+        self.assertTrue(_wait(lambda: self.proc.poll() is not None), self._state())
 
     def test_an_unanswered_link_check_sends_no_setup_notice(self):
         # A desktop stall makes xdg-settings time out. That says nothing about which browser is the

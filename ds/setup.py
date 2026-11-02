@@ -10,6 +10,7 @@ import os
 import pwd
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -22,6 +23,7 @@ from ds import catalog, cgroup, config, launch, state, wp
 ROOT = Path(__file__).resolve().parent.parent
 WRAPPER_DEFAULT = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
 SUDOERS_DEFAULT = "/etc/sudoers.d/omarchy-distraction-space"
+LISTENER_STOP_SECONDS = 15.0
 NOTIFICATIONS_SOURCE_DEFAULT = "/usr/share/omarchy/shell/plugins/notifications"
 CLONE_SOURCE_ID = "omarchy.notifications"
 PATCH = ROOT / "shell" / "notifications-silenced-senders.patch"
@@ -137,7 +139,6 @@ RECORD_NAME = ".installed.sha256"
 ROOT_TRANSACTION = r'''
 import hashlib
 import os
-import shutil
 import stat
 import subprocess
 import sys
@@ -268,7 +269,7 @@ def main():
         if installed(sudoers_dest) != grant:
             grant_fd, grant_tmp = stage(grant, sudoers_dir, 0o440)
             staged.append((grant_fd, grant_tmp))
-            visudo = shutil.which("visudo") or "/usr/sbin/visudo"
+            visudo = "/usr/bin/visudo"
             try:
                 checked = subprocess.run([visudo, "-cf", grant_tmp], capture_output=True, text=True)
             except OSError:
@@ -412,7 +413,7 @@ def _root_transaction(wrapper: bytes, grant: bytes, wrapper_path: Path, sudoers_
     """
     header = f"{PAYLOAD_MAGIC}\n{len(wrapper)}\n{len(grant)}\n".encode("ascii")
     proc = subprocess.run(
-        ["sudo", *([] if prompt else ["-n"]), "python3", "-c", _transaction_script(), str(wrapper_path), str(sudoers_path)],
+        ["sudo", *([] if prompt else ["-n"]), "/usr/bin/python3", "-I", "-c", _transaction_script(), str(wrapper_path), str(sudoers_path)],
         input=header + wrapper + grant,
         check=False,
     )
@@ -677,6 +678,22 @@ def remove_clone() -> int:
         print(f"leaving {path}: not created by this plugin", file=sys.stderr)
     _unlink(_record_path())
     return 0
+
+
+def helper_drift() -> str | None:
+    """Why the installed firewall helper is not the one this version ships, or None.
+
+    Read-only, like clone_drift: a plugin update replaces the shipped file and nothing
+    else, and `check ds` compares against the installed helper's own rendering, so an
+    old helper reads as healthy. Only `setup` replaces it, because that takes a password.
+    """
+    if not helper_installed():
+        return None
+    installed = state.read_bounded(wrapper_dest(), cap=MAX_PAYLOAD)
+    shipped = state.read_bounded(ROOT / "distractions-nft", cap=MAX_PAYLOAD)
+    if installed is None or shipped is None or installed == shipped:
+        return None
+    return "the installed firewall helper is not the one this version ships"
 
 
 def clone_drift() -> str | None:
@@ -2269,9 +2286,59 @@ def install(assume_yes: bool = False):
                  or hook_rc != 0 or hypr_rc != 0 or root_rc != 0) else 0
 
 
+def _listener_lock_free() -> bool:
+    """Whether no listener holds its lock. It holds it until after its workers have
+    joined, so this is the one answer that also covers a reconcile still running."""
+    try:
+        fd = os.open(state.runtime_path("distraction-space.lock"), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+    finally:
+        os.close(fd)
+
+
+def _stop_listener() -> bool:
+    """End a running listener before removal, and wait until it has gone.
+
+    Left running, it holds the router ports and can apply the table again between
+    the flush and the wrapper's removal. SIGTERM rather than a socket verb, because
+    the listener still running after a plugin update is the previous version's. The
+    pid comes from a file, so the process has to read as this plugin's listener.
+    """
+    if _listener_lock_free():
+        return True
+    pid = state.listener_pid()
+    if pid is None:
+        return False
+    try:
+        argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")
+        if b"listen" not in argv or not any(a.endswith(b"distractions") for a in argv):
+            return False
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    deadline = time.monotonic() + LISTENER_STOP_SECONDS
+    while time.monotonic() < deadline:
+        if _listener_lock_free():
+            return True
+        time.sleep(0.05)
+    return False
+
+
 def remove():
     destinations = _canonical_destinations()
     if destinations is None:
+        return 1
+    if not _stop_listener():
+        print("the listener did not stop, so nothing was removed: log out, then run "
+              "distractions setup --remove again", file=sys.stderr)
         return 1
     wrapper, sudoers = destinations
     # The user-level half first, in reverse of install: nothing here needs root,
@@ -2285,7 +2352,8 @@ def remove():
     # only fail once the grant that made it passwordless is gone with it.
     root_half = wrapper.is_file() or _record_dest(wrapper).is_file()
     if root_half:
-        # `flush ds` destroys the table outright and needs no slice.
+        # `flush ds` ends the block passwordless and needs no slice. The one rule it
+        # leaves goes with the rest of the root half below.
         proc = subprocess.run(
             ["sudo", "-n", str(wrapper), "flush", "ds"],
             capture_output=True,
@@ -2306,6 +2374,16 @@ def remove():
         return 1
     if root_half:
         proc = subprocess.run(
+            ["sudo", "/usr/bin/nft", "destroy", "table", "inet", "omarchy_ds"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if not _flush_ok(proc):
+            print((proc.stderr or "nft destroy failed").strip() or "nft destroy failed", file=sys.stderr)
+            return 1
+        proc = subprocess.run(
             ["sudo", "rm", "-f", str(wrapper), str(sudoers), str(_record_dest(wrapper))],
             check=False,
         )
@@ -2320,7 +2398,7 @@ def remove():
 
 
 def _flush_block() -> bool:
-    """Destroy the table now, instead of leaving it to whenever a listener next runs.
+    """End the block now, instead of leaving it to whenever a listener next runs.
 
     Turning site blocking off has to end with the block gone, and the listener
     is what normally flushes -- but the table is kernel state that outlives it,
