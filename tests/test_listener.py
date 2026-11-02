@@ -821,7 +821,8 @@ time.sleep(3600)
         self.assertEqual(self._reload("ping", timeout=1), b"ok")
         self.assertTrue(_wait(lambda: state.listener_pid() == self.proc.pid), self._state())
         self.assertTrue(setup._stop_listener())
-        self.assertIsNotNone(self.proc.poll())
+        # The lock comes free as the listener leaves; the process ends just after it.
+        self.assertTrue(_wait(lambda: self.proc.poll() is not None), self._state())
 
     def test_an_unanswered_link_check_sends_no_setup_notice(self):
         # A desktop stall makes xdg-settings time out. That says nothing about which browser is the
