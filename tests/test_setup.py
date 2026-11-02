@@ -62,7 +62,7 @@ def unlock(path: Path):
 def is_wrapper_flush(a):
     return len(a) >= 2 and a[-2:] == ["flush", "ds"] and Path(a[0]).name == "distractions-nft"
 
-# Interactive session or grant: the setup transaction, the wrapper flush, rm.
+# Interactive session or grant: the setup transaction, the wrapper flush, nft destroy, rm.
 # Nothing else is accepted, and only the flush runs passwordless.
 if nflag and not is_wrapper_flush(args):
     sys.exit(1)
@@ -88,6 +88,8 @@ if args[:2] == ["python3", "-c"] and len(args) == 5:
     finally:
         relock()
     sys.exit(rc)
+if args[:2] == ["nft", "destroy"]:
+    sys.exit(int(os.environ.get("DS_DESTROY_RC", "0")))
 if args[:1] == ["rm"]:
     for token in args[1:]:
         if token.startswith("-"):
@@ -1400,6 +1402,23 @@ class SetupTests(unittest.TestCase):
         self.assertLess(self._rescan_text().find("rescanPlugins"), len(self._rescan_text()))
         last_sudo = lines[-1] if lines else ""
         self.assertFalse(last_sudo.endswith("rescanPlugins"))
+
+    def test_remove_destroys_what_the_flush_left_before_the_root_files_go(self):
+        self.assertEqual(setup.install(), 0)
+        self.sudo_log.write_text("", encoding="utf-8")
+        os.environ["DS_DESTROY_RC"] = "1"
+        self.assertEqual(setup.remove(), 1)
+        self.assertTrue(self.wrapper.is_file())
+        self.assertTrue(self.sudoers.is_file())
+        self.assertFalse(any(ln.startswith("rm ") for ln in self._sudo_lines()))
+        del os.environ["DS_DESTROY_RC"]
+        self.sudo_log.write_text("", encoding="utf-8")
+        self.assertEqual(setup.remove(), 0)
+        lines = self._sudo_lines()
+        destroy = lines.index("nft destroy table inet omarchy_ds")
+        self.assertTrue(any(ln.endswith("flush ds") for ln in lines[:destroy]), lines)
+        self.assertTrue(lines[destroy + 1].startswith("rm "), lines)
+        self.assertFalse(self.wrapper.exists())
 
     def test_remove_aborts_on_flush_failure(self):
         self.assertEqual(setup.install(), 0)

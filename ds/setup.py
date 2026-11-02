@@ -2285,7 +2285,8 @@ def remove():
     # only fail once the grant that made it passwordless is gone with it.
     root_half = wrapper.is_file() or _record_dest(wrapper).is_file()
     if root_half:
-        # `flush ds` destroys the table outright and needs no slice.
+        # `flush ds` ends the block passwordless and needs no slice. The one rule it
+        # leaves goes with the rest of the root half below.
         proc = subprocess.run(
             ["sudo", "-n", str(wrapper), "flush", "ds"],
             capture_output=True,
@@ -2306,6 +2307,16 @@ def remove():
         return 1
     if root_half:
         proc = subprocess.run(
+            ["sudo", "nft", "destroy", "table", "inet", "omarchy_ds"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+        if not _flush_ok(proc):
+            print((proc.stderr or "nft destroy failed").strip() or "nft destroy failed", file=sys.stderr)
+            return 1
+        proc = subprocess.run(
             ["sudo", "rm", "-f", str(wrapper), str(sudoers), str(_record_dest(wrapper))],
             check=False,
         )
@@ -2320,7 +2331,7 @@ def remove():
 
 
 def _flush_block() -> bool:
-    """Destroy the table now, instead of leaving it to whenever a listener next runs.
+    """End the block now, instead of leaving it to whenever a listener next runs.
 
     Turning site blocking off has to end with the block gone, and the listener
     is what normally flushes -- but the table is kernel state that outlives it,

@@ -101,10 +101,34 @@ def _elements(addrs: list[str]) -> str:
 
 
 def render_destroy() -> str:
-    """`flush ds`: the table goes away outright. Nothing is rendered in its place, so
-    switching the block off needs neither the slice nor a kernel that takes the
-    cgroup matcher; the next `replace` rebuilds the table from scratch."""
     return f"destroy table {FAMILY} {TABLE}\n"
+
+
+def _foreign_redirect_reset(uid: int) -> str:
+    # A NAT binding lives in conntrack and outlives every table, and later packets
+    # of its connection skip output_nat. A table from before the skuid rule redirected
+    # other accounts too, so their open connections would go on reaching this person's
+    # router. This resets their packets by the pair the redirect left in conntrack,
+    # with no address set, because a listed address can have left the set since.
+    pairs = f"{{ 80 . {HTTP_PORT}, 443 . {TLS_PORT} }}"
+    return (f"meta skuid != {uid} meta l4proto tcp ct direction original ct status dnat "
+            f"ct original proto-dst . ct reply proto-src {pairs} reject with tcp reset")
+
+
+def render_flush(uid: int) -> str:
+    """`flush ds`: every block is gone and only the reset above stays, so turning the
+    block off cannot hand an idle connection its old binding back. It needs neither
+    the slice nor a kernel that takes the cgroup matcher; the next `replace` rebuilds
+    the table from scratch. `setup --remove` destroys what is left."""
+    return (
+        render_destroy() +
+        f"table {FAMILY} {TABLE} {{\n"
+        f"  chain output {{\n"
+        f"    type filter hook output priority filter; policy accept;\n"
+        f"    {_foreign_redirect_reset(uid)}\n"
+        f"  }}\n"
+        f"}}\n"
+    )
 
 
 def render_table(v4: list[str], v6: list[str], cgroup: str, uid: int) -> str:
@@ -142,6 +166,7 @@ def render_table(v4: list[str], v6: list[str], cgroup: str, uid: int) -> str:
         f"  }}\n"
         f"  chain output {{\n"
         f"    type filter hook output priority filter; policy accept;\n"
+        f"    {_foreign_redirect_reset(uid)}\n"
         f"    {uid_accept}\n"
         f"    {slice_accept}\n"
         f"    meta nfproto ipv4 tcp sport {SPLICE_PORT_LO}-{SPLICE_PORT_HI} accept\n"
@@ -307,7 +332,7 @@ def main(argv: list[str] | None = None) -> int:
     if command == "flush":
         if text.strip():
             _fail("refused: flush takes no stdin")
-        return commit(render_destroy())
+        return commit(render_flush(uid))
     v4, v6 = parse_replace_stdin(text)
     if command == "check":
         return check_policy(v4, v6, cgroup, uid)
