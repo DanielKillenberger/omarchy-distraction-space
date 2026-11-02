@@ -103,6 +103,18 @@ def _log_path() -> Path:
     return state.state_path("log")
 
 
+def _site_address(token: str) -> str | None:
+    """The address as the helper takes it, or None for anything it would refuse: one
+    refused address fails the whole replace, so none may reach it from DNS or the cache."""
+    try:
+        addr = ipaddress.ip_address(token)
+    except ValueError:
+        return None
+    if addr.is_unspecified or addr.is_loopback or addr.is_link_local or addr.is_multicast:
+        return None
+    return str(addr)
+
+
 def _parse_ahosts(text: str) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
@@ -110,14 +122,8 @@ def _parse_ahosts(text: str) -> list[str]:
         token = raw.split()[0] if raw.strip() else ""
         if not token:
             continue
-        try:
-            addr = ipaddress.ip_address(token)
-        except ValueError:
-            continue
-        if addr.is_unspecified or addr.is_loopback or addr.is_link_local or addr.is_multicast:
-            continue
-        rendered = str(addr)
-        if rendered in seen:
+        rendered = _site_address(token)
+        if rendered is None or rendered in seen:
             continue
         seen.add(rendered)
         out.append(rendered)
@@ -183,7 +189,7 @@ def _read_cache() -> dict:
     out = {}
     for host, addrs in data.items():
         if isinstance(host, str) and isinstance(addrs, list):
-            out[host] = [a for a in addrs if isinstance(a, str) and a]
+            out[host] = [a for a in map(_site_address, (t for t in addrs if isinstance(t, str))) if a]
     return out
 
 

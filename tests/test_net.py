@@ -536,6 +536,18 @@ class NetTests(unittest.TestCase):
 
 
 class ParseAhostsTests(unittest.TestCase):
+    def test_an_address_cached_before_the_filter_never_reaches_the_helper(self):
+        box = Sandbox()
+        self.addCleanup(box.cleanup)
+        box.apply_env()
+        state.write_json(state.state_path("addrs.json"), {
+            "sinkholed.example": ["127.0.0.1", "::1"],
+            "listed.example": ["203.0.113.9", "169.254.1.1"],
+        })
+        with mock.patch.object(net, "_resolve_one", lambda host: []):
+            addresses, _batch = net.resolve_batch(["sinkholed.example", "listed.example"], 1, "start")
+        self.assertEqual(addresses, ["203.0.113.9"])
+
     def test_this_machines_own_addresses_never_enter_the_set(self):
         text = "\n".join(f"{a} STREAM x" for a in (
             "127.0.0.53", "::1", "169.254.1.1", "fe80::1", "224.0.0.1", "ff02::1", "0.0.0.0", "203.0.113.5", "10.0.0.5"))
