@@ -491,7 +491,11 @@ def _default_browser_id():
 def desktop_id_for_binary(binary):
     """The id of the first desktop entry, nearest share dir first, whose command is `binary`; None when none is.
 
-    Neither this plugin's handler nor Omarchy's link router is ever the answer.
+    Neither this plugin's handler nor Omarchy's link router is ever the answer, and
+    only a browser is: the entry has to take http or https links (`MimeType`) and
+    must not launch an app. A Chromium web-app shortcut runs the same binary with
+    `--app-id`, and recovered as the previous browser it would open every
+    unlisted link as that app (PR #51 review).
     """
     name = Path(binary).name
     for d in _share_dirs():
@@ -504,8 +508,33 @@ def desktop_id_for_binary(binary):
             if path.name in (HANDLER_ID, LINK_ROUTER):
                 continue
             argv = parse_exec(read_exec(path))
-            if argv and Path(argv[0]).name == name:
+            if not argv or Path(argv[0]).name != name:
+                continue
+            if any(a == "--app" or a.startswith(("--app=", "--app-id")) for a in argv[1:]):
+                continue
+            mimes = {m.strip() for m in (_main_key(path, "MimeType") or "").split(";")}
+            if mimes & {"x-scheme-handler/http", "x-scheme-handler/https"}:
                 return path.name
+    return None
+
+
+def _main_key(path, key):
+    """The raw value of `key` in the `[Desktop Entry]` group, or None."""
+    data = state.read_bounded(path)
+    if data is None:
+        return None
+    line_re = re.compile(r"^\s*" + re.escape(key) + r"\s*=\s*(.*?)\s*$")
+    in_main = False
+    for line in data.decode("utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_main:
+                return None
+            in_main = stripped == "[Desktop Entry]"
+            continue
+        m = line_re.match(line) if in_main else None
+        if m:
+            return m.group(1)
     return None
 
 

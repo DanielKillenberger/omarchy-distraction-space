@@ -1107,12 +1107,34 @@ class SetupTests(unittest.TestCase):
                 os.environ["DS_XDG_HTTPS"] = https
                 state.write_profile_browser("/usr/bin/google-chrome-stable")
                 (self.apps / "google-chrome.desktop").write_text(
-                    "[Desktop Entry]\nType=Application\nName=Google Chrome\nExec=/usr/bin/google-chrome-stable %U\n",
+                    "[Desktop Entry]\nType=Application\nName=Google Chrome\nExec=/usr/bin/google-chrome-stable %U\n"
+                    "MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;\n",
                     encoding="utf-8")
                 self.assertEqual(self._install(), (0, ""))
                 self.assertEqual(self._default(), setup.HANDLER_ID)
                 self.assertEqual(self._links(), "on")
                 self.assertEqual(self._entries()["previous_handler"], expected)
+
+    def test_a_web_app_shortcut_is_never_recovered_as_the_browser(self):
+        """PR #51 review: a Chromium app shortcut runs the browser's binary and sorts first."""
+        for name, body in (
+            ("chrome-app-Default.desktop",
+             "Exec=/usr/bin/google-chrome-stable --profile-directory=Default --app-id=abcdef\n"),
+            ("a-app-url.desktop", "Exec=/usr/bin/google-chrome-stable --app=https://example.com\n"),
+            ("b-no-links.desktop", "Exec=/usr/bin/google-chrome-stable %U\nMimeType=text/plain;\n"),
+        ):
+            (self.apps / name).write_text(f"[Desktop Entry]\nType=Application\nName={name}\n{body}",
+                                          encoding="utf-8")
+        (self.apps / "google-chrome.desktop").write_text(
+            "[Desktop Entry]\nType=Application\nName=Google Chrome\nExec=/usr/bin/google-chrome-stable %U\n"
+            "MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;\n",
+            encoding="utf-8")
+        self.assertEqual(launch.desktop_id_for_binary("/usr/bin/google-chrome-stable"), "google-chrome.desktop")
+        # Without the browser's own entry here, none of the shortcuts stands in for it
+        # (a system-wide entry on the test host may still answer).
+        (self.apps / "google-chrome.desktop").unlink()
+        self.assertNotIn(launch.desktop_id_for_binary("/usr/bin/google-chrome-stable"),
+                         ("chrome-app-Default.desktop", "a-app-url.desktop", "b-no-links.desktop"))
 
     def test_a_browser_after_the_router_is_left_alone(self):
         # Omarchy's resolver takes the next entry after its router in the Hyprland
