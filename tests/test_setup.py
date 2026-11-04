@@ -2767,6 +2767,204 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout, "ok\n")
 
+    # -- Setup on enable (fn-55): the widget's first load runs `setup --core`. --
+
+    def _fresh_install(self):
+        """A machine that only ran `omarchy plugin add --enable`: no config file, no state, stock Hyprland."""
+        self.box.config_file.unlink()
+        hypr = self._stock_hypr()
+        self.spawned = []
+        patcher = patch.object(setup, "_spawn_listener", side_effect=lambda: self.spawned.append(1) or True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return hypr
+
+    def _core(self):
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = setup.install_core()
+        return rc, err.getvalue()
+
+    def _core_record(self):
+        return json.loads((self.box.state_dir / "core.json").read_text(encoding="utf-8"))
+
+    def test_enabling_sets_up_the_core_without_answering_either_question(self):
+        hypr = self._fresh_install()
+        rc, err = self._core()
+        self.assertEqual(rc, 0, err)
+        self.assertTrue((hypr / "distraction-space.lua").is_file())
+        self.assertEqual((hypr / "hyprland.lua").read_text(encoding="utf-8").count(setup.HYPR_MARKER), 1)
+        self.assertTrue(self.unit.is_file())
+        self.assertEqual(self.spawned, [1])
+        # Neither choice is made for the person, and nothing asks for a password.
+        cfg = json.loads(self.box.config_file.read_text(encoding="utf-8"))
+        self.assertNotIn("open_links_in_space", cfg)
+        self.assertNotIn("enabled", cfg.get("site_block", {}))
+        self.assertEqual(self._sudo_lines(), [])
+        self.assertFalse(any(ln.startswith("set ") for ln in self._xdg_lines()), self._xdg_lines())
+        self.assertFalse(any(Path(item["path"]).name == setup.HANDLER_ID
+                             for item in state.read_entries()["files"]))
+        rec = self._core_record()
+        self.assertEqual(rec["version"], setup.plugin_version())
+        self.assertEqual(rec["outcome"], "ok")
+
+    def test_the_core_is_set_up_once_per_version(self):
+        self._fresh_install()
+        self.assertEqual(self._core()[0], 0)
+        with patch.object(setup, "sync_hypr", side_effect=AssertionError("ran again")):
+            self.assertEqual(self._core(), (0, ""))
+        self.assertEqual(self.spawned, [1])
+        rec = self._core_record()
+        rec["version"] = "0.0.1"
+        state.write_json(self.box.state_dir / "core.json", rec)
+        self.assertEqual(self._core()[0], 0)
+        self.assertEqual(self._core_record()["version"], setup.plugin_version())
+        self.assertEqual(self.spawned, [1, 1])
+
+    def test_a_setup_that_restarts_the_shell_does_not_set_up_again(self):
+        """The record names this version before the restart, so the reloaded widget's run does nothing."""
+        self._fresh_install()
+        seen = []
+
+        def restart():
+            seen.append(self._core_record())
+            with patch.object(setup, "sync_hypr", side_effect=AssertionError("ran again")):
+                seen.append(self._core())
+
+        with patch.object(setup, "_settle_service", side_effect=restart):
+            self.assertEqual(self._core()[0], 0)
+        self.assertEqual(seen[0]["version"], setup.plugin_version())
+        self.assertEqual(seen[1], (0, ""))
+
+    def test_a_second_load_while_setup_runs_does_nothing(self):
+        self._fresh_install()
+        with setup._core_lock() as held:
+            self.assertTrue(held)
+            with patch.object(setup, "sync_hypr", side_effect=AssertionError("ran concurrently")):
+                self.assertEqual(self._core(), (0, ""))
+        self.assertFalse((self.box.state_dir / "core.json").exists())
+
+    def test_an_install_that_ran_setup_is_left_as_it_is(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        before = (hypr / "distraction-space.lua").read_bytes()
+        self.spawned = []
+        with patch.object(setup, "_spawn_listener", side_effect=lambda: self.spawned.append(1) or True), \
+             patch.object(setup, "sync_hypr", side_effect=AssertionError("set up again")):
+            self.assertEqual(self._core(), (0, ""))
+        self.assertEqual(self.spawned, [])
+        self.assertEqual((hypr / "distraction-space.lua").read_bytes(), before)
+
+    def test_an_update_from_before_3_5_5_is_left_as_it_is(self):
+        """A 3.5.4 install has the Hyprland record and no core record."""
+        self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        (self.box.state_dir / "core.json").unlink()
+        with patch.object(setup, "sync_hypr", side_effect=AssertionError("set up again")):
+            self.assertEqual(self._core(), (0, ""))
+        self.assertEqual(self._core_record()["outcome"], "existing")
+
+    def test_setup_remove_is_not_undone_by_the_widget(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(setup.remove(), 0)
+        self.assertFalse((hypr / "distraction-space.lua").exists())
+        with patch.object(setup, "sync_hypr", side_effect=AssertionError("set up again")):
+            self.assertEqual(self._core(), (0, ""))
+            rec = self._core_record()
+            rec["version"] = "0.0.1"
+            state.write_json(self.box.state_dir / "core.json", rec)
+            self.assertEqual(self._core(), (0, ""))
+        self.assertFalse((hypr / "distraction-space.lua").exists())
+        # Running setup again is the person changing their mind.
+        self.assertEqual(self._install(), (0, ""))
+        self.assertNotEqual(self._core_record()["outcome"], "removed")
+
+    def test_a_removal_from_before_3_5_5_is_not_undone(self):
+        """No record and no Hyprland file, but the config file holds an answer: setup ran and was removed."""
+        self._stock_hypr()
+        with patch.object(setup, "sync_hypr", side_effect=AssertionError("set up again")):
+            self.assertEqual(self._core(), (0, ""))
+        self.assertEqual(self._core_record()["outcome"], "removed")
+
+    def test_a_failed_core_setup_shows_in_status_and_is_not_retried(self):
+        self._fresh_install()
+        with patch.object(setup, "sync_slice", return_value=1):
+            rc, _err = self._core()
+        self.assertEqual(rc, 1)
+        self.assertEqual(self._core_record()["outcome"], "failed")
+        with patch("ds.state._listener_health", return_value="responsive"):
+            health = state.status()["health"]
+        self.assertEqual(health["state"], "degraded")
+        self.assertTrue(any("distractions setup" in r and "enabl" in r.lower() for r in health["reasons"]),
+                        health["reasons"])
+        with patch.object(setup, "sync_hypr", side_effect=AssertionError("retried")):
+            self.assertEqual(self._core(), (0, ""))
+        # A setup run by hand clears it.
+        self._cfg()
+        self.assertEqual(self._install(), (0, ""))
+        with patch("ds.state._listener_health", return_value="responsive"):
+            reasons = state.status()["health"]["reasons"]
+        self.assertFalse(any("enabl" in r.lower() for r in reasons), reasons)
+
+    def test_a_listener_that_does_not_start_is_a_failure(self):
+        self._fresh_install()
+        with patch.object(setup, "_spawn_listener", return_value=False):
+            self.assertEqual(self._core()[0], 1)
+        self.assertEqual(self._core_record()["outcome"], "failed")
+
+    def test_unanswered_links_read_as_a_choice_still_to_make(self):
+        self._fresh_install()
+        self.assertEqual(self._core()[0], 0)
+        with patch("ds.state._listener_health", return_value="responsive"):
+            links = state.status()["health"]["services"]["links"]
+        self.assertNotIn("Saved on", links["reason"])
+        self.assertIn("distractions setup", links["reason"])
+
+    def test_the_cli_takes_setup_core(self):
+        spec = __import__("importlib.util").util.spec_from_loader("distractions_cli", loader=None)
+        cli = __import__("importlib.util").util.module_from_spec(spec)
+        exec(compile((ROOT / "distractions").read_text(encoding="utf-8"), str(ROOT / "distractions"), "exec"),
+             cli.__dict__)
+        args = cli.build_parser().parse_args(["setup", "--core"])
+        with patch.object(setup, "install_core", return_value=0) as core, \
+             patch.object(setup, "install", side_effect=AssertionError("full setup")):
+            self.assertEqual(setup.cmd_setup(args), 0)
+        core.assert_called_once()
+
+    @unittest.skipUnless(LUA, "no lua interpreter")
+    def test_the_hypr_file_does_nothing_once_the_plugin_folder_is_gone(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        lua_file = hypr / "distraction-space.lua"
+        helpers = self.box.runtime / "omarchy-helpers-gone.lua"
+        helpers.write_text(
+            "hl = { dsp = { window = { move = function(spec) return 'move' end } } }\n"
+            "function hl.workspace_rule(spec) io.write('workspace_rule\\n') end\n"
+            "function hl.unbind(key) io.write('unbind ', key, '\\n') end\n"
+            "o = {}\n"
+            "function o.bind(key, label, cmd) io.write('bind ', key, '\\n') end\n"
+            "function o.exec_on_start(cmd) io.write('exec\\n') end\n",
+            encoding="utf-8",
+        )
+        plugin = self.box.home / ".config" / "omarchy" / "plugins" / setup.PLUGIN_ID
+
+        def evaluate():
+            proc = subprocess.run(
+                [LUA, "-e", f'dofile({json.dumps(str(helpers))}); dofile({json.dumps(str(lua_file))})'],
+                capture_output=True, text=True, env={**os.environ, "HOME": str(self.box.home)},
+            )
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return proc.stdout
+
+        self.assertEqual(evaluate(), "")
+        plugin.mkdir(parents=True)
+        (plugin / "distractions").write_text("#!/bin/sh\n", encoding="utf-8")
+        out = evaluate()
+        self.assertIn("unbind SUPER + TAB", out)
+        self.assertIn("exec", out)
+
 
 if __name__ == "__main__":
     unittest.main()

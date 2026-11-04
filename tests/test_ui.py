@@ -707,6 +707,18 @@ class UiTests(unittest.TestCase):
         self.assertRegex(qml, r'\[root\.helperPath, "status", "--json"\]')
         self.assertIn("onFileChanged: root.refresh()", qml)
 
+    def test_bar_widget_sets_up_the_core_on_its_first_load_detached(self):
+        """Omarchy's installer runs no plugin code; the widget's load is the standard path's one hook.
+
+        Detached, because setup may restart the shell that loaded the widget, and
+        `setup --core` itself decides whether there is anything to do.
+        """
+        qml = (ROOT / "BarWidget.qml").read_text(encoding="utf-8")
+        self.assertRegex(qml, r'Quickshell\.execDetached\(\[root\.helperPath, "setup", "--core"\]\)')
+        completed = qml[qml.index("Component.onCompleted"):]
+        self.assertLess(completed.index('"--core"'), completed.index("root.refresh()"))
+        self.assertNotRegex(qml, r'actionProcess[^\n]*"--core"')
+
 
 if __name__ == "__main__":
     unittest.main()
