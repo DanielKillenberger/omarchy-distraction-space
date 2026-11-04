@@ -126,9 +126,23 @@ FALLBACK = "import os, sys\nif 'BROWSER' in os.environ:\n    sys.exit(3)\n" + LO
 XDG_SETTINGS = r"""
 import os, sys
 if sys.argv[1:3] == ["get", "default-web-browser"]:
+    # With XDG_CURRENT_DESKTOP cleared the tool reads mimeapps.list alone, below a
+    # desktop-specific list such as Omarchy 4.0.6's link router.
+    if os.environ.get("XDG_CURRENT_DESKTOP") == "" and "DS_XDG_BROWSER_GENERIC" in os.environ:
+        print(os.environ["DS_XDG_BROWSER_GENERIC"])
+        sys.exit(0)
     print(os.environ.get("DS_XDG_BROWSER", "google-chrome.desktop"))
     sys.exit(0)
 sys.exit(1)
+"""
+
+# Omarchy's resolver behind its link router: DS_XDG_ROUTED when set, else the
+# mimeapps.list answer, never the router itself.
+OMARCHY_RESOLVER = r"""
+import os
+found = os.environ.get("DS_XDG_ROUTED", os.environ.get("DS_XDG_BROWSER_GENERIC", ""))
+if found and found != "omarchy-browser.desktop":
+    print(found)
 """
 
 # `xdg-mime query default x-scheme-handler/<scheme>` answers from DS_XDG_MIME
@@ -215,6 +229,7 @@ class LaunchTests(unittest.TestCase):
         self.box.fake_bin("firefox-fake", LOGGER % "DS_FORWARD_LOG")
         self.box.fake_bin("omarchy-notification-send", LOGGER % "DS_NOTIFY_LOG")
         self.box.fake_bin("xdg-settings", XDG_SETTINGS)
+        self.box.fake_bin("omarchy-cmd-default-browser", OMARCHY_RESOLVER)
         self.mime_log = self.box.runtime / "xdg-mime.log"
         self.handoff_log = self.box.runtime / "handoff.log"
         os.environ.update({"DS_XDG_MIME_LOG": str(self.mime_log), "DS_HANDOFF_LOG": str(self.handoff_log)})
@@ -308,6 +323,28 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self._wait_lines(self.forward_log, 1), [["firefox-fake", "https://example.com/p?q=1"]])
         self.assertEqual(len(self._lines(self.run_log)), 1)
+
+    def test_a_link_never_loops_through_omarchys_link_router(self):
+        # Omarchy 4.0.6's router entry runs omarchy-launch-browser, which opens the
+        # default from mimeapps.list. With the plugin there, forwarding to the router
+        # would hand the link straight back: nothing is launched, one line, exit 1.
+        self._desktop("omarchy-browser", "omarchy-launch-browser %U")
+        self._desktop("my-router", "omarchy-launch-browser %U")
+        routed = {"DS_XDG_BROWSER": "omarchy-browser.desktop", "DS_XDG_BROWSER_GENERIC": launch.HANDLER_ID}
+        for record in ("omarchy-browser.desktop", "my-router.desktop"):
+            with self.subTest(record=record):
+                state.write_entries({"files": [], "previous_handler": record})
+                r = self.box.run("open", "https://example.com/", extra_env=routed)
+                self.assertEqual(r.returncode, 1)
+                self.assertEqual(len(r.stderr.splitlines()), 1, r.stderr)
+                self.assertIn("would resolve to this plugin again", r.stderr)
+        self.assertFalse(self.forward_log.exists())
+        self.assertFalse(self.run_log.exists())
+        # With a real browser below the router, the router is how the link gets there.
+        r = self.box.run("open", "https://example.com/", extra_env={"DS_XDG_BROWSER": "omarchy-browser.desktop",
+                                                                    "DS_XDG_BROWSER_GENERIC": "google-chrome.desktop"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._wait_lines(self.forward_log, 1), [["omarchy-launch-browser", "https://example.com/"]])
 
     def test_unusable_previous_handler_falls_back_with_browser_dropped(self):
         # Nothing recorded, the plugin's own id, another id whose entry is the plugin's

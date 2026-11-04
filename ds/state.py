@@ -229,7 +229,10 @@ def read_entries():
         backup = item.get("backup")
         files.append({"path": item["path"], "backup": backup if isinstance(backup, str) and backup else None})
     previous = data.get("previous_handler")
-    return {"files": files, "previous_handler": previous if isinstance(previous, str) and previous else None}
+    # 3.5.4 could record Omarchy's link router here; it is never a browser to hand links to.
+    if not isinstance(previous, str) or not previous or previous == "omarchy-browser.desktop":
+        previous = None
+    return {"files": files, "previous_handler": previous}
 
 
 def write_entries(obj):

@@ -174,7 +174,16 @@ if os.environ.get("BROWSER"):
     sys.stderr.write("xdg-settings: $BROWSER is set and can't be changed with xdg-settings\n")
     sys.exit(4)
 store = Path(os.environ["DS_XDG_DEFAULT"])
+# A desktop-specific list (Omarchy 4.0.6's hyprland-mimeapps.list) is read first
+# while XDG_CURRENT_DESKTOP names a desktop. The real `set` then writes
+# mimeapps.list, reads the desktop list back, reverts only http and exits 4:
+# the store is left holding the target, as text/html and https really are.
+desk = os.environ.get("DS_XDG_DESKTOP_DEFAULT")
+desktop = bool(os.environ.get("XDG_CURRENT_DESKTOP")) and desk and Path(desk).exists()
 if args == ["get", "default-web-browser"]:
+    if desktop:
+        print(Path(desk).read_text().strip().split(";")[0])
+        sys.exit(0)
     if not store.exists():
         sys.exit(2)
     print(store.read_text().strip())
@@ -185,8 +194,28 @@ if args[:2] == ["set", "default-web-browser"] and len(args) == 3:
         sys.stderr.write("xdg-settings: failed to set default browser\n")
         sys.exit(rc)
     store.write_text(args[2] + "\n")
+    if desktop and Path(desk).read_text().strip().split(";")[0] != args[2]:
+        sys.exit(4)
     sys.exit(0)
 sys.exit(1)
+"""
+
+# omarchy-cmd-default-browser as Omarchy 4.0.6 writes it: the desktop-specific list
+# first, each entry in order, then mimeapps.list (the store), skipping the router,
+# then the https handler (DS_XDG_HTTPS). Never the real one.
+OMARCHY_RESOLVER = r"""
+import os, sys
+from pathlib import Path
+lists = [os.environ.get("DS_XDG_DESKTOP_DEFAULT"), os.environ["DS_XDG_DEFAULT"]]
+for name in lists:
+    if name and Path(name).exists():
+        for entry in Path(name).read_text().strip().split(";"):
+            if entry and entry != "omarchy-browser.desktop":
+                print(entry)
+                sys.exit(0)
+https = os.environ.get("DS_XDG_HTTPS")
+if https and https != "omarchy-browser.desktop":
+    print(https)
 """
 
 UPDATE_DESKTOP_DATABASE = r"""
@@ -295,7 +324,7 @@ class SetupTests(unittest.TestCase):
         self.xdg_default.write_text("google-chrome.desktop\n", encoding="utf-8")
         self.xdg_log = self.box.runtime / "xdg.log"
         self.udd_log = self.box.runtime / "udd.log"
-        saved = {k: os.environ.get(k) for k in ("XDG_DATA_HOME", "DS_XDG_DEFAULT", "DS_XDG_LOG", "DS_UDD_LOG", "DS_XDG_SET_RC")}
+        saved = {k: os.environ.get(k) for k in ("XDG_DATA_HOME", "DS_XDG_DEFAULT", "DS_XDG_LOG", "DS_UDD_LOG", "DS_XDG_SET_RC", "DS_XDG_DESKTOP_DEFAULT", "XDG_CURRENT_DESKTOP", "DS_XDG_HTTPS")}
 
         def restore():
             for k, v in saved.items():
@@ -310,7 +339,10 @@ class SetupTests(unittest.TestCase):
             DS_XDG_LOG=str(self.xdg_log), DS_UDD_LOG=str(self.udd_log),
         )
         os.environ.pop("DS_XDG_SET_RC", None)
+        os.environ.pop("DS_XDG_DESKTOP_DEFAULT", None)
+        os.environ.pop("DS_XDG_HTTPS", None)
         self.box.fake_bin("xdg-settings", XDG_SETTINGS)
+        self.box.fake_bin("omarchy-cmd-default-browser", OMARCHY_RESOLVER)
         self.box.fake_bin("update-desktop-database", UPDATE_DESKTOP_DATABASE)
         self._cfg()
         # Every setup run prints the link choice; `_install` captures its own.
@@ -1024,6 +1056,127 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(self._install(), (0, ""))
         self.assertEqual(self._default(), setup.HANDLER_ID)
         self.assertEqual(self._links(), "on")
+
+    def _omarchy_routes_links(self, handler="omarchy-browser.desktop"):
+        """Omarchy 4.0.6: a Hyprland list read before mimeapps.list names its link router."""
+        desk = self.box.runtime / "hyprland-default"
+        desk.write_text(handler + "\n", encoding="utf-8")
+        os.environ.update(DS_XDG_DESKTOP_DEFAULT=str(desk), XDG_CURRENT_DESKTOP="Hyprland")
+        return desk
+
+    def test_omarchy_link_router_takes_the_handler_below_it(self):
+        desk = self._omarchy_routes_links()
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        self.assertEqual(self._links(), "on")
+        self.assertEqual(self._entries()["previous_handler"], "google-chrome.desktop")
+        self.assertEqual(setup.default_handler(), (True, setup.HANDLER_ID))
+        # Omarchy's own list is never written.
+        self.assertEqual(desk.read_text(encoding="utf-8"), "omarchy-browser.desktop\n")
+        # Switching links off hands the browser back below the router, never the router itself.
+        self._cfg(open_links_in_space=False)
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        self.assertEqual(self._links(), "off")
+
+    def test_the_link_router_is_never_the_previous_browser(self):
+        # 3.5.4 recorded Omarchy's router as the browser it displaced.
+        state.write_entries({"files": [], "previous_handler": "omarchy-browser.desktop"})
+        self.assertIsNone(state.read_entries()["previous_handler"])
+        self._omarchy_routes_links()
+        self.xdg_default.write_text("omarchy-browser.desktop\n", encoding="utf-8")
+        # Every layer names the router and nothing else resolves: nothing says which
+        # browser is real, so nothing changes.
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertIn("displaced", err)
+        self.assertFalse(any(ln.startswith("set ") for ln in self._xdg_lines()))
+        self.assertIsNone(self._entries()["previous_handler"])
+
+    def test_a_failed_3_5_4_setup_is_repaired(self):
+        # What 3.5.4's setup left under Omarchy 4.0.6: the router recorded as the
+        # previous browser, and mimeapps.list's http entry put back to the router.
+        self._omarchy_routes_links()
+        self.xdg_default.write_text("omarchy-browser.desktop\n", encoding="utf-8")
+        for https, expected in (("google-chrome.desktop", "google-chrome.desktop"),
+                                # https left on the plugin: the browser that ran the profile is the one displaced
+                                (setup.HANDLER_ID, "google-chrome.desktop")):
+            with self.subTest(https=https):
+                state.write_entries({"files": [], "previous_handler": "omarchy-browser.desktop"})
+                self.xdg_default.write_text("omarchy-browser.desktop\n", encoding="utf-8")
+                os.environ["DS_XDG_HTTPS"] = https
+                state.write_profile_browser("/usr/bin/google-chrome-stable")
+                (self.apps / "google-chrome.desktop").write_text(
+                    "[Desktop Entry]\nType=Application\nName=Google Chrome\nExec=/usr/bin/google-chrome-stable %U\n"
+                    "MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;\n",
+                    encoding="utf-8")
+                self.assertEqual(self._install(), (0, ""))
+                self.assertEqual(self._default(), setup.HANDLER_ID)
+                self.assertEqual(self._links(), "on")
+                self.assertEqual(self._entries()["previous_handler"], expected)
+
+    def test_links_off_hands_back_the_recovered_browser_on_the_first_run(self):
+        """PR #51 review: a 3.5.4 half-write with links switched off restores the real browser at once."""
+        self._omarchy_routes_links()
+        state.write_entries({"files": [], "previous_handler": "omarchy-browser.desktop"})
+        state.write_profile_browser("/usr/bin/google-chrome-stable")
+        (self.apps / "google-chrome.desktop").write_text(
+            "[Desktop Entry]\nType=Application\nName=Google Chrome\nExec=/usr/bin/google-chrome-stable %U\n"
+            "MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;\n",
+            encoding="utf-8")
+        self.xdg_default.write_text(setup.HANDLER_ID + "\n", encoding="utf-8")
+        os.environ["DS_XDG_HTTPS"] = setup.HANDLER_ID
+        self._cfg(open_links_in_space=False)
+        rc, err = self._install()
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("no previous default browser", err)
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        self.assertEqual(self._links(), "off")
+
+    def test_a_web_app_shortcut_is_never_recovered_as_the_browser(self):
+        """PR #51 review: a Chromium app shortcut runs the browser's binary and sorts first."""
+        for name, body in (
+            ("chrome-app-Default.desktop",
+             "Exec=/usr/bin/google-chrome-stable --profile-directory=Default --app-id=abcdef\n"),
+            ("a-app-url.desktop", "Exec=/usr/bin/google-chrome-stable --app=https://example.com\n"),
+            ("b-no-links.desktop", "Exec=/usr/bin/google-chrome-stable %U\nMimeType=text/plain;\n"),
+        ):
+            (self.apps / name).write_text(f"[Desktop Entry]\nType=Application\nName={name}\n{body}",
+                                          encoding="utf-8")
+        (self.apps / "google-chrome.desktop").write_text(
+            "[Desktop Entry]\nType=Application\nName=Google Chrome\nExec=/usr/bin/google-chrome-stable %U\n"
+            "MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;\n",
+            encoding="utf-8")
+        self.assertEqual(launch.desktop_id_for_binary("/usr/bin/google-chrome-stable"), "google-chrome.desktop")
+        # Without the browser's own entry here, none of the shortcuts stands in for it
+        # (a system-wide entry on the test host may still answer).
+        (self.apps / "google-chrome.desktop").unlink()
+        self.assertNotIn(launch.desktop_id_for_binary("/usr/bin/google-chrome-stable"),
+                         ("chrome-app-Default.desktop", "a-app-url.desktop", "b-no-links.desktop"))
+
+    def test_a_browser_after_the_router_is_left_alone(self):
+        # Omarchy's resolver takes the next entry after its router in the Hyprland
+        # list before it ever reads mimeapps.list, so a write there changes nothing.
+        desk = self._omarchy_routes_links("omarchy-browser.desktop;firefox.desktop;")
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertIn("displaced", err)
+        self.assertFalse(any(ln.startswith("set ") for ln in self._xdg_lines()))
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        self.assertEqual(self._links(), "displaced")
+        self.assertEqual(setup.default_handler(), (True, "firefox.desktop"))
+        self.assertEqual(desk.read_text(encoding="utf-8"), "omarchy-browser.desktop;firefox.desktop;\n")
+
+    def test_a_browser_pinned_for_the_desktop_is_left_alone(self):
+        # A Hyprland list naming a real browser outranks mimeapps.list; setting the
+        # default underneath it would half-write mimeapps.list and change nothing.
+        desk = self._omarchy_routes_links("firefox.desktop")
+        rc, err = self._install()
+        self.assertEqual(rc, 0)
+        self.assertIn("displaced", err)
+        self.assertFalse(any(ln.startswith("set ") for ln in self._xdg_lines()))
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        self.assertEqual(desk.read_text(encoding="utf-8"), "firefox.desktop\n")
 
     def test_handler_failure_leaves_links_displaced_and_setup_exits_0(self):
         os.environ["DS_XDG_SET_RC"] = "4"

@@ -33,6 +33,12 @@ from ds import catalog, cgroup, config, handoff, hypr, state, ui
 PROFILE = "Distraction"
 HANDLER_ID = "io.github.danielkillenberger.distraction-space.desktop"
 FALLBACK_FORWARDER = "omarchy-launch-browser"
+# Omarchy 4.0.6 names this entry for http and https in ~/.config/hyprland-mimeapps.list.
+# It runs FALLBACK_FORWARDER, which opens the default browser from mimeapps.list, so it
+# is never a browser of its own: never the default to report, never one to forward to.
+LINK_ROUTER = "omarchy-browser.desktop"
+# How omarchy-launch-browser picks the browser behind LINK_ROUTER.
+OMARCHY_RESOLVER = "omarchy-cmd-default-browser"
 CHROMIUM_FAMILY = ("google-chrome", "brave", "microsoft-edge", "opera", "vivaldi", "helium")
 DEFAULT_BROWSER_ID = "chromium.desktop"
 SCOPE_ARGV = ["systemd-run", "--user", "--scope", "--quiet", "--collect", f"--slice={cgroup.SLICE}", "--"]
@@ -458,17 +464,78 @@ def exec_argv(desktop_id, url=None, skip_own=False):
 # --- browser -----------------------------------------------------------------
 
 def _default_browser_id():
+    """The browser links open in, or "". Behind Omarchy's link router it is the one the router opens."""
     from ds.net import run_command
-    try:
-        env = dict(os.environ)
-        env.pop("BROWSER", None)  # xdg-settings refuses to answer while BROWSER is set; Omarchy exports it
-        r = run_command(
-            ["xdg-settings", "get", "default-web-browser"],
-            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, check=False, env=env,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return (r.stdout or "").strip() if r.returncode == 0 else ""
+    env = dict(os.environ)
+    env.pop("BROWSER", None)  # xdg-settings refuses to answer while BROWSER is set; Omarchy exports it
+    steps = (["xdg-settings", "get", "default-web-browser"], [OMARCHY_RESOLVER],
+             ["xdg-settings", "get", "default-web-browser"])
+    for n, argv in enumerate(steps):
+        if n == 2:
+            env["XDG_CURRENT_DESKTOP"] = ""  # no resolver: mimeapps.list alone
+        try:
+            r = run_command(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10,
+                            check=False, env=env)
+        except FileNotFoundError:
+            continue
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        found = (r.stdout or "").strip() if r.returncode == 0 else ""
+        if found != LINK_ROUTER:
+            return found
+        if n == 1:
+            return ""
+    return ""
+
+
+def desktop_id_for_binary(binary):
+    """The id of the first desktop entry, nearest share dir first, whose command is `binary`; None when none is.
+
+    Neither this plugin's handler nor Omarchy's link router is ever the answer, and
+    only a browser is: the entry has to take http or https links (`MimeType`) and
+    must not launch an app. A Chromium web-app shortcut runs the same binary with
+    `--app-id`, and recovered as the previous browser it would open every
+    unlisted link as that app (PR #51 review).
+    """
+    name = Path(binary).name
+    for d in _share_dirs():
+        apps = d / "applications"
+        try:
+            paths = sorted(p for p in apps.iterdir() if p.name.endswith(".desktop"))
+        except OSError:
+            continue
+        for path in paths:
+            if path.name in (HANDLER_ID, LINK_ROUTER):
+                continue
+            argv = parse_exec(read_exec(path))
+            if not argv or Path(argv[0]).name != name:
+                continue
+            if any(a == "--app" or a.startswith(("--app=", "--app-id")) for a in argv[1:]):
+                continue
+            mimes = {m.strip() for m in (_main_key(path, "MimeType") or "").split(";")}
+            if mimes & {"x-scheme-handler/http", "x-scheme-handler/https"}:
+                return path.name
+    return None
+
+
+def _main_key(path, key):
+    """The raw value of `key` in the `[Desktop Entry]` group, or None."""
+    data = state.read_bounded(path)
+    if data is None:
+        return None
+    line_re = re.compile(r"^\s*" + re.escape(key) + r"\s*=\s*(.*?)\s*$")
+    in_main = False
+    for line in data.decode("utf-8", errors="replace").splitlines():
+        stripped = line.strip()
+        if stripped.startswith("[") and stripped.endswith("]"):
+            if in_main:
+                return None
+            in_main = stripped == "[Desktop Entry]"
+            continue
+        m = line_re.match(line) if in_main else None
+        if m:
+            return m.group(1)
+    return None
 
 
 def pick_browser(cfg):
@@ -813,7 +880,11 @@ def forward(url=None, flags=(), app=False):
     argv, env = None, _forward_env()
     if handler and handler != HANDLER_ID:
         argv = exec_argv(handler, None if app else url, skip_own=True)
-        if argv is None:
+        if argv is not None and Path(argv[0]).name == FALLBACK_FORWARDER:
+            # A router in front of the default browser, as Omarchy's own entry is: it
+            # resolves the default again, so the check below decides whether to use it.
+            argv = None
+        elif argv is None:
             _log(f"{handler} has no usable Exec line; forwarding through {FALLBACK_FORWARDER}")
     if argv is None:
         if _default_browser_id() == HANDLER_ID:
