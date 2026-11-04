@@ -2723,6 +2723,10 @@ class SetupTests(unittest.TestCase):
         hypr = self._stock_hypr()
         self.assertEqual(self._install(), (0, ""))
         lua_file = hypr / "distraction-space.lua"
+        # The file is inert without the plugin folder; here the plugin is installed.
+        plugin = Path(os.environ["HOME"]) / ".config" / "omarchy" / "plugins" / setup.PLUGIN_ID
+        plugin.mkdir(parents=True)
+        (plugin / "distractions").write_text("#!/bin/sh\n", encoding="utf-8")
         helpers = self.box.runtime / "omarchy-helpers.lua"
         helpers.write_text(
             "hl = { dsp = { window = { move = function(spec) return 'move' end } } }\n"
@@ -2814,11 +2818,20 @@ class SetupTests(unittest.TestCase):
         with patch.object(setup, "sync_hypr", side_effect=AssertionError("ran again")):
             self.assertEqual(self._core(), (0, ""))
         self.assertEqual(self.spawned, [1])
+        # A core set up under an earlier version is in place: an update leaves it be.
         rec = self._core_record()
         rec["version"] = "0.0.1"
         state.write_json(self.box.state_dir / "core.json", rec)
-        self.assertEqual(self._core()[0], 0)
+        with patch.object(setup, "sync_hypr", side_effect=AssertionError("ran again")):
+            self.assertEqual(self._core(), (0, ""))
         self.assertEqual(self._core_record()["version"], setup.plugin_version())
+        self.assertEqual(self.spawned, [1])
+        # One that failed under an earlier version is tried again, once, by the new one.
+        rec = self._core_record()
+        rec.update(version="0.0.1", outcome="failed")
+        state.write_json(self.box.state_dir / "core.json", rec)
+        self.assertEqual(self._core()[0], 0)
+        self.assertEqual(self._core_record()["outcome"], "ok")
         self.assertEqual(self.spawned, [1, 1])
 
     def test_a_setup_that_restarts_the_shell_does_not_set_up_again(self):
@@ -2917,6 +2930,11 @@ class SetupTests(unittest.TestCase):
     def test_unanswered_links_read_as_a_choice_still_to_make(self):
         self._fresh_install()
         self.assertEqual(self._core()[0], 0)
+        # What the listener reports once it is running: routing off, just now.
+        st = state.read_state() or {}
+        now = time.strftime("%Y-%m-%dT%H:%M:%S+00:00", time.gmtime())
+        st.update(links="off", observed_at={**(st.get("observed_at") or {}), "links": now})
+        state.write_json(self.box.state_dir / "state.json", st)
         with patch("ds.state._listener_health", return_value="responsive"):
             links = state.status()["health"]["services"]["links"]
         self.assertNotIn("Saved on", links["reason"])
@@ -2925,6 +2943,7 @@ class SetupTests(unittest.TestCase):
     def test_the_cli_takes_setup_core(self):
         spec = __import__("importlib.util").util.spec_from_loader("distractions_cli", loader=None)
         cli = __import__("importlib.util").util.module_from_spec(spec)
+        cli.__dict__["__file__"] = str(ROOT / "distractions")
         exec(compile((ROOT / "distractions").read_text(encoding="utf-8"), str(ROOT / "distractions"), "exec"),
              cli.__dict__)
         args = cli.build_parser().parse_args(["setup", "--core"])

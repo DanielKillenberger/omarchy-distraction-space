@@ -123,7 +123,14 @@ BarWidget {
     onTriggered: root.refresh()
   }
 
-  Component.onCompleted: root.refresh()
+  // Omarchy's installer runs no plugin code, so this load is the standard path's
+  // one hook: `setup --core` sets up what needs no answer and no password, once per
+  // version, and otherwise does nothing (set up already, removed by choice, or
+  // tried and failed, which status reports). Detached, because it may restart this shell.
+  Component.onCompleted: {
+    Quickshell.execDetached([root.helperPath, "setup", "--core"])
+    root.refresh()
+  }
 
   BarIconButton {
     id: button

@@ -14,11 +14,15 @@ Optional: one agent CLI (`claude`, `grok`, `codex`, `gemini`, `opencode`, or `co
 
 ```bash
 omarchy plugin add https://github.com/DanielKillenberger/omarchy-distraction-space.git --enable
-chmod +x ~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions
+```
+
+That is the whole install. Omarchy's installer runs no plugin code, so the bar widget does it on its first load: it runs `distractions setup --core`, which installs everything below that needs neither an answer nor a password (the slice, the WirePlumber hook, the Hyprland file, the launcher entries with links off, and the notification clone) and starts the listener. Both questions stay unanswered and nothing calls sudo. Status and the bar's tooltip name each open choice, and `distractions setup` asks them:
+
+```bash
 ~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions setup
 ```
 
-That is the whole install: the add command and one setup run. Then log out and back in once, or start the listener by hand, because Hyprland runs autostart lines only at login. Autostart owns the long-running listener; `distractions listen` starts it now without logging out.
+The widget does this once per plugin version and never in a loop. `core.json` in the state directory records the outcome for this version before anything can restart the shell, and a second bar's widget waits its turn behind a lock. An install that already ran `setup` is left exactly as it is. A run that fails is not retried on every load: status reports it as degraded, with the first error and `distractions setup` as the retry, and the next plugin version tries once more. After `setup --remove` the widget sets nothing up again until you run `setup` yourself. Hyprland's autostart starts the listener at every later login.
 
 ### Links from other apps
 
@@ -72,7 +76,7 @@ A 3.x install that pasted the three snippets by hand is left as it is: setup rep
 omarchy plugin remove io.github.danielkillenberger.distraction-space
 ```
 
-`setup --remove` first ends a running listener and waits for it, and removes nothing if it cannot. It then hands the default browser back to the one it recorded, deletes exactly the launcher and handler files in `entries.json` and moves every backup home, Omarchy's web-app entries included, deletes the marked Hyprland line and the file setup wrote (an edited file is moved into `hypr-backup/` under the state directory, and remove prints where it went), destroys the nft table, stops and deletes the slice unit, deletes the WirePlumber hook and restarts WirePlumber, removes the wrapper, the sudoers grant, and that record with sudo, and removes the notification-service clone it created. At the slice unit and the two WirePlumber paths it deletes a plain file and nothing else: a symlink standing where one of them was, or anything else that is not a plain file, is left alone and named, and a fragment left that way keeps its script with it, because the feature that fragment still asks for would otherwise have no script to load. The browser profile at `~/.local/share/omarchy/distraction-space/browser` stays, and remove prints its path so you can delete it yourself. Run it before `omarchy plugin remove`, because the plugin directory holds the script that does the removing.
+`setup --remove` first ends a running listener and waits for it, and removes nothing if it cannot. It then hands the default browser back to the one it recorded, deletes exactly the launcher and handler files in `entries.json` and moves every backup home, Omarchy's web-app entries included, deletes the marked Hyprland line and the file setup wrote (an edited file is moved into `hypr-backup/` under the state directory, and remove prints where it went), destroys the nft table, stops and deletes the slice unit, deletes the WirePlumber hook and restarts WirePlumber, removes the wrapper, the sudoers grant, and that record with sudo, and removes the notification-service clone it created. At the slice unit and the two WirePlumber paths it deletes a plain file and nothing else: a symlink standing where one of them was, or anything else that is not a plain file, is left alone and named, and a fragment left that way keeps its script with it, because the feature that fragment still asks for would otherwise have no script to load. The browser profile at `~/.local/share/omarchy/distraction-space/browser` stays, and remove prints its path so you can delete it yourself. Run it before `omarchy plugin remove`, because the plugin directory holds the script that does the removing. A plugin removed without it leaves its files inert: the Hyprland file checks that the plugin's `distractions` exists before anything else, so it binds nothing, unbinds nothing (Super+Tab keeps Omarchy's own binding) and starts nothing. Add the plugin back and run `setup --remove` to take the files away.
 
 ## What it does
 

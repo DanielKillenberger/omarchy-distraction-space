@@ -123,6 +123,40 @@ def read_json(path, default=None):
 HYPR_SYNC_STATES = ("written", "edited", "linked", "pasted", "skipped")
 
 
+CORE_RECORD = "core.json"
+# What `setup --core` (the widget's load) last decided for a version: it set the core
+# up, found it set up already, found setup removed by choice, failed, or is running.
+# `setup` run by hand writes "setup"; `setup --remove` writes "removed".
+CORE_OUTCOMES = ("ok", "existing", "removed", "failed", "running", "setup")
+
+
+def core_setup():
+    """setup's core record, `{"version": str|None, "outcome": <CORE_OUTCOMES>, "detail": str}`, or None."""
+    raw = read_json(state_path(CORE_RECORD), None)
+    if not isinstance(raw, dict) or raw.get("outcome") not in CORE_OUTCOMES:
+        return None
+    version = raw.get("version")
+    detail = raw.get("detail")
+    return {"version": version if isinstance(version, str) else None, "outcome": raw["outcome"],
+            "detail": detail if isinstance(detail, str) else ""}
+
+
+def _core_running() -> bool:
+    """Whether a `setup --core` holds its lock right now; a "running" record without one was cut short."""
+    import fcntl
+    try:
+        fd = os.open(state_path("core.lock"), os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    except OSError:
+        return False
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return False
+    except OSError:
+        return True
+    finally:
+        os.close(fd)
+
+
 def hypr_sync():
     """The `sync` note setup leaves in hypr.json, `{"state": <HYPR_SYNC_STATES>, "detail": str}`, or None."""
     raw = read_json(state_path("hypr.json"), None)
@@ -326,6 +360,14 @@ def _site_block_not_set_up(cfg) -> bool:
     return cfg is not None and cfg["site_block"]["enabled"] and not setup.helper_installed()
 
 
+def _links_answered():
+    from ds import config
+    try:
+        return config.links_answered()
+    except Exception:
+        return True
+
+
 def _health(st, cfg, listener, on_space, locked):
     from ds import setup
     observed = st.get("observed_at")
@@ -378,6 +420,10 @@ def _health(st, cfg, listener, on_space, locked):
             kind, reason = "displaced", "Browser routing changed. Run distractions setup to apply your choice."
         elif value not in ("on", "off") or expected is None:
             kind, reason = "unknown", "No usable observation of the expected behavior."
+        elif key == "links" and value == "off" and not _links_answered():
+            # Enabling the plugin set up the core and left this choice to the person.
+            kind = "pending"
+            reason = "Not chosen yet. Run distractions setup to choose."
         elif value != expected:
             kind = "pending"
             reason = ("Saved on, but routing is off. Run distractions setup to apply your choice." if key == "links"
@@ -404,6 +450,14 @@ def _health(st, cfg, listener, on_space, locked):
         services["hyprland"] = {"state": kind, "enabled": True, "reason": reason,
                                 "observed_at": None, "age_seconds": None}
         reasons.append(f"Hyprland config: {reason}")
+    core = core_setup()
+    if core is not None and (core["outcome"] == "failed" or (core["outcome"] == "running" and not _core_running())):
+        # The widget's setup on enable is not retried on every load; this is where it says so.
+        why = core["detail"] or "it stopped before it finished"
+        reason = f"Setup on enable did not finish: {why}. Retry with: distractions setup"
+        services["core"] = {"state": "pending", "enabled": True, "reason": reason,
+                            "observed_at": None, "age_seconds": None}
+        reasons.append(reason)
     kinds = {item["state"] for item in services.values()}
     overall = ("degraded" if listener != "responsive" or kinds & {"pending", "unavailable", "displaced"}
                else "unknown" if kinds & {"unknown", "stale"} else "healthy")
