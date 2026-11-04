@@ -33,6 +33,10 @@ from ds import catalog, cgroup, config, handoff, hypr, state, ui
 PROFILE = "Distraction"
 HANDLER_ID = "io.github.danielkillenberger.distraction-space.desktop"
 FALLBACK_FORWARDER = "omarchy-launch-browser"
+# Omarchy 4.0.6 names this entry for http and https in ~/.config/hyprland-mimeapps.list.
+# It runs FALLBACK_FORWARDER, which opens the default browser from mimeapps.list, so it
+# is never a browser of its own: never the default to report, never one to forward to.
+LINK_ROUTER = "omarchy-browser.desktop"
 CHROMIUM_FAMILY = ("google-chrome", "brave", "microsoft-edge", "opera", "vivaldi", "helium")
 DEFAULT_BROWSER_ID = "chromium.desktop"
 SCOPE_ARGV = ["systemd-run", "--user", "--scope", "--quiet", "--collect", f"--slice={cgroup.SLICE}", "--"]
@@ -458,17 +462,25 @@ def exec_argv(desktop_id, url=None, skip_own=False):
 # --- browser -----------------------------------------------------------------
 
 def _default_browser_id():
+    """The browser links open in, or "". Below Omarchy's link router it is the one in mimeapps.list."""
     from ds.net import run_command
-    try:
-        env = dict(os.environ)
-        env.pop("BROWSER", None)  # xdg-settings refuses to answer while BROWSER is set; Omarchy exports it
-        r = run_command(
-            ["xdg-settings", "get", "default-web-browser"],
-            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, check=False, env=env,
-        )
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-    return (r.stdout or "").strip() if r.returncode == 0 else ""
+    env = dict(os.environ)
+    env.pop("BROWSER", None)  # xdg-settings refuses to answer while BROWSER is set; Omarchy exports it
+    found = ""
+    for layer in (None, ""):
+        if layer is not None:
+            env["XDG_CURRENT_DESKTOP"] = layer  # read mimeapps.list, the list the router reads
+        try:
+            r = run_command(
+                ["xdg-settings", "get", "default-web-browser"],
+                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, check=False, env=env,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+        found = (r.stdout or "").strip() if r.returncode == 0 else ""
+        if found != LINK_ROUTER:
+            return found
+    return ""
 
 
 def pick_browser(cfg):
@@ -813,7 +825,11 @@ def forward(url=None, flags=(), app=False):
     argv, env = None, _forward_env()
     if handler and handler != HANDLER_ID:
         argv = exec_argv(handler, None if app else url, skip_own=True)
-        if argv is None:
+        if argv is not None and Path(argv[0]).name == FALLBACK_FORWARDER:
+            # A router in front of the default browser, as Omarchy's own entry is: it
+            # resolves the default again, so the check below decides whether to use it.
+            argv = None
+        elif argv is None:
             _log(f"{handler} has no usable Exec line; forwarding through {FALLBACK_FORWARDER}")
     if argv is None:
         if _default_browser_id() == HANDLER_ID:

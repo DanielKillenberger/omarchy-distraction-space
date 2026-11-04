@@ -1392,19 +1392,27 @@ def _backup_dir() -> Path:
     return state.state_path("entries-backup")
 
 
-def _xdg_env() -> dict[str, str]:
+LINK_ROUTER = launch.LINK_ROUTER
+
+
+def _xdg_env(generic: bool = False) -> dict[str, str]:
     """The environment for `xdg-settings`: the session's, minus `BROWSER`.
 
     Omarchy exports `BROWSER`, and `xdg-settings` refuses to change or even
     report the default browser while it is set (exit 4). Omarchy's own
     launcher drops the variable for the call; so does this plugin.
+
+    `generic` also clears `XDG_CURRENT_DESKTOP`, so the call reads and writes
+    `mimeapps.list` and not a desktop-specific list read before it.
     """
     env = dict(os.environ)
     env.pop("BROWSER", None)
+    if generic:
+        env["XDG_CURRENT_DESKTOP"] = ""
     return env
 
 
-def _xdg_settings(*args: str) -> tuple[int, str]:
+def _xdg_settings(*args: str, generic: bool = False) -> tuple[int, str]:
     """`xdg-settings` as the person, never through sudo. A missing tool answers like its own exit 3.
 
     `get` runs in the listener's reconciliation worker with a 5 s deadline; `set` runs from setup, rewrites mimeapps and the desktop cache, and on
@@ -1414,24 +1422,65 @@ def _xdg_settings(*args: str) -> tuple[int, str]:
     budget = 60 if args[:1] == ("set",) else 5
     try:
         proc = run_command(
-            ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=budget, env=_xdg_env(),
+            ["xdg-settings", *args], capture_output=True, text=True, check=False, timeout=budget, env=_xdg_env(generic),
         )
     except (OSError, subprocess.TimeoutExpired):
         return 3, ""
     return proc.returncode, (proc.stdout or "").strip()
 
 
-def default_handler() -> tuple[bool, str | None]:
-    """`(answered, id)`: the desktop id `xdg-settings` reports as the default browser.
+def _browser_layers() -> tuple[int, str, str | None]:
+    """`(rc, desktop, generic)`: the default browser as the session reads it, and underneath.
 
-    `answered` is False when the tool could not say. Nothing that depends on the
-    answer may then change the default or delete the file that holds it, since
-    there is no record to hand back.
+    `desktop` is what `xdg-settings` reports for this desktop. Omarchy 4.0.6
+    names its link router there (`~/.config/hyprland-mimeapps.list`), which runs
+    `omarchy-launch-browser`; the browser that script opens is the one in
+    `mimeapps.list`, so `generic` is read only then. Any other answer is the
+    default itself and `generic` is None.
     """
-    rc, out = _xdg_settings("get", "default-web-browser")
-    if rc != 0:
+    rc, desktop = _xdg_settings("get", "default-web-browser")
+    if rc != 0 or desktop != LINK_ROUTER:
+        return rc, desktop, None
+    rc, generic = _xdg_settings("get", "default-web-browser", generic=True)
+    return rc, desktop, generic
+
+
+def default_handler() -> tuple[bool, str | None]:
+    """`(answered, id)`: the desktop id of the browser links open in.
+
+    Below Omarchy's link router that is the browser the router hands links to.
+    `answered` is False when the tool could not say, or when the only answer is
+    the router itself. Nothing that depends on the answer may then change the
+    default or delete the file that holds it, since there is no record to hand
+    back.
+    """
+    rc, desktop, generic = _browser_layers()
+    out = desktop if generic is None else generic
+    if rc != 0 or out == LINK_ROUTER:
         return False, None
     return True, (out or None)
+
+
+def _set_default(target: str) -> int:
+    """Make `target` the browser links open in; the `xdg-settings` exit status.
+
+    Below Omarchy's link router the default is written to `mimeapps.list`,
+    which the router reads, and the router's own list is left alone. A
+    desktop-specific list that names any other browser outranks
+    `mimeapps.list`: a `set` there writes `mimeapps.list`, finds the other
+    browser still in front, puts back only http and exits 4, which leaves
+    https and text/html pointing at `target`. That case is refused before
+    anything is written.
+    """
+    rc, desktop, generic = _browser_layers()
+    if rc != 0:
+        return rc
+    if generic is not None:
+        return _xdg_settings("set", "default-web-browser", target, generic=True)[0]
+    rc, below = _xdg_settings("get", "default-web-browser", generic=True)
+    if rc == 0 and below and desktop and below != desktop:
+        return 4
+    return _xdg_settings("set", "default-web-browser", target)[0]
 
 
 def _owned_files(old: dict) -> list[dict] | None:
@@ -1748,7 +1797,7 @@ def _restore_handler(previous: str | None) -> bool:
     if not previous:
         print("no previous default browser is recorded; choose one with: xdg-settings set default-web-browser <id>.desktop", file=sys.stderr)
         return False
-    rc, _out = _xdg_settings("set", "default-web-browser", previous)
+    rc = _set_default(previous)
     if rc != 0:
         print(f"xdg-settings could not restore {previous} as the default browser (exit {rc})", file=sys.stderr)
         return False
@@ -1981,7 +2030,7 @@ def _sync_entries(exp: dict, cfg: dict) -> int:
         return 0
     rc = 0
     if handler != HANDLER_ID:
-        rc, _out = _xdg_settings("set", "default-web-browser", HANDLER_ID)
+        rc = _set_default(HANDLER_ID)
     if rc != 0:
         print(f"links: displaced -- xdg-settings could not make {HANDLER_ID} the default browser (exit {rc}); rerun: distractions setup", file=sys.stderr)
     _write_links("on" if rc == 0 else "displaced")
