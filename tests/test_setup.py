@@ -78,6 +78,13 @@ log.open("a").write(" ".join(entry) + "\n")
 if os.environ.get("DS_SUDO_DENY"):
     sys.exit(1)
 if is_wrapper_flush(args):
+    # The real wrapper reads stdin to the end before any command: a caller that
+    # hands it a terminal leaves it waiting. Two seconds stands in for forever.
+    import select
+    if not select.select([sys.stdin], [], [], 2)[0]:
+        sys.stderr.write("fake wrapper: still waiting for stdin\n")
+        sys.exit(7)
+    sys.stdin.buffer.read()
     err = os.environ.get("DS_FLUSH_ERR", "")
     if err:
         sys.stderr.write(err + "\n")
@@ -2943,6 +2950,27 @@ class SetupTests(unittest.TestCase):
         # A setup that is not a retry starts nothing.
         self.assertEqual(self._install(), (0, ""))
         self.assertEqual(self.spawned, [1])
+
+    def test_remove_from_a_terminal_does_not_wait_on_the_wrappers_stdin(self):
+        """Run from a terminal, the flush inherited a stdin that never ends, and remove hung."""
+        self._stock_hypr()
+        with patch("sys.stdin", Tty("")):
+            self.assertEqual(self._site_block(True)[0], 0)
+        self.assertTrue(self.wrapper.is_file())
+        read_end, write_end = os.pipe()
+        saved = os.dup(0)
+        os.dup2(read_end, 0)
+        try:
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                rc = setup.remove()
+        finally:
+            os.dup2(saved, 0)
+            for fd in (saved, read_end, write_end):
+                os.close(fd)
+        self.assertEqual(rc, 0, err.getvalue())
+        self.assertNotIn("still waiting for stdin", err.getvalue())
+        self.assertIn(f"-n {self.wrapper} flush ds", self._sudo_lines())
 
     def test_setup_and_remove_wait_for_a_setup_on_enable_under_way(self):
         hypr = self._stock_hypr()

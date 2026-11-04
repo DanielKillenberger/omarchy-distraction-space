@@ -26,6 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WRAPPER_DEFAULT = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
 SUDOERS_DEFAULT = "/etc/sudoers.d/omarchy-distraction-space"
 LISTENER_STOP_SECONDS = 15.0
+FLUSH_TIMEOUT_SECONDS = 30.0
 NOTIFICATIONS_SOURCE_DEFAULT = "/usr/share/omarchy/shell/plugins/notifications"
 CLONE_SOURCE_ID = "omarchy.notifications"
 PATCH = ROOT / "shell" / "notifications-silenced-senders.patch"
@@ -2649,13 +2650,22 @@ def _remove(destinations):
     root_half = wrapper.is_file() or _record_dest(wrapper).is_file()
     if root_half:
         # `flush ds` ends the block passwordless and needs no slice. The one rule it
-        # leaves goes with the rest of the root half below.
-        proc = subprocess.run(
-            ["sudo", "-n", str(wrapper), "flush", "ds"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        # leaves goes with the rest of the root half below. The wrapper reads its
+        # stdin to the end before any command, so it gets an empty one: run from a
+        # terminal, an inherited stdin left remove waiting for input that never came.
+        try:
+            proc = subprocess.run(
+                ["sudo", "-n", str(wrapper), "flush", "ds"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=FLUSH_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"nft flush did not finish in {FLUSH_TIMEOUT_SECONDS:.0f} s; nothing more was removed, "
+                  "run distractions setup --remove again", file=sys.stderr)
+            return 1
         if not _flush_ok(proc):
             print((proc.stderr or "nft flush failed").strip() or "nft flush failed", file=sys.stderr)
             return 1
