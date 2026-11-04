@@ -136,6 +136,15 @@ if sys.argv[1:3] == ["get", "default-web-browser"]:
 sys.exit(1)
 """
 
+# Omarchy's resolver behind its link router: DS_XDG_ROUTED when set, else the
+# mimeapps.list answer, never the router itself.
+OMARCHY_RESOLVER = r"""
+import os
+found = os.environ.get("DS_XDG_ROUTED", os.environ.get("DS_XDG_BROWSER_GENERIC", ""))
+if found and found != "omarchy-browser.desktop":
+    print(found)
+"""
+
 # `xdg-mime query default x-scheme-handler/<scheme>` answers from DS_XDG_MIME
 # (`scheme=desktop-id` pairs, comma-separated), exits DS_XDG_MIME_RC when set,
 # and logs every call so a test can prove a link never asked.
@@ -220,6 +229,7 @@ class LaunchTests(unittest.TestCase):
         self.box.fake_bin("firefox-fake", LOGGER % "DS_FORWARD_LOG")
         self.box.fake_bin("omarchy-notification-send", LOGGER % "DS_NOTIFY_LOG")
         self.box.fake_bin("xdg-settings", XDG_SETTINGS)
+        self.box.fake_bin("omarchy-cmd-default-browser", OMARCHY_RESOLVER)
         self.mime_log = self.box.runtime / "xdg-mime.log"
         self.handoff_log = self.box.runtime / "handoff.log"
         os.environ.update({"DS_XDG_MIME_LOG": str(self.mime_log), "DS_HANDOFF_LOG": str(self.handoff_log)})

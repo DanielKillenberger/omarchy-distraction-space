@@ -1429,58 +1429,112 @@ def _xdg_settings(*args: str, generic: bool = False) -> tuple[int, str]:
     return proc.returncode, (proc.stdout or "").strip()
 
 
+def _routed_browser() -> str:
+    """The browser Omarchy's link router opens, as `omarchy-launch-browser` resolves it, or "".
+
+    `omarchy-cmd-default-browser` is that resolution: the desktop-specific
+    list first, each listed entry in order, skipping the router and entries
+    whose command is gone, then `mimeapps.list`, then the https handler. Without
+    it, `mimeapps.list` alone is read.
+    """
+    from ds.net import run_command
+    try:
+        proc = run_command(
+            [launch.OMARCHY_RESOLVER], capture_output=True, text=True, check=False, timeout=5, env=_xdg_env(),
+        )
+    except FileNotFoundError:
+        rc, out = _xdg_settings("get", "default-web-browser", generic=True)
+        return out if rc == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return (proc.stdout or "").strip() if proc.returncode == 0 else ""
+
+
 def _browser_layers() -> tuple[int, str, str | None]:
-    """`(rc, desktop, generic)`: the default browser as the session reads it, and underneath.
+    """`(rc, desktop, routed)`: the default browser as the session reads it, and the one behind it.
 
     `desktop` is what `xdg-settings` reports for this desktop. Omarchy 4.0.6
     names its link router there (`~/.config/hyprland-mimeapps.list`), which runs
-    `omarchy-launch-browser`; the browser that script opens is the one in
-    `mimeapps.list`, so `generic` is read only then. Any other answer is the
-    default itself and `generic` is None.
+    `omarchy-launch-browser`; `routed` is the browser that script opens, read
+    only then. Any other answer is the default itself and `routed` is None.
     """
     rc, desktop = _xdg_settings("get", "default-web-browser")
     if rc != 0 or desktop != LINK_ROUTER:
         return rc, desktop, None
-    rc, generic = _xdg_settings("get", "default-web-browser", generic=True)
-    return rc, desktop, generic
+    return 0, desktop, _routed_browser()
 
 
 def default_handler() -> tuple[bool, str | None]:
     """`(answered, id)`: the desktop id of the browser links open in.
 
     Below Omarchy's link router that is the browser the router hands links to.
-    `answered` is False when the tool could not say, or when the only answer is
+    `answered` is False when the tools could not say, or when the only answer is
     the router itself. Nothing that depends on the answer may then change the
     default or delete the file that holds it, since there is no record to hand
     back.
     """
-    rc, desktop, generic = _browser_layers()
-    out = desktop if generic is None else generic
-    if rc != 0 or out == LINK_ROUTER:
+    rc, desktop, routed = _browser_layers()
+    out = desktop if routed is None else routed
+    if rc != 0 or not out or out == LINK_ROUTER:
         return False, None
-    return True, (out or None)
+    return True, out
 
 
 def _set_default(target: str) -> int:
     """Make `target` the browser links open in; the `xdg-settings` exit status.
 
-    Below Omarchy's link router the default is written to `mimeapps.list`,
-    which the router reads, and the router's own list is left alone. A
-    desktop-specific list that names any other browser outranks
-    `mimeapps.list`: a `set` there writes `mimeapps.list`, finds the other
-    browser still in front, puts back only http and exits 4, which leaves
-    https and text/html pointing at `target`. That case is refused before
-    anything is written.
+    Below Omarchy's link router the default is written to `mimeapps.list`, and
+    the router's own list is left alone. That write decides only when nothing
+    ahead of it does: the router's resolver opens the browser `mimeapps.list`
+    names for http, or reaches it because that entry is the router or empty (a
+    half-write by 3.5.4). A browser listed after the router in the
+    desktop-specific list, or a desktop-specific list naming another browser
+    outright, outranks `mimeapps.list`; a `set` underneath would change
+    nothing the router reads and, on the desktop layer, half-writes
+    `mimeapps.list` and exits 4. Both are refused before anything is written,
+    and a write the router still does not follow returns 4.
     """
-    rc, desktop, generic = _browser_layers()
+    rc, desktop, routed = _browser_layers()
     if rc != 0:
         return rc
-    if generic is not None:
-        return _xdg_settings("set", "default-web-browser", target, generic=True)[0]
     rc, below = _xdg_settings("get", "default-web-browser", generic=True)
-    if rc == 0 and below and desktop and below != desktop:
+    below = below if rc == 0 else ""
+    if routed is None:
+        if below and desktop and below != desktop:
+            return 4
+        return _xdg_settings("set", "default-web-browser", target)[0]
+    if routed not in (below, target) and below not in ("", LINK_ROUTER):
         return 4
-    return _xdg_settings("set", "default-web-browser", target)[0]
+    rc = _xdg_settings("set", "default-web-browser", target, generic=True)[0]
+    if rc != 0:
+        return rc
+    return 0 if _routed_browser() == target else 4
+
+
+def _holds_every_layer() -> bool:
+    """True unless Omarchy's router reaches the plugin only by a fallback: `mimeapps.list` names something else for http.
+
+    3.5.4's half-write left https on the plugin and http on the router, which
+    the resolver follows to the plugin; a later change to either entry would
+    silently move the default, so setup writes all of them again.
+    """
+    rc, _desktop, routed = _browser_layers()
+    if rc != 0 or routed is None:
+        return True
+    rc, below = _xdg_settings("get", "default-web-browser", generic=True)
+    return rc != 0 or below == HANDLER_ID
+
+
+def _recovered_previous() -> str | None:
+    """The browser to forward to when none is on record: the one that last ran the distraction profile.
+
+    3.5.4 recorded Omarchy's link router here and left this plugin as the
+    default under it, so the browser it displaced is known only from the
+    profile's own record. The first desktop entry whose command is that
+    binary names it; None when there is no record or no such entry.
+    """
+    binary = state.read_profile_browser()
+    return launch.desktop_id_for_binary(binary) if binary else None
 
 
 def _owned_files(old: dict) -> list[dict] | None:
@@ -2002,6 +2056,8 @@ def _sync_entries(exp: dict, cfg: dict) -> int:
         previous = handler
     else:
         previous = old["previous_handler"]
+        if previous is None and answered and handler == HANDLER_ID:
+            previous = _recovered_previous()
     # Switching links off while the default still points at the handler: hand
     # the default back BEFORE the handler file goes, and keep the file whenever
     # that cannot be shown to have happened.
@@ -2029,7 +2085,7 @@ def _sync_entries(exp: dict, cfg: dict) -> int:
         _write_links("displaced")
         return 0
     rc = 0
-    if handler != HANDLER_ID:
+    if handler != HANDLER_ID or not _holds_every_layer():
         rc = _set_default(HANDLER_ID)
     if rc != 0:
         print(f"links: displaced -- xdg-settings could not make {HANDLER_ID} the default browser (exit {rc}); rerun: distractions setup", file=sys.stderr)

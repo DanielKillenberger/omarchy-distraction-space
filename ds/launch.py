@@ -37,6 +37,8 @@ FALLBACK_FORWARDER = "omarchy-launch-browser"
 # It runs FALLBACK_FORWARDER, which opens the default browser from mimeapps.list, so it
 # is never a browser of its own: never the default to report, never one to forward to.
 LINK_ROUTER = "omarchy-browser.desktop"
+# How omarchy-launch-browser picks the browser behind LINK_ROUTER.
+OMARCHY_RESOLVER = "omarchy-cmd-default-browser"
 CHROMIUM_FAMILY = ("google-chrome", "brave", "microsoft-edge", "opera", "vivaldi", "helium")
 DEFAULT_BROWSER_ID = "chromium.desktop"
 SCOPE_ARGV = ["systemd-run", "--user", "--scope", "--quiet", "--collect", f"--slice={cgroup.SLICE}", "--"]
@@ -462,25 +464,49 @@ def exec_argv(desktop_id, url=None, skip_own=False):
 # --- browser -----------------------------------------------------------------
 
 def _default_browser_id():
-    """The browser links open in, or "". Below Omarchy's link router it is the one in mimeapps.list."""
+    """The browser links open in, or "". Behind Omarchy's link router it is the one the router opens."""
     from ds.net import run_command
     env = dict(os.environ)
     env.pop("BROWSER", None)  # xdg-settings refuses to answer while BROWSER is set; Omarchy exports it
-    found = ""
-    for layer in (None, ""):
-        if layer is not None:
-            env["XDG_CURRENT_DESKTOP"] = layer  # read mimeapps.list, the list the router reads
+    steps = (["xdg-settings", "get", "default-web-browser"], [OMARCHY_RESOLVER],
+             ["xdg-settings", "get", "default-web-browser"])
+    for n, argv in enumerate(steps):
+        if n == 2:
+            env["XDG_CURRENT_DESKTOP"] = ""  # no resolver: mimeapps.list alone
         try:
-            r = run_command(
-                ["xdg-settings", "get", "default-web-browser"],
-                stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10, check=False, env=env,
-            )
+            r = run_command(argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10,
+                            check=False, env=env)
+        except FileNotFoundError:
+            continue
         except (OSError, subprocess.TimeoutExpired):
             return ""
         found = (r.stdout or "").strip() if r.returncode == 0 else ""
         if found != LINK_ROUTER:
             return found
+        if n == 1:
+            return ""
     return ""
+
+
+def desktop_id_for_binary(binary):
+    """The id of the first desktop entry, nearest share dir first, whose command is `binary`; None when none is.
+
+    Neither this plugin's handler nor Omarchy's link router is ever the answer.
+    """
+    name = Path(binary).name
+    for d in _share_dirs():
+        apps = d / "applications"
+        try:
+            paths = sorted(p for p in apps.iterdir() if p.name.endswith(".desktop"))
+        except OSError:
+            continue
+        for path in paths:
+            if path.name in (HANDLER_ID, LINK_ROUTER):
+                continue
+            argv = parse_exec(read_exec(path))
+            if argv and Path(argv[0]).name == name:
+                return path.name
+    return None
 
 
 def pick_browser(cfg):
