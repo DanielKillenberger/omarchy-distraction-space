@@ -2405,13 +2405,16 @@ def _install(assume_yes: bool) -> int:
     # report, and a person who removed setup and runs it again changed their mind.
     # A retry clears the widget's failure only once the core it failed to set up works.
     if retrying:
+        # After the service settles, as in setup --core: the listener reads it on start.
+        if rescanned:
+            _settle_service()
         started = _spawn_listener() if _listener_lock_free() else True
         if user_rc != 0 or not started:
             _write_core_record("failed", "the retry did not finish either; its output says why"
                                if started else "the listener did not start")
-            if rescanned:
-                _settle_service()
             return 1
+        _write_core_record("setup")
+        return 1 if root_rc != 0 else 0
     _write_core_record("setup")
     if rescanned:
         _settle_service()
@@ -2559,6 +2562,13 @@ def _install_core() -> int:
             if cfg is not None:
                 cfg = dict(cfg, **{config.LINKS_KEY: False})
             rc, rescanned = _sync_user_half(cfg)
+            # The listener asks the notification service for its silenced list
+            # the moment it starts, so it starts only once the service is the
+            # clone's; started first, it recorded the hold unavailable (4 Nov 2026).
+            # The shell this may restart reloads the widget, whose run finds
+            # this version recorded and the lock held, and stops.
+            if rescanned:
+                _settle_service()
             started = _spawn_listener() if _listener_lock_free() else True
     except BaseException:
         _write_core_record("failed", errors.getvalue().strip())
@@ -2568,8 +2578,6 @@ def _install_core() -> int:
     failed = rc != 0 or not started
     detail = next((ln for ln in errors.getvalue().splitlines() if ln.strip()), "")
     _write_core_record("failed" if failed else "ok", detail if failed else "")
-    if rescanned:
-        _settle_service()
     return 1 if failed else 0
 
 

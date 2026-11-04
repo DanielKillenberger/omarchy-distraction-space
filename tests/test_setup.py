@@ -2856,6 +2856,25 @@ class SetupTests(unittest.TestCase):
         self.assertEqual(seen[0]["version"], setup.plugin_version())
         self.assertEqual(seen[1], (0, ""))
 
+    def test_the_listener_starts_only_after_the_notification_service_settles(self):
+        """Started first, its start-time silencedSenders call met the built-in service and recorded the hold unavailable."""
+        self._fresh_install()
+        order = []
+        with patch.object(setup, "_settle_service", side_effect=lambda: order.append("settle")), \
+             patch.object(setup, "_spawn_listener", side_effect=lambda: order.append("listen") or True):
+            self.assertEqual(self._core()[0], 0)
+        self.assertEqual(order, ["settle", "listen"])
+        # The retry setup runs by hand keeps the same order.
+        rec = self._core_record()
+        rec["outcome"] = "failed"
+        state.write_json(self.box.state_dir / "core.json", rec)
+        self._cfg()
+        order.clear()
+        with patch.object(setup, "_settle_service", side_effect=lambda: order.append("settle")), \
+             patch.object(setup, "_spawn_listener", side_effect=lambda: order.append("listen") or True):
+            self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(order, ["settle", "listen"])
+
     def test_a_second_load_while_setup_runs_does_nothing(self):
         self._fresh_install()
         with setup._core_lock() as held:
