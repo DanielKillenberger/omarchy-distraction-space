@@ -2559,7 +2559,9 @@ def _install_core() -> int:
     try:
         with contextlib.redirect_stderr(errors):
             cfg = _load_cfg()
-            if cfg is not None:
+            # Off only while nobody has chosen: a retry after the person answered
+            # through setup or the menu keeps their answer (PR #52 review).
+            if cfg is not None and not config.links_answered():
                 cfg = dict(cfg, **{config.LINKS_KEY: False})
             rc, rescanned = _sync_user_half(cfg)
             # The listener asks the notification service for its silenced list

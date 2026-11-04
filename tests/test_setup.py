@@ -2947,6 +2947,26 @@ class SetupTests(unittest.TestCase):
             reasons = state.status()["health"]["reasons"]
         self.assertFalse(any("enabl" in r.lower() for r in reasons), reasons)
 
+    def test_a_retry_keeps_a_links_choice_made_since(self):
+        """PR #52 review: the person chose links on after a failed setup on enable; the next version's retry keeps it."""
+        self._fresh_install()
+        with patch.object(setup, "sync_slice", return_value=1):
+            self.assertEqual(self._core()[0], 1)
+        cfg = json.loads(self.box.config_file.read_text(encoding="utf-8"))
+        cfg["open_links_in_space"] = True
+        cfg.setdefault("site_block", {})["enabled"] = False
+        self.box.config_file.write_text(json.dumps(cfg) + "\n", encoding="utf-8")
+        with patch.object(setup, "sync_slice", return_value=1):
+            self.assertEqual(self._install()[0], 1)
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        rec = self._core_record()
+        self.assertEqual(rec["outcome"], "failed")
+        rec["version"] = "0.0.1"
+        state.write_json(self.box.state_dir / "core.json", rec)
+        self.assertEqual(self._core()[0], 0)
+        self.assertEqual(self._default(), setup.HANDLER_ID)
+        self.assertEqual(self._links(), "on")
+
     def test_a_listener_that_does_not_start_is_a_failure(self):
         self._fresh_install()
         with patch.object(setup, "_spawn_listener", return_value=False):
