@@ -2376,6 +2376,15 @@ def install(assume_yes: bool = False):
     launcher entries, and the clone installed, and only the exit code says the
     root step did not happen.
     """
+    with _core_lock(CORE_WAIT_SECONDS) as held:
+        return _install(assume_yes) if held else _core_busy()
+
+
+def _install(assume_yes: bool) -> int:
+    prior = state.core_setup()
+    # The retry status names after a setup on enable that failed or was cut short:
+    # this run owes that setup the listener it never started.
+    retrying = prior is not None and prior["outcome"] in ("failed", "running")
     cfg = _load_cfg()
     if cfg is not None:
         cfg = ask_links(cfg, assume_yes)
@@ -2393,6 +2402,15 @@ def install(assume_yes: bool = False):
     user_rc, rescanned = _sync_user_half(cfg)
     # Setup run by hand answers for the widget too: a failure is this terminal's to
     # report, and a person who removed setup and runs it again changed their mind.
+    # A retry clears the widget's failure only once the core it failed to set up works.
+    if retrying:
+        started = _spawn_listener() if _listener_lock_free() else True
+        if user_rc != 0 or not started:
+            _write_core_record("failed", "the retry did not finish either; its output says why"
+                               if started else "the listener did not start")
+            if rescanned:
+                _settle_service()
+            return 1
     _write_core_record("setup")
     if rescanned:
         _settle_service()
@@ -2416,8 +2434,9 @@ def _sync_user_half(cfg: dict | None) -> tuple[int, bool]:
 # plugin code on `omarchy plugin add --enable` is the bar widget; its load runs
 # `setup --core`, and this record is how that run knows it has nothing to do.
 CORE_OUTCOMES = state.CORE_OUTCOMES
-CORE_RETRY = "distractions setup"
 LISTENER_START_SECONDS = 5.0
+# A setup on enable can take a shell restart (up to a minute) on top of its steps.
+CORE_WAIT_SECONDS = 120.0
 
 
 def plugin_version() -> str | None:
@@ -2441,8 +2460,14 @@ def _write_core_record(outcome: str, detail: str = "") -> None:
 
 
 @contextlib.contextmanager
-def _core_lock():
-    """One `setup --core` at a time: a second bar's widget, or the reload a rescan causes, steps aside."""
+def _core_lock(wait: float = 0.0):
+    """One setup at a time against `setup --core`.
+
+    The widget's run takes it without waiting: a second bar's widget, or the reload
+    a rescan causes, steps aside. `setup` and `setup --remove` wait for it, so a
+    setup on enable already under way finishes before either decides anything and
+    can never undo a removal that ran beside it.
+    """
     path = state.state_path("core.lock")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -2451,14 +2476,24 @@ def _core_lock():
         yield False
         return
     try:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            yield False
-            return
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(0.1)
         yield True
     finally:
         os.close(fd)
+
+
+def _core_busy() -> int:
+    print("setup on enable is still running; try again in a minute", file=sys.stderr)
+    return 1
 
 
 def _spawn_listener() -> bool:
@@ -2587,6 +2622,13 @@ def remove():
     destinations = _canonical_destinations()
     if destinations is None:
         return 1
+    # Under the core lock, so a setup on enable already running finishes first and
+    # one that starts later reads "removed" before it decides anything.
+    with _core_lock(CORE_WAIT_SECONDS) as held:
+        return _remove(destinations) if held else _core_busy()
+
+
+def _remove(destinations):
     # The choice outlives the removal: the widget never sets the core up again
     # (fn-55); running setup again is the person changing their mind.
     _write_core_record("removed")

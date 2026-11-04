@@ -2927,6 +2927,71 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(self._core()[0], 1)
         self.assertEqual(self._core_record()["outcome"], "failed")
 
+    def test_the_retry_status_names_starts_the_listener_the_core_never_started(self):
+        self._fresh_install()
+        with patch.object(setup, "_spawn_listener", return_value=False):
+            self.assertEqual(self._core()[0], 1)
+        # The retry fails the same way: the failure stays, and so does the widget's silence.
+        self._cfg()
+        with patch.object(setup, "_spawn_listener", return_value=False):
+            self.assertEqual(self._install()[0], 1)
+        self.assertEqual(self._core_record()["outcome"], "failed")
+        # It works this time: the listener is started and the failure is cleared.
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self.spawned, [1])
+        self.assertEqual(self._core_record()["outcome"], "setup")
+        # A setup that is not a retry starts nothing.
+        self.assertEqual(self._install(), (0, ""))
+        self.assertEqual(self.spawned, [1])
+
+    def test_setup_and_remove_wait_for_a_setup_on_enable_under_way(self):
+        hypr = self._stock_hypr()
+        self.assertEqual(self._install(), (0, ""))
+        with patch.object(setup, "CORE_WAIT_SECONDS", 0.2), setup._core_lock() as held:
+            self.assertTrue(held)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                self.assertEqual(setup.remove(), 1)
+                self.assertEqual(setup.install(), 1)
+            self.assertIn("setup on enable is still running", err.getvalue())
+        self.assertTrue((hypr / "distraction-space.lua").exists())
+        self.assertEqual(self._core_record()["outcome"], "setup")
+
+    def test_a_removal_beside_a_setup_on_enable_is_not_undone(self):
+        """Remove waits for the core run; the run that starts after it reads "removed"."""
+        hypr = self._fresh_install()
+        order = []
+        started = threading.Event()
+        release = threading.Event()
+        real_sync = setup._sync_user_half
+
+        def slow_sync(cfg):
+            started.set()
+            release.wait(5)
+            order.append("core")
+            return real_sync(cfg)
+
+        def run_remove():
+            started.wait(5)
+            with contextlib.redirect_stderr(io.StringIO()):
+                order.append(("remove", setup.remove()))
+
+        with patch.object(setup, "_sync_user_half", side_effect=slow_sync):
+            t = threading.Thread(target=run_remove)
+            t.start()
+            core = threading.Thread(target=self._core)
+            core.start()
+            started.wait(5)
+            time.sleep(0.3)
+            release.set()
+            core.join(10)
+            t.join(30)
+        self.assertEqual(order, ["core", ("remove", 0)])
+        self.assertFalse((hypr / "distraction-space.lua").exists())
+        self.assertEqual(self._core_record()["outcome"], "removed")
+        with patch.object(setup, "sync_hypr", side_effect=AssertionError("set up again")):
+            self.assertEqual(self._core(), (0, ""))
+
     def test_unanswered_links_read_as_a_choice_still_to_make(self):
         self._fresh_install()
         self.assertEqual(self._core()[0], 0)
