@@ -2065,7 +2065,9 @@ def _sync_entries(exp: dict, cfg: dict) -> int:
     if not cfg["open_links_in_space"]:
         holds = any(Path(p).name == HANDLER_ID for p in owned)
         if answered and handler == HANDLER_ID:
-            keep_handler = not _restore_handler(old["previous_handler"])
+            # `previous`, not the record: a 3.5.4 record of the router reads as
+            # none, and the browser recovered above is the one to hand back (PR #51).
+            keep_handler = not _restore_handler(previous)
         elif not answered and holds:
             keep_handler = True
     plan = _plan(exp, cfg, previous, cfg["open_links_in_space"] or keep_handler, owned)

@@ -1115,6 +1115,24 @@ class SetupTests(unittest.TestCase):
                 self.assertEqual(self._links(), "on")
                 self.assertEqual(self._entries()["previous_handler"], expected)
 
+    def test_links_off_hands_back_the_recovered_browser_on_the_first_run(self):
+        """PR #51 review: a 3.5.4 half-write with links switched off restores the real browser at once."""
+        self._omarchy_routes_links()
+        state.write_entries({"files": [], "previous_handler": "omarchy-browser.desktop"})
+        state.write_profile_browser("/usr/bin/google-chrome-stable")
+        (self.apps / "google-chrome.desktop").write_text(
+            "[Desktop Entry]\nType=Application\nName=Google Chrome\nExec=/usr/bin/google-chrome-stable %U\n"
+            "MimeType=text/html;x-scheme-handler/http;x-scheme-handler/https;\n",
+            encoding="utf-8")
+        self.xdg_default.write_text(setup.HANDLER_ID + "\n", encoding="utf-8")
+        os.environ["DS_XDG_HTTPS"] = setup.HANDLER_ID
+        self._cfg(open_links_in_space=False)
+        rc, err = self._install()
+        self.assertEqual(rc, 0, err)
+        self.assertNotIn("no previous default browser", err)
+        self.assertEqual(self._default(), "google-chrome.desktop")
+        self.assertEqual(self._links(), "off")
+
     def test_a_web_app_shortcut_is_never_recovered_as_the_browser(self):
         """PR #51 review: a Chromium app shortcut runs the browser's binary and sorts first."""
         for name, body in (
