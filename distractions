@@ -82,6 +82,7 @@ def build_parser():
     mg.add_argument("identity", help="window identity from the migration notification")
     st = sub.add_parser("setup")
     st.add_argument("--remove", action="store_true")
+    st.add_argument("--core", action="store_true", help="what the bar widget runs on load: once per version, everything that needs no answer and no password, then the listener; both questions stay unanswered")
     st.add_argument("--yes", action="store_true", help="never prompt: the link question takes the config value (true by default), the site-block question is left unanswered, and sudo runs with -n")
     sb = sub.add_parser("site-block", help="turn site blocking on, installing the firewall helper when it is missing, or off")
     sb.add_argument("state", choices=("on", "off"))

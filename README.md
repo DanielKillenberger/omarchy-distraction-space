@@ -28,8 +28,9 @@ You need Omarchy 4 and, for the web products, a Chromium-family browser such as 
 omarchy plugin add https://github.com/DanielKillenberger/omarchy-distraction-space.git --enable
 ```
 
+That is the whole install. When the bar first loads the plugin, it sets up the core: the space and its keys, the containment, the notification hold, the mute, and a running listener. It asks nothing and needs no password, so two choices are left for you, and the bar's dot stays until you make them:
+
 ```bash
-chmod +x ~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions
 ~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions setup
 ```
 
@@ -42,12 +43,6 @@ Setup asks two questions and asks them once: whether links should open in the sp
 The settings menu turns it on too, opening a terminal for the password when the helper is not installed yet. The reference lists [everything setup writes](docs/reference.md#what-setup-installs) and how to [move a 3.x install that pasted the snippets by hand](docs/reference.md#moving-a-pasted-3x-install).
 
 ## Use
-
-Log out and back in once so Hyprland's autostart starts the listener, or start it now:
-
-```bash
-~/.config/omarchy/plugins/io.github.danielkillenberger.distraction-space/distractions listen
-```
 
 | Action | Keys |
 |---|---|

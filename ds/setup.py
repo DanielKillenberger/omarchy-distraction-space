@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import fcntl
 import hashlib
+import io
 import json
 import os
 import pwd
@@ -16,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from ds import catalog, cgroup, config, launch, state, wp
@@ -24,6 +26,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WRAPPER_DEFAULT = "/usr/local/libexec/omarchy-distraction-space/distractions-nft"
 SUDOERS_DEFAULT = "/etc/sudoers.d/omarchy-distraction-space"
 LISTENER_STOP_SECONDS = 15.0
+FLUSH_TIMEOUT_SECONDS = 30.0
 NOTIFICATIONS_SOURCE_DEFAULT = "/usr/share/omarchy/shell/plugins/notifications"
 CLONE_SOURCE_ID = "omarchy.notifications"
 PATCH = ROOT / "shell" / "notifications-silenced-senders.patch"
@@ -52,6 +55,13 @@ HYPR_HEADER = (
     f"-- {PLUGIN_ID}\n"
     "-- Written and owned by distractions setup. Setup rewrites it when the shipped snippets\n"
     "-- change; a file you edited is left as it is, and setup --remove moves it aside.\n"
+    "\n"
+    "-- Inert once `omarchy plugin remove` took the plugin folder: nothing below binds,\n"
+    "-- unbinds or starts, so Super+Tab keeps Omarchy's own binding.\n"
+    "local plugin_helper = io.open(os.getenv(\"HOME\") .. \"/.config/omarchy/plugins/"
+    f"{PLUGIN_ID}/distractions\", \"r\")\n"
+    "if not plugin_helper then return end\n"
+    "plugin_helper:close()\n"
     "\n"
 )
 
@@ -2367,6 +2377,15 @@ def install(assume_yes: bool = False):
     launcher entries, and the clone installed, and only the exit code says the
     root step did not happen.
     """
+    with _core_lock(CORE_WAIT_SECONDS) as held:
+        return _install(assume_yes) if held else _core_busy()
+
+
+def _install(assume_yes: bool) -> int:
+    prior = state.core_setup()
+    # The retry status names after a setup on enable that failed or was cut short:
+    # this run owes that setup the listener it never started.
+    retrying = prior is not None and prior["outcome"] in ("failed", "running")
     cfg = _load_cfg()
     if cfg is not None:
         cfg = ask_links(cfg, assume_yes)
@@ -2381,16 +2400,187 @@ def install(assume_yes: bool = False):
     root_rc = install_root(assume_yes) if enabled and site_block_answered() else 0
     if root_rc != 0:
         print(f"site blocking is not set up; {SITE_BLOCK_ON_HINT}", file=sys.stderr)
+    user_rc, rescanned = _sync_user_half(cfg)
+    # Setup run by hand answers for the widget too: a failure is this terminal's to
+    # report, and a person who removed setup and runs it again changed their mind.
+    # A retry clears the widget's failure only once the core it failed to set up works.
+    if retrying:
+        # After the service settles, as in setup --core: the listener reads it on start.
+        if rescanned:
+            _settle_service()
+        started = _spawn_listener() if _listener_lock_free() else True
+        if user_rc != 0 or not started:
+            _write_core_record("failed", "the retry did not finish either; its output says why"
+                               if started else "the listener did not start")
+            return 1
+        _write_core_record("setup")
+        return 1 if root_rc != 0 else 0
+    _write_core_record("setup")
+    if rescanned:
+        _settle_service()
+    return 1 if (user_rc != 0 or root_rc != 0) else 0
+
+
+def _sync_user_half(cfg: dict | None) -> tuple[int, bool]:
+    """Everything setup installs that needs no root and no answer: (exit code, whether the rescan ran)."""
     slice_rc = sync_slice()
     hook_rc = sync_hook()
     hypr_rc = sync_hypr()
     entries_rc = sync_entries({"list": catalog.expand(cfg)}, cfg) if cfg is not None else 1
     clone_rc = sync_clone()
     rescan_rc = _rescan()
-    if rescan_rc == 0:
-        _settle_service()
-    return 1 if (rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 or entries_rc != 0
-                 or hook_rc != 0 or hypr_rc != 0 or root_rc != 0) else 0
+    rc = 1 if (rescan_rc != 0 or clone_rc != 0 or slice_rc != 0 or entries_rc != 0
+               or hook_rc != 0 or hypr_rc != 0) else 0
+    return rc, rescan_rc == 0
+
+
+# Setup on enable (fn-55). Omarchy's installer runs no plugin code, so the one
+# plugin code on `omarchy plugin add --enable` is the bar widget; its load runs
+# `setup --core`, and this record is how that run knows it has nothing to do.
+CORE_OUTCOMES = state.CORE_OUTCOMES
+LISTENER_START_SECONDS = 5.0
+# A setup on enable can take a shell restart (up to a minute) on top of its steps.
+CORE_WAIT_SECONDS = 120.0
+
+
+def plugin_version() -> str | None:
+    try:
+        version = json.loads((ROOT / "manifest.json").read_text(encoding="utf-8")).get("version")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return version if isinstance(version, str) and version else None
+
+
+def _write_core_record(outcome: str, detail: str = "") -> None:
+    assert outcome in CORE_OUTCOMES
+    record = {"version": plugin_version(), "outcome": outcome,
+              "at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    if detail:
+        record["detail"] = detail[:300]
+    try:
+        state.write_json(state.state_path(state.CORE_RECORD), record)
+    except OSError as e:
+        print(f"cannot record the setup in {state.state_path(state.CORE_RECORD)}: {e}", file=sys.stderr)
+
+
+@contextlib.contextmanager
+def _core_lock(wait: float = 0.0):
+    """One setup at a time against `setup --core`.
+
+    The widget's run takes it without waiting: a second bar's widget, or the reload
+    a rescan causes, steps aside. `setup` and `setup --remove` wait for it, so a
+    setup on enable already under way finishes before either decides anything and
+    can never undo a removal that ran beside it.
+    """
+    path = state.state_path("core.lock")
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(path, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
+    except OSError:
+        yield False
+        return
+    try:
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    yield False
+                    return
+                time.sleep(0.1)
+        yield True
+    finally:
+        os.close(fd)
+
+
+def _core_busy() -> int:
+    print("setup on enable is still running; try again in a minute", file=sys.stderr)
+    return 1
+
+
+def _spawn_listener() -> bool:
+    """Start `distractions listen` in its own session and wait until it holds its lock.
+
+    Hyprland starts it at every later login (the owned file's `exec_on_start`), but
+    a file written into a running session is read on reload, which starts nothing.
+    """
+    try:
+        subprocess.Popen([str(ROOT / "distractions"), "listen"], stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True, close_fds=True)
+    except OSError as e:
+        print(f"cannot start the listener: {e}", file=sys.stderr)
+        return False
+    deadline = time.monotonic() + LISTENER_START_SECONDS
+    while time.monotonic() < deadline:
+        if not _listener_lock_free():
+            return True
+        time.sleep(0.1)
+    print("the listener did not start; run: distractions listen", file=sys.stderr)
+    return False
+
+
+def install_core() -> int:
+    """`setup --core`: what the widget runs on load. Usually nothing; once per version, the core.
+
+    The core is everything setup installs without an answer or a password: the
+    slice, the hold hook, the Hyprland file, the launcher entries (links off),
+    the notification clone, then a running listener. Both questions stay
+    unanswered for the menu or `setup`, and nothing calls sudo.
+    """
+    with _core_lock() as held:
+        return _install_core() if held else 0
+
+
+def _install_core() -> int:
+    record = state.core_setup()
+    version = plugin_version()
+    if record is not None and (record["outcome"] == "removed" or record["version"] == version):
+        return 0
+    # A run that failed, or was cut short, on an earlier version is tried again by
+    # this one, even though it may have left some of the core in place.
+    retry = record is not None and record["outcome"] in ("failed", "running")
+    if not retry and (_read_hypr_record() is not None or state.entries_path().exists()):
+        # Set up already, by `setup` before 3.5.5 or by hand: an update changes nothing.
+        _write_core_record("existing")
+        return 0
+    if not retry and (config.links_answered() or site_block_answered()):
+        # Only setup answers these, and nothing it installed is left: it was removed
+        # before removal left a record.
+        _write_core_record("removed")
+        return 0
+    # Named before any step that can restart the shell, so the reloaded widget's
+    # run finds this version and stops.
+    _write_core_record("running")
+    errors = io.StringIO()
+    real_stderr = sys.stderr
+    try:
+        with contextlib.redirect_stderr(errors):
+            cfg = _load_cfg()
+            # Off only while nobody has chosen: a retry after the person answered
+            # through setup or the menu keeps their answer (PR #52 review).
+            if cfg is not None and not config.links_answered():
+                cfg = dict(cfg, **{config.LINKS_KEY: False})
+            rc, rescanned = _sync_user_half(cfg)
+            # The listener asks the notification service for its silenced list
+            # the moment it starts, so it starts only once the service is the
+            # clone's; started first, it recorded the hold unavailable (4 Nov 2026).
+            # The shell this may restart reloads the widget, whose run finds
+            # this version recorded and the lock held, and stops.
+            if rescanned:
+                _settle_service()
+            started = _spawn_listener() if _listener_lock_free() else True
+    except BaseException:
+        _write_core_record("failed", errors.getvalue().strip())
+        raise
+    finally:
+        real_stderr.write(errors.getvalue())
+    failed = rc != 0 or not started
+    detail = next((ln for ln in errors.getvalue().splitlines() if ln.strip()), "")
+    _write_core_record("failed" if failed else "ok", detail if failed else "")
+    return 1 if failed else 0
 
 
 def _listener_lock_free() -> bool:
@@ -2443,6 +2633,16 @@ def remove():
     destinations = _canonical_destinations()
     if destinations is None:
         return 1
+    # Under the core lock, so a setup on enable already running finishes first and
+    # one that starts later reads "removed" before it decides anything.
+    with _core_lock(CORE_WAIT_SECONDS) as held:
+        return _remove(destinations) if held else _core_busy()
+
+
+def _remove(destinations):
+    # The choice outlives the removal: the widget never sets the core up again
+    # (fn-55); running setup again is the person changing their mind.
+    _write_core_record("removed")
     if not _stop_listener():
         print("the listener did not stop, so nothing was removed: log out, then run "
               "distractions setup --remove again", file=sys.stderr)
@@ -2460,13 +2660,22 @@ def remove():
     root_half = wrapper.is_file() or _record_dest(wrapper).is_file()
     if root_half:
         # `flush ds` ends the block passwordless and needs no slice. The one rule it
-        # leaves goes with the rest of the root half below.
-        proc = subprocess.run(
-            ["sudo", "-n", str(wrapper), "flush", "ds"],
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        # leaves goes with the rest of the root half below. The wrapper reads its
+        # stdin to the end before any command, so it gets an empty one: run from a
+        # terminal, an inherited stdin left remove waiting for input that never came.
+        try:
+            proc = subprocess.run(
+                ["sudo", "-n", str(wrapper), "flush", "ds"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=FLUSH_TIMEOUT_SECONDS,
+            )
+        except subprocess.TimeoutExpired:
+            print(f"nft flush did not finish in {FLUSH_TIMEOUT_SECONDS:.0f} s; nothing more was removed, "
+                  "run distractions setup --remove again", file=sys.stderr)
+            return 1
         if not _flush_ok(proc):
             print((proc.stderr or "nft flush failed").strip() or "nft flush failed", file=sys.stderr)
             return 1
@@ -2613,4 +2822,6 @@ def cmd_site_block(args):
 def cmd_setup(args):
     if args.remove:
         return remove()
+    if getattr(args, "core", False):
+        return install_core()
     return install(assume_yes=bool(getattr(args, "yes", False)))
